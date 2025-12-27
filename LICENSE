@@ -1,21 +1,25 @@
-MIT License
+Proprietary License
 
 Copyright (c) 2025 rorena15
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+본 소프트웨어(Asset-Watch & Audit) 및 관련 문서(이하 "소프트웨어")는 rorena15(이하 "저작권자")의 독점 저작물입니다.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. 사용 허가
+   - 저작권자는 본 소프트웨어를 특정 고객(라이선스 구매자)에게 비독점적, 양도 불가능한 사용권을 부여합니다.
+   - 사용자는 내부 네트워크에서만 사용할 수 있으며, 제3자에게 재배포, 임대, 판매, 소스코드 공개를 할 수 없습니다.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. 제한 사항
+   - 소스코드를 복제, 수정, 역설계, 디컴파일, 해체하는 행위를 금지합니다.
+   - 상업적 이용(재판매, SaaS 제공 등)은 별도 계약 없이 불가합니다.
+
+3. 보증 부인
+   - 본 소프트웨어는 "있는 그대로" 제공되며, 상품성, 특정 목적 적합성, 비침해성을 포함한 어떠한 보증도 제공하지 않습니다.
+
+4. 책임 제한
+   - 저작권자는 본 소프트웨어 사용으로 인한 어떠한 손해(직접, 간접, 결과적 손해 포함)에 대해 책임지지 않습니다.
+
+5. 종료
+   - 본 라이선스는 저작권자의 통지로 언제든지 종료될 수 있습니다.
+
+문의: rorena1586@gmail.com
