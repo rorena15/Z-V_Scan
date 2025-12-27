@@ -41,7 +41,7 @@ class ScanWorker(QThread):
     finish_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
 
-    def __init__(self, mode, target_input, user=None, pw=None):
+    def __init__(self, mode, target_input, user=None, pw=None, key_path=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -49,6 +49,7 @@ class ScanWorker(QThread):
         self.pw = pw
         self.stop_flag = False 
         self.max_threads = 50
+        self.key_path = key_path
         
     def process_single_ip(self, ip):
         """
@@ -154,7 +155,7 @@ class ScanWorker(QThread):
                     break
                 
                 try:
-                    inspector = SSHInspector(ip, username=self.user, password=self.pw)
+                    inspector = SSHInspector(ip, username=self.user, password=self.pw, key_path=self.key_path)
                     if inspector.connect():
                         self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
                         
@@ -230,7 +231,10 @@ class ScannerApp(QMainWindow):
         self.pw_input = QLineEdit()
         self.pw_input.setPlaceholderText("SSH Password")
         self.pw_input.setEchoMode(QLineEdit.Password)
-
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("SSH Key Path (Optional)")
+        
+        
         input_layout.addWidget(QLabel("IP Address:"))
         input_layout.addWidget(self.ip_input)
         input_layout.addWidget(QLabel("User:"))
@@ -238,6 +242,8 @@ class ScannerApp(QMainWindow):
         input_layout.addWidget(QLabel("PW:"))
         input_layout.addWidget(self.pw_input)
         input_group.setLayout(input_layout)
+        input_layout.addWidget(QLabel("Key:"))
+        input_layout.addWidget(self.key_input)
         layout.addWidget(input_group)
 
         # 3. 버튼 그룹
@@ -339,6 +345,7 @@ class ScannerApp(QMainWindow):
         ip = self.ip_input.text()
         user = self.user_input.text()
         pw = self.pw_input.text()
+        key = self.key_input.text()
         
         if not ip or not user or not pw:
             QMessageBox.warning(self, "경고", "SSH 진단을 위해 IP, 계정, 비밀번호가 모두 필요합니다.")
@@ -356,6 +363,7 @@ class ScannerApp(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.progress_signal.connect(self.update_progress)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
         self.worker.start()
     def generate_pdf(self):
         import subprocess
