@@ -3,13 +3,16 @@ from scapy.all import IP, ICMP, TCP, sr1, conf
 import socket
 import sys
 import os
-
+import threading
 # 상위 폴더 모듈 참조를 위한 설정
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 
 # Scapy 콘솔 출력 끄기
 conf.verb = 0
+if os.name == 'nt':
+    conf.use_pcap = True # 윈도우 Npcap 사용 강제
+    scapy_lock = threading.Lock()
 
 class AdvancedScanner:
     def __init__(self):
@@ -34,57 +37,54 @@ class AdvancedScanner:
 
     def host_discovery(self, ip):
         """
-        [호스트 탐지] ICMP/TCP Ping + OS 탐지
-        Returns: (is_alive: bool, detected_os: str)
+        [Lock 적용] 호스트 탐지
         """
         detected_os = "Unknown"
-        
         try:
-            # 1-1. ICMP Ping
-            icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=0.5, verbose=0)
-            if icmp_resp:
-                if IP in icmp_resp:
-                    ttl = icmp_resp[IP].ttl
-                    detected_os = self.estimate_os(ttl)
+            # [핵심] 락을 걸고 패킷 전송 (충돌 방지)
+            with scapy_lock:
+                icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=0.5, verbose=0)
+            
+            if icmp_resp and IP in icmp_resp:
+                detected_os = self.estimate_os(icmp_resp[IP].ttl)
                 return True, detected_os
             
-            # 1-2. TCP ACK Ping (Port 80)
-            ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=0.5, verbose=0)
-            if ack_resp:
-                if IP in ack_resp:
-                    ttl = ack_resp[IP].ttl
-                    detected_os = self.estimate_os(ttl)
+            # ICMP 실패 시 TCP Ping 시도
+            with scapy_lock:
+                ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=0.5, verbose=0)
+                
+            if ack_resp and IP in ack_resp:
+                detected_os = self.estimate_os(ack_resp[IP].ttl)
                 return True, detected_os
 
-        except Exception as e:
-            self.logger.error(f"Host Discovery Error on {ip}: {e}")
+        except Exception:
+            pass # 에러 나면 그냥 죽은 걸로 처리
 
         return False, "Unknown"
 
     def syn_scan(self, ip):
         """
-        [스텔스 포트 스캔] SYN 패킷 전송 후 SYN-ACK 확인
+        [Lock 적용] 포트 스캔
         """
         open_ports = []
-        # self.logger.info(f"[*] Starting SYN Scan on {ip}...") # 로그가 너무 많으면 주석 처리
-
         for port in self.target_ports:
             try:
-                # SYN 패킷 전송
-                syn_packet = IP(dst=ip)/TCP(dport=port, flags="S")
-                resp = sr1(syn_packet, timeout=0.3, verbose=0) # Timeout을 0.3초로 줄여 속도 향상
+                # 패킷 생성은 락 밖에서 해도 됨
+                packet = IP(dst=ip)/TCP(dport=port, flags="S")
+                
+                # 전송만 락 안에서
+                with scapy_lock:
+                    resp = sr1(packet, timeout=0.3, verbose=0)
 
                 if resp and resp.haslayer(TCP):
-                    flags = resp.getlayer(TCP).flags
-                    # SYN+ACK (0x12 or 18) 응답이 오면 포트 열림
-                    if flags == 0x12:
+                    if resp.getlayer(TCP).flags == 0x12: # SYN+ACK
                         open_ports.append(port)
-                        # 연결 끊기 (RST 전송)
-                        rst_packet = IP(dst=ip)/TCP(dport=port, flags="R")
-                        sr1(rst_packet, timeout=0, verbose=0)
+                        # RST 전송 (이건 응답 안 기다리니 send로)
+                        with scapy_lock:
+                            from scapy.all import send
+                            send(IP(dst=ip)/TCP(dport=port, flags="R"), verbose=0)
             except Exception:
                 continue
-                
         return open_ports
 
     def grab_banner(self, ip, port):
