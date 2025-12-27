@@ -8,7 +8,7 @@ sys.path.append(parent_dir)
 from PyQt5.QtWidgets import (
                                 QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-                                QTextEdit, QMessageBox, QGroupBox
+                                QTextEdit, QMessageBox, QGroupBox, QProgressBar
                             )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -37,8 +37,9 @@ sys.excepthook = my_exception_hook
 # GUI가 멈추지 않게 스캔 로직을 별도 스레드로 분리합니다.
 
 class ScanWorker(QThread):
-    log_signal = pyqtSignal(str)     
-    finish_signal = pyqtSignal(str)  
+    log_signal = pyqtSignal(str)
+    finish_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)
 
     def __init__(self, mode, target_input, user=None, pw=None):
         super().__init__()
@@ -101,6 +102,9 @@ class ScanWorker(QThread):
             self.log_signal.emit(f"[Error] 잘못된 IP 형식: {self.target_input}")
             self.finish_signal.emit("입력 오류")
             return
+        total_count = len(target_list)       # 전체 할 일 개수
+        processed_count = 0                  # 완료된 개수
+        self.progress_signal.emit(0)         # 시작 전 0%로 초기화
 
         if self.mode == "NETWORK_SCAN":
             # [핵심] ThreadPoolExecutor를 사용한 병렬 처리
@@ -111,17 +115,21 @@ class ScanWorker(QThread):
                 # 모든 작업이 끝날 때까지 대기 (여기서 블로킹되지만 QThread 내부라 GUI는 안 멈춤)
                 for future in as_completed(futures):
                     if self.stop_flag:
-                        executor.shutdown(wait=False)
-                        break
-            
-            self.log_signal.emit("[Completed] 모든 스캔 작업이 완료되었습니다.")
+                        self.log_signal.emit("[!!!] 중지 신호 감지! 남은 작업들을 취소합니다...")
+                        executor.shutdown(wait=False) # 대기 중인 작업 모두 취소
+                        break # 루프 탈출
+                    processed_count += 1
+                    progress = int((processed_count / total_count) * 100)
+                    self.progress_signal.emit(progress)
 
         elif self.mode == "AUDIT_VULN":
             # 취약점 진단도 멀티스레드로 처리 가능하나, SSH 접속 부하를 고려해 일단 순차 혹은 소규모 병렬 추천
             # 여기서는 기존 로직 유지하되 필요시 위와 같은 방식으로 변경 가능
             self.log_signal.emit(f"[*] 취약점 진단 시작 ({len(target_list)} Hosts)...")
             for ip in target_list:
-                if self.stop_flag: break
+                if self.stop_flag: 
+                    self.log_signal.emit("[!!!] 중지 신호 감지! 진단을 중단합니다.")
+                    break
                 inspector = SSHInspector(ip, username=self.user, password=self.pw)
                 if inspector.connect():
                     self.log_signal.emit(f"[+] SSH 연결 성공: {ip}")
@@ -134,8 +142,14 @@ class ScanWorker(QThread):
                     inspector.close()
                 else:
                     self.log_signal.emit(f"[-] SSH 연결 실패: {ip}")
-
-        self.finish_signal.emit("작업 완료")
+                
+                processed_count += 1
+                progress = int((processed_count / total_count) * 100)
+                self.progress_signal.emit(progress)
+        if self.stop_flag:
+            self.finish_signal.emit("사용자 요청에 의해 작업이 강제 중단되었습니다.")
+        else:
+            self.finish_signal.emit("작업이 완료되었습니다.")
 
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
@@ -184,27 +198,57 @@ class ScannerApp(QMainWindow):
 
         # 3. 버튼 그룹
         btn_layout = QHBoxLayout()
-        
+        # 스캔 버튼
         self.btn_scan = QPushButton("🔍 네트워크 스캔 (Port Scan)")
         self.btn_scan.setMinimumHeight(40)
         self.btn_scan.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
         self.btn_scan.clicked.connect(self.start_network_scan)
-        
+        # 정밀 진단 버튼
         self.btn_audit = QPushButton("🛡️ 취약점 정밀진단 (SSH Audit)")
         self.btn_audit.setMinimumHeight(40)
         self.btn_audit.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
         self.btn_audit.clicked.connect(self.start_audit)
-
+        # 리포트 생성
         self.btn_pdf = QPushButton("📄 PDF 리포트 생성")
         self.btn_pdf.setMinimumHeight(40)
         self.btn_pdf.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
         self.btn_pdf.clicked.connect(self.generate_pdf)
-        
-        btn_layout.addWidget(self.btn_pdf)
+        # 비상 중지 버튼
+        self.btn_stop = QPushButton("🛑 작업 중지 (STOP)")
+        self.btn_stop.setMinimumHeight(40)
+        # 평소에는 비활성화 (스캔 중에만 켜짐)
+        self.btn_stop.setEnabled(False) 
+        # 눈에 띄는 주황색/빨간색 스타일
+        self.btn_stop.setStyleSheet("""
+            QPushButton { background-color: #ff9800; color: white; font-weight: bold; }
+            QPushButton:disabled { background-color: #cccccc; color: #666666; }
+        """)
+        self.btn_stop.clicked.connect(self.stop_scan) # 함수 연결
+
         btn_layout.addWidget(self.btn_scan)
         btn_layout.addWidget(self.btn_audit)
+        btn_layout.addWidget(self.btn_pdf)
+        btn_layout.addWidget(self.btn_stop) # <--- 여기에 추가
         layout.addLayout(btn_layout)
 
+        # 3.1 프로그래스 바
+        
+        self.pbar = QProgressBar(self)
+        self.pbar.setValue(0) # 0% 초기화
+        self.pbar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+                height: 25px;
+            }
+            QProgressBar::chunk {
+                background-color: #007bff; /* 파란색 채움 */
+                width: 20px;
+            }
+        """)
+        layout.addWidget(self.pbar) # 화면에 추가
+        
         # 4. 로그 콘솔
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
@@ -212,15 +256,20 @@ class ScannerApp(QMainWindow):
         layout.addWidget(QLabel("Execution Logs:"))
         layout.addWidget(self.log_console)
         central_widget.setLayout(layout)
-
+        
+    def update_progress(self, val):
+        self.pbar.setValue(val)
 
     def log_message(self, msg):
         self.log_console.append(msg)
 
     def scan_finished(self, msg):
         QMessageBox.information(self, "완료", msg)
+        #버튼 원상 복귀
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
+        self.btn_pdf.setEnabled(True)
+        self.btn_stop.setEnabled(False)
 
     def start_network_scan(self):
         ip = self.ip_input.text()
@@ -231,11 +280,15 @@ class ScannerApp(QMainWindow):
         self.log_console.clear()
         self.btn_scan.setEnabled(False)
         self.btn_audit.setEnabled(False)
+        self.btn_pdf.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.pbar.setValue(0)
         
         # 워커 스레드 시작
         self.worker = ScanWorker("NETWORK_SCAN", ip)
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
+        self.worker.progress_signal.connect(self.update_progress)
         self.worker.start()
 
     def start_audit(self):
@@ -250,11 +303,15 @@ class ScannerApp(QMainWindow):
         self.log_console.clear()
         self.btn_scan.setEnabled(False)
         self.btn_audit.setEnabled(False)
+        self.btn_pdf.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.pbar.setValue(0)
 
         # 워커 스레드 시작
         self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw)
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
+        self.worker.progress_signal.connect(self.update_progress)
         self.worker.start()
     def generate_pdf(self):
         import subprocess
@@ -291,6 +348,17 @@ class ScannerApp(QMainWindow):
         except Exception as e:
             self.log_message(f"[Critical] 실행 오류: {str(e)}")
             QMessageBox.critical(self, "에러", str(e))
+            
+    def stop_scan(self):
+        # 워커가 존재하고 실행 중이라면
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.log_message("[!!!] 사용자 요청에 의해 작업을 중단하고 있습니다... (잠시만 기다려주세요)")
+            
+            # 워커 내부의 플래그를 True로 변경 -> 스레드들이 작업을 멈춤
+            self.worker.stop_flag = True
+            
+            # 중지 버튼 즉시 비활성화 (중복 클릭 방지)
+            self.btn_stop.setEnabled(False)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
