@@ -3,36 +3,10 @@ from scapy.all import IP, ICMP, TCP, sr1, conf
 import socket
 import sys
 import os
-# 상위 디렉터리 모듈 import를 위한 경로 설정
+
+# 상위 폴더 모듈 참조를 위한 설정
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-from utils.db_connector import DBConnector # DB 커넥터 임포트
-
-def run_full_scan(self, target_ip):
-    print(f"\n--- Scanning Target: {target_ip} ---")
-    
-        # DB 연결 객체 생성
-    db = DBConnector()
-    
-        # 1. 생존 확인
-    if not self.host_discovery(target_ip):
-        print(f"[-] Host {target_ip} seems down.")
-        return
-
-    # [DB 연동] 활성 자산 저장 (일단 OS는 Unknown으로 저장, 추후 OS 탐지 모듈 추가 시 업데이트)
-    asset_id = db.save_asset(target_ip, hostname="Detected_Host", os_type="Linux/Unknown")
-
-    if asset_id:
-        # 2. 포트 스캔
-        open_ports = self.syn_scan(target_ip)
-        
-            # 3. 배너 그래빙 및 DB 저장
-        for port in open_ports:
-            banner = self.grab_banner(target_ip, port)
-            
-            # [DB 연동] 포트 정보 저장
-            db.save_open_port(asset_id, port, banner)
-        
-        print("--- Scan & DB Save Completed ---")
+from utils.db_connector import DBConnector
 
 # Scapy 콘솔 출력 끄기
 conf.verb = 0
@@ -41,12 +15,14 @@ class AdvancedScanner:
     def __init__(self):
         logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
         self.logger = logging.getLogger("AdvancedScanner")
+        
+        # 자주 쓰이는 주요 포트 목록 (Top Ports)
         self.target_ports = [21, 22, 23, 25, 53, 80, 110, 139, 443, 445, 3306, 8080]
 
     def estimate_os(self, ttl):
-        #[OS Fingerprinting Logic]
-        #TTL 값을 기반으로 운영체제를 추측합니다.
-        #경로상의 라우터를 거칠 때마다 TTL이 1씩 감소하므로 범위를 지정하여 판단합니다.
+        """
+        [OS Fingerprinting] TTL 값을 기반으로 운영체제 추측
+        """
         if ttl <= 64:
             return "Linux/Unix"
         elif ttl <= 128:
@@ -57,61 +33,108 @@ class AdvancedScanner:
             return "Unknown"
 
     def host_discovery(self, ip):
-
-        #[수정됨] 호스트 생존 확인 및 OS 탐지
-        #Returns: (is_alive: bool, detected_os: str)
+        """
+        [호스트 탐지] ICMP/TCP Ping + OS 탐지
+        Returns: (is_alive: bool, detected_os: str)
+        """
         detected_os = "Unknown"
         
-        # 1-1. ICMP Ping 시도
-        icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=1, verbose=0)
-        if icmp_resp:
-            # 응답 패킷의 IP 헤더에서 TTL 추출
-            ttl = icmp_resp[IP].ttl
-            detected_os = self.estimate_os(ttl)
-            self.logger.info(f"[Host Up] {ip} (TTL: {ttl} -> {detected_os})")
-            return True, detected_os
-        
-        # 1-2. TCP ACK Ping 시도 (방화벽 우회)
-        ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=1, verbose=0)
-        if ack_resp:
-            # TCP 응답(RST)에서도 TTL 추출 가능
-            ttl = ack_resp[IP].ttl
-            detected_os = self.estimate_os(ttl)
-            self.logger.info(f"[Host Up] {ip} (TTL: {ttl} -> {detected_os}) - TCP ACK")
-            return True, detected_os
+        try:
+            # 1-1. ICMP Ping
+            icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=1, verbose=0)
+            if icmp_resp:
+                if IP in icmp_resp:
+                    ttl = icmp_resp[IP].ttl
+                    detected_os = self.estimate_os(ttl)
+                return True, detected_os
             
+            # 1-2. TCP ACK Ping (Port 80)
+            ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=1, verbose=0)
+            if ack_resp:
+                if IP in ack_resp:
+                    ttl = ack_resp[IP].ttl
+                    detected_os = self.estimate_os(ttl)
+                return True, detected_os
+
+        except Exception as e:
+            self.logger.error(f"Host Discovery Error on {ip}: {e}")
+
         return False, "Unknown"
 
-    # ... (syn_scan, grab_banner 메서드는 기존과 동일하므로 생략) ...
+    def syn_scan(self, ip):
+        """
+        [스텔스 포트 스캔] SYN 패킷 전송 후 SYN-ACK 확인
+        """
+        open_ports = []
+        # self.logger.info(f"[*] Starting SYN Scan on {ip}...") # 로그가 너무 많으면 주석 처리
+
+        for port in self.target_ports:
+            try:
+                # SYN 패킷 전송
+                syn_packet = IP(dst=ip)/TCP(dport=port, flags="S")
+                resp = sr1(syn_packet, timeout=0.5, verbose=0) # Timeout을 0.5초로 줄여 속도 향상
+
+                if resp and resp.haslayer(TCP):
+                    flags = resp.getlayer(TCP).flags
+                    # SYN+ACK (0x12 or 18) 응답이 오면 포트 열림
+                    if flags == 0x12:
+                        open_ports.append(port)
+                        # 연결 끊기 (RST 전송)
+                        rst_packet = IP(dst=ip)/TCP(dport=port, flags="R")
+                        sr1(rst_packet, timeout=0, verbose=0)
+            except Exception:
+                continue
+                
+        return open_ports
+
+    def grab_banner(self, ip, port):
+        """
+        [배너 그래빙] 소켓 연결로 서비스 버전 확인
+        """
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1.5) # 타임아웃 1.5초
+            s.connect((ip, port))
+            
+            # HTTP/HTTPS의 경우 요청을 보내야 배너를 줌
+            if port in [80, 8080, 443]:
+                s.send(b'HEAD / HTTP/1.0\r\n\r\n')
+            
+            banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
+            s.close()
+            if banner:
+                return banner
+        except Exception:
+            pass
+        return "Unknown Service"
 
     def run_full_scan(self, target_ip):
-        
-        #[수정됨] 전체 로직 실행 함수
+        """
+        CLI 테스트용 통합 실행 함수
+        """
         print(f"\n--- Scanning Target: {target_ip} ---")
         
-        # DB 연결 객체 생성
-        # (상단 import 처리가 되어 있어야 합니다)
-        from utils.db_connector import DBConnector 
         db = DBConnector()
         
-        # 1. 생존 확인 및 OS 탐지
+        # 1. 생존 확인
         is_alive, detected_os = self.host_discovery(target_ip)
         
         if not is_alive:
             print(f"[-] Host {target_ip} seems down.")
             return
 
-        # [DB 연동 Update] 식별된 OS 정보를 함께 저장
-        print(f"[*] Saving Asset Info: {target_ip} / {detected_os}")
+        print(f"[*] Host Up. OS: {detected_os}")
         asset_id = db.save_asset(target_ip, hostname="Detected_Host", os_type=detected_os)
 
         if asset_id:
             # 2. 포트 스캔
             open_ports = self.syn_scan(target_ip)
+            print(f"[*] Open Ports: {open_ports}")
             
-            # 3. 배너 그래빙 및 DB 저장
+            # 3. 배너 그래빙
             for port in open_ports:
                 banner = self.grab_banner(target_ip, port)
+                print(f"    - Port {port}: {banner}")
                 db.save_open_port(asset_id, port, banner)
         
         print("--- Scan & DB Save Completed ---")
@@ -119,6 +142,6 @@ class AdvancedScanner:
 # --- 테스트 실행 ---
 if __name__ == "__main__":
     scanner = AdvancedScanner()
-    # Windows PC(본인 PC)나 Linux 서버(WSL 등) IP로 테스트해보세요
-    target = "192.168.0.10" 
+    # 테스트 IP (본인 환경에 맞게)
+    target = "127.0.0.1" 
     scanner.run_full_scan(target)
