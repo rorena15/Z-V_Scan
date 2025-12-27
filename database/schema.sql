@@ -1,3 +1,7 @@
+--# Copyright (c) 2025 rorena15
+--# All rights reserved.
+--# Proprietary License - No redistribution or modification without permission.
+
 CREATE DATABASE asset_watch_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE asset_watch_db;
 

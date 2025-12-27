@@ -1,3 +1,6 @@
+# Copyright (c) 2025 rorena15
+# All rights reserved.
+# Proprietary License - No redistribution or modification without permission.
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics

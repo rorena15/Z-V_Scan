@@ -1,3 +1,6 @@
+# Copyright (c) 2025 rorena15
+# All rights reserved.
+# Proprietary License - No redistribution or modification without permission.
 import logging
 import socket
 import sys

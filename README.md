@@ -1,6 +1,6 @@
 # Z-Vuln-Watch: Enterprise Security Audit Platform 🛡️
 
-![Version](https://img.shields.io/badge/Version-v1.0_MVP-blue) ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white) ![Java](https://img.shields.io/badge/Dashboard-JSP-red) ![License](https://img.shields.io/badge/License-Proprietary-orange)
+![Version](https://img.shields.io/badge/Version-v1.0_MVP-blue) ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white) ![Java](https://img.shields.io/badge/Dashboard-JSP-red) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
 **Asset-Watch**는 기업 네트워크 자산을 실시간으로 탐지하고, **KISA 주요정보통신기반시설 가이드라인**에 기반하여 서버의 보안 취약점을 자동으로 진단하는 **Agentless 보안 플랫폼**입니다.
 
@@ -65,3 +65,8 @@ Asset-Watch/
 - U-06 ~ U-13파일/디렉터리 권한주요 설정 파일 소유자 및 권한 진단
 
 ### 📝 허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.
+
+## 라이선스
+본 프로젝트는 **Proprietary License** (독점 라이선스)로 배포됩니다.  
+소스코드 공개 및 재배포를 금지하며, 상용 이용 시 별도 계약이 필요합니다.  
+Copyright (c) 2025 rorena15
