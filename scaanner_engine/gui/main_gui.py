@@ -1,5 +1,8 @@
 import sys
 import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
 from PyQt5.QtWidgets import (
                                 QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
@@ -7,10 +10,6 @@ from PyQt5.QtWidgets import (
                             )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
-
-# 기존 스캔 엔진 모듈 경로 설정
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-
 # 우리가 만든 모듈 import
 from core.advanced_scanner import AdvancedScanner
 from core.audit_runner import run_server_audit, DBConnector
@@ -163,17 +162,8 @@ class ScannerApp(QMainWindow):
         self.log_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas;")
         layout.addWidget(QLabel("Execution Logs:"))
         layout.addWidget(self.log_console)
-
         central_widget.setLayout(layout)
-        
-        def generate_pdf(self):
-            try:
-                gen = PDFGenerator()
-                filename = gen.generate_report()
-                self.log_message(f"[Report] PDF 문서가 생성되었습니다: {filename}")
-                QMessageBox.information(self, "성공", f"리포트 생성 완료!\n파일: {filename}")
-            except Exception as e:
-                QMessageBox.critical(self, "에러", str(e))
+
 
     def log_message(self, msg):
         self.log_console.append(msg)
@@ -217,6 +207,14 @@ class ScannerApp(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.start()
+    def generate_pdf(self):
+        try:
+            gen = PDFGenerator()
+            filename = gen.generate_report()
+            self.log_message(f"[Report] PDF 문서가 생성되었습니다: {filename}")
+            QMessageBox.information(self, "성공", f"리포트 생성 완료!\n파일: {filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "에러", str(e))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
