@@ -1,5 +1,6 @@
 import sys
 import os
+from output.pdf_report import PDFGenerator
 from PyQt5.QtWidgets import (
                                 QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
@@ -147,6 +148,12 @@ class ScannerApp(QMainWindow):
         self.btn_audit.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
         self.btn_audit.clicked.connect(self.start_audit)
 
+        self.btn_pdf = QPushButton("📄 PDF 리포트 생성")
+        self.btn_pdf.setMinimumHeight(40)
+        self.btn_pdf.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.btn_pdf.clicked.connect(self.generate_pdf)
+        
+        btn_layout.addWidget(self.btn_pdf)
         btn_layout.addWidget(self.btn_scan)
         btn_layout.addWidget(self.btn_audit)
         layout.addLayout(btn_layout)
@@ -159,6 +166,15 @@ class ScannerApp(QMainWindow):
         layout.addWidget(self.log_console)
 
         central_widget.setLayout(layout)
+        
+        def generate_pdf(self):
+            try:
+                gen = PDFGenerator()
+                filename = gen.generate_report()
+                self.log_message(f"[Report] PDF 문서가 생성되었습니다: {filename}")
+                QMessageBox.information(self, "성공", f"리포트 생성 완료!\n파일: {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "에러", str(e))
 
     def log_message(self, msg):
         self.log_console.append(msg)
