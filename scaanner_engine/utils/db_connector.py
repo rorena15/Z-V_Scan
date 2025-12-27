@@ -1,14 +1,18 @@
 import mysql.connector
 from mysql.connector import Error
 import logging
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 class DBConnector:
     def __init__(self):
         self.config = {
-            'host': 'localhost',
-            'user': 'zvScan',
-            'password': 'tiger',
-            'database': 'asset_watch_db'
+            'host': os.getenv('DB_HOST', 'localhost'),
+            'user': os.getenv('DB_USER', 'root'),
+            'password': os.getenv('DB_PASSWORD', ''), # 비밀번호가 없으면 빈 문자열
+            'database': os.getenv('DB_NAME', 'asset_watch_db'),
+            'port': int(os.getenv('DB_PORT', 3306))
         }
         self.logger = logging.getLogger("DB_Connector")
 
