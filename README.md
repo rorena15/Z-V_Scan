@@ -43,10 +43,25 @@ Asset-Watch/
 └── database/                 # [MySQL] 데이터베이스
     └── schema.sql            # 테이블 정의서
 
-💻 Installation & UsagePrerequisitesPython 3.10+, MySQL 8.0+, Java JDK & Tomcat 9.01. Python Engine SetupBash# 필수 라이브러리 설치
-pip install -r requirements.txt
-# (scapy, paramiko, mysql-connector-python, PyQt5, reportlab, python-dotenv)
+```
+## 💻 Installation & Usage
+### Prerequisites
+- Python3.10+, MySQL 8.0+, Java JDK & Tomcat 9.01. Python Engine Setup
+- (scapy, paramiko, mysql-connector-python, PyQt5, reportlab, python-dotenv)
 
-# 실행
-python scanner_engine/gui/main_gui.py
-2. Web Dashboard SetupEclipse 등에서 Dynamic Web Project 생성.webapp/dashboard.jsp 파일을 프로젝트에 추가.WEB-INF/lib 폴더에 mysql-connector-j-8.x.jar 추가.Tomcat 서버 구동 후 http://localhost:8080/ProjectName/dashboard.jsp 접속.✅ Supported Audit List (KISA)CodeItemDescriptionU-01root 원격 접속 제한PermitRootLogin 설정 점검U-02패스워드 복잡성pwquality.conf 설정 점검U-03계정 잠금 임계값pam_tally2/faillock 설정 점검U-04패스워드 파일 보호/etc/shadow 암호화 여부U-05PATH 환경변수"." 경로 포함 여부 점검U-06 ~ U-13파일/디렉터리 권한주요 설정 파일 소유자 및 권한 진단📝 Note본 프로그램은 학습 및 포트폴리오 목적으로 제작되었으며, 허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.
+## 실행
+- python scanner_engine/gui/main_gui.py
+### 2. Web Dashboard Setup
+- Eclipse 등에서 Dynamic Web Project 생성.
+- webapp/dashboard.jsp 파일을 프로젝트에 추가.
+- WEB-INF/lib 폴더에 mysql-connector-j-8.x.jar 추가.
+- Tomcat 서버 구동 후 http://localhost:8080/ProjectName/dashboard.jsp 접속
+- ✅ Supported Audit List (KISA)
+- U-01root 원격 접속 제한 PermitRootLogin 설정 점검
+- U-02패스워드 복잡성pwquality.conf 설정 점검
+- U-03계정 잠금 임계값pam_tally2/faillock 설정 점검
+- U-04패스워드 파일 보호/etc/shadow 암호화 여부
+- U-05PATH 환경변수"." 경로 포함 여부 점검
+- U-06 ~ U-13파일/디렉터리 권한주요 설정 파일 소유자 및 권한 진단
+
+### 📝 허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.
