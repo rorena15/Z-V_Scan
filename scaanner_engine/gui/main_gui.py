@@ -1,6 +1,5 @@
 import sys
 import os
-from output.pdf_report import PDFGenerator
 from PyQt5.QtWidgets import (
                                 QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
@@ -16,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from core.advanced_scanner import AdvancedScanner
 from core.audit_runner import run_server_audit, DBConnector
 from core.ssh_inspector import SSHInspector
-
+from output.pdf_report import PDFGenerator
 # --- [백그라운드 워커 스레드] ---
 # GUI가 멈추지 않게 스캔 로직을 별도 스레드로 분리합니다.
 class ScanWorker(QThread):
