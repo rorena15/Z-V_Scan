@@ -27,7 +27,7 @@
 
 ## 🛠️ System Architecture
 
-```bash
+```
 Asset-Watch/
 ├── scanner_engine/           # [Python] 핵심 엔진
 │   ├── core/
@@ -42,6 +42,7 @@ Asset-Watch/
 │   └── dashboard.jsp         # 실시간 통계 및 차트
 └── database/                 # [MySQL] 데이터베이스
     └── schema.sql            # 테이블 정의서
+
 💻 Installation & UsagePrerequisitesPython 3.10+, MySQL 8.0+, Java JDK & Tomcat 9.01. Python Engine SetupBash# 필수 라이브러리 설치
 pip install -r requirements.txt
 # (scapy, paramiko, mysql-connector-python, PyQt5, reportlab, python-dotenv)
