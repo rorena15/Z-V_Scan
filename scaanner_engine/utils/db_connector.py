@@ -98,3 +98,51 @@ class DBConnector:
             finally:
                 cursor.close()
                 conn.close()
+    def get_vuln_id_by_code(self, code):
+        #KISA 코드(예: U-01)로 DB 내부의 vuln_id를 조회합니다.
+        conn = self.create_connection()
+        vuln_id = None
+        if conn:
+            try:
+                cursor = conn.cursor()
+                sql = "SELECT vuln_id FROM TBL_VULN_DEF WHERE code = %s"
+                cursor.execute(sql, (code,))
+                result = cursor.fetchone()
+                if result:
+                    vuln_id = result[0]
+            except Error as e:
+                self.logger.error(f"get_vuln_id_by_code Error: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+        return vuln_id
+
+    def save_scan_result(self, asset_id, vuln_code, status, detected_value):
+        #[핵심 기능] 진단 결과를 DB에 저장합니다.
+        #:param vuln_code: 'U-01' 같은 코드명 (DB에서 ID를 자동 조회함)
+        vuln_id = self.get_vuln_id_by_code(vuln_code)
+        if not vuln_id:
+            self.logger.error(f"Unknown Vulnerability Code: {vuln_code}")
+            return False
+
+        conn = self.create_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                
+                # 로그 기록을 위해 무조건 INSERT (히스토리 관리)
+                # 만약 최신 상태만 유지하고 싶다면 UPDATE 로직으로 변경 가능
+                sql = """
+                    INSERT INTO TBL_SCAN_RESULT (asset_id, vuln_id, status, detected_value, scan_date)
+                    VALUES (%s, %s, %s, %s, NOW())
+                """
+                cursor.execute(sql, (asset_id, vuln_id, status, detected_value))
+                conn.commit()
+                self.logger.info(f"[DB] Result Saved: Asset({asset_id}) - {vuln_code} -> {status}")
+                return True
+            except Error as e:
+                self.logger.error(f"save_scan_result Error: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+        return False
