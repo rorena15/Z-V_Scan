@@ -1,6 +1,7 @@
 import sys
 import os
 import traceback
+import ipaddress
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -33,70 +34,88 @@ sys.excepthook = my_exception_hook
 # --- [백그라운드 워커 스레드] ---
 # GUI가 멈추지 않게 스캔 로직을 별도 스레드로 분리합니다.
 class ScanWorker(QThread):
-    log_signal = pyqtSignal(str)     # 로그 출력을 위한 신호
-    finish_signal = pyqtSignal(str)  # 작업 완료 신호
+    log_signal = pyqtSignal(str)     
+    finish_signal = pyqtSignal(str)  
 
-    def __init__(self, mode, target_ip, user=None, pw=None):
+    def __init__(self, mode, target_input, user=None, pw=None):
         super().__init__()
         self.mode = mode
-        self.target_ip = target_ip
+        self.target_input = target_input # 변수명 변경 (ip -> input)
         self.user = user
         self.pw = pw
+        self.stop_flag = False # 스캔 중단 기능 대비
 
     def run(self):
-        self.log_signal.emit(f"[*] 작업 시작: {self.mode} -> {self.target_ip}")
+        self.log_signal.emit(f"[*] 작업 시작: {self.mode}")
         
+        # 1. 대상 IP 리스트 생성 (단일 IP or CIDR 대역)
+        target_list = []
+        try:
+            if "/" in self.target_input: # CIDR 표기법 (예: 192.168.0.0/24)
+                network = ipaddress.ip_network(self.target_input, strict=False)
+                # 네트워크 주소와 브로드캐스트 주소 제외하고 호스트만 추출
+                target_list = [str(ip) for ip in network.hosts()]
+                self.log_signal.emit(f"[*] 네트워크 대역 감지: {len(target_list)}개 호스트 스캔 예정")
+            else:
+                target_list = [self.target_input]
+        except ValueError:
+            self.log_signal.emit(f"[Error] 잘못된 IP 주소 형식입니다: {self.target_input}")
+            self.finish_signal.emit("입력 오류")
+            return
+
         try:
             if self.mode == "NETWORK_SCAN":
                 scanner = AdvancedScanner()
-                # 스캐너의 print 출력을 GUI 로그로 보내기 위해 로직을 약간 변형하거나
-                # 여기서는 결과만 요약해서 보여주는 방식을 사용
+                db = DBConnector()
                 
-                # 1. 생존 확인
-                is_alive, os_type = scanner.host_discovery(self.target_ip)
-                if is_alive:
-                    self.log_signal.emit(f"[+] 호스트 발견: {self.target_ip} (OS: {os_type})")
+                # 생성된 IP 리스트를 순회하며 스캔
+                for ip in target_list:
+                    if self.stop_flag: break # 중단 로직 (추후 버튼 연결 가능)
                     
-                    # 2. 포트 스캔
-                    open_ports = scanner.syn_scan(self.target_ip)
-                    self.log_signal.emit(f"[+] 열린 포트: {open_ports}")
+                    # 진행 상황 로그 (너무 많으면 생략 가능)
+                    # self.log_signal.emit(f"Checking {ip}...") 
+
+                    # 1. 생존 확인
+                    is_alive, os_type = scanner.host_discovery(ip)
                     
-                    # 3. 배너 그래빙
-                    for port in open_ports:
-                        banner = scanner.grab_banner(self.target_ip, port)
-                        self.log_signal.emit(f"    - Port {port}: {banner}")
-                    
-                    # DB 저장은 기존 모듈 활용
-                    db = DBConnector()
-                    asset_id = db.save_asset(self.target_ip, hostname="Scanned_GUI", os_type=os_type)
-                    for port in open_ports:
-                        db.save_open_port(asset_id, port, "Checked via GUI")
-                    self.log_signal.emit("[DB] 자산 및 포트 정보 저장 완료")
-                    
-                else:
-                    self.log_signal.emit("[-] 호스트가 응답하지 않습니다.")
+                    if is_alive:
+                        self.log_signal.emit(f"[+] 호스트 발견: {ip} (OS: {os_type})")
+                        
+                        # 2. 포트 스캔
+                        open_ports = scanner.syn_scan(ip)
+                        if open_ports:
+                            self.log_signal.emit(f"    ㄴ Open Ports: {open_ports}")
+                        
+                        # 3. 배너 그래빙 및 DB 저장
+                        # 자산 먼저 저장 (Upsert)
+                        asset_id = db.save_asset(ip, hostname="Scanned_Asset", os_type=os_type)
+                        
+                        for port in open_ports:
+                            banner = scanner.grab_banner(ip, port)
+                            db.save_open_port(asset_id, port, banner)
+                            # self.log_signal.emit(f"       Port {port}: {banner}")
+
+                self.log_signal.emit("[DB] 스캔 완료 및 저장 종료")
 
             elif self.mode == "AUDIT_VULN":
-                self.log_signal.emit("[*] 서버 취약점 진단(SSH) 시작...")
-                inspector = SSHInspector(self.target_ip, username=self.user, password=self.pw)
+                # 취약점 진단은 보통 특정 타겟에 하므로 단일 IP만 지원하거나, 
+                # 반복문으로 돌릴 수 있으나 시간이 오래 걸림. 여기선 리스트 첫 번째만 수행하거나 반복 지원.
                 
-                if inspector.connect():
-                    self.log_signal.emit("[+] SSH 연결 성공")
-                    
-                    # U-01 점검
-                    status, detail = inspector.check_u01_root_login()
-                    self.log_signal.emit(f"[결과] U-01 (Root접속제한): {status}")
-                    self.log_signal.emit(f"      ㄴ 상세: {detail}")
-                    
-                    # DB 저장
-                    db = DBConnector()
-                    asset_id = db.save_asset(self.target_ip, hostname="Audit_Target", os_type="Linux")
-                    db.save_scan_result(asset_id, "U-01", status, detail)
-                    self.log_signal.emit("[DB] 진단 결과 저장 완료")
-                    
-                    inspector.close()
-                else:
-                    self.log_signal.emit("[-] SSH 연결 실패. 아이디/비번을 확인하세요.")
+                self.log_signal.emit(f"[*] 총 {len(target_list)}대 서버에 대한 취약점 진단 시도...")
+                
+                for ip in target_list:
+                    inspector = SSHInspector(ip, username=self.user, password=self.pw)
+                    if inspector.connect():
+                        self.log_signal.emit(f"[+] SSH 연결 성공: {ip}")
+                        status, detail = inspector.check_u01_root_login()
+                        self.log_signal.emit(f"    [{ip}] U-01 결과: {status}")
+                        
+                        db = DBConnector()
+                        asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
+                        db.save_scan_result(asset_id, "U-01", status, detail)
+                        inspector.close()
+                    else:
+                        self.log_signal.emit(f"[-] SSH 연결 실패: {ip}")
 
         except Exception as e:
             self.log_signal.emit(f"[Error] {str(e)}")
