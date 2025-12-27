@@ -41,7 +41,7 @@ class AdvancedScanner:
         
         try:
             # 1-1. ICMP Ping
-            icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=1, verbose=0)
+            icmp_resp = sr1(IP(dst=ip)/ICMP(), timeout=0.5, verbose=0)
             if icmp_resp:
                 if IP in icmp_resp:
                     ttl = icmp_resp[IP].ttl
@@ -49,7 +49,7 @@ class AdvancedScanner:
                 return True, detected_os
             
             # 1-2. TCP ACK Ping (Port 80)
-            ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=1, verbose=0)
+            ack_resp = sr1(IP(dst=ip)/TCP(dport=80, flags="A"), timeout=0.5, verbose=0)
             if ack_resp:
                 if IP in ack_resp:
                     ttl = ack_resp[IP].ttl
@@ -72,7 +72,7 @@ class AdvancedScanner:
             try:
                 # SYN 패킷 전송
                 syn_packet = IP(dst=ip)/TCP(dport=port, flags="S")
-                resp = sr1(syn_packet, timeout=0.5, verbose=0) # Timeout을 0.5초로 줄여 속도 향상
+                resp = sr1(syn_packet, timeout=0.3, verbose=0) # Timeout을 0.3초로 줄여 속도 향상
 
                 if resp and resp.haslayer(TCP):
                     flags = resp.getlayer(TCP).flags
@@ -93,7 +93,7 @@ class AdvancedScanner:
         """
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1.5) # 타임아웃 1.5초
+            s.settimeout(0.5) # 타임아웃 0.5초
             s.connect((ip, port))
             
             # HTTP/HTTPS의 경우 요청을 보내야 배너를 줌

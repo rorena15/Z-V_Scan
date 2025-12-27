@@ -48,108 +48,141 @@ class ScanWorker(QThread):
         self.user = user
         self.pw = pw
         self.stop_flag = False 
-        self.max_threads = 50  # [핵심] 동시에 스캔할 스레드 개수 (PC 사양에 따라 조절)
+        # [최적화 1] 스레드 개수 하향 조정 (50 -> 30)
+        # 너무 많으면 OS 소켓 고갈 및 GUI 프리징 원인이 됩니다.
+        self.max_threads = 30  
 
     def process_single_ip(self, ip):
         """
-        [멀티스레드용] 단일 IP를 스캔하고 DB에 저장하는 작업 단위
+        [멀티스레드용] 단일 IP 스캔 작업
         """
         if self.stop_flag: return
 
-        # 각 스레드마다 별도의 Scanner와 DB 객체 생성 (Thread-Safety)
+        # 스레드마다 독립적인 객체 생성
         scanner = AdvancedScanner()
-        db = DBConnector()
+        db = None # DB 객체 초기화
 
         try:
             # 1. 생존 확인 (ICMP/TCP Ping)
             is_alive, os_type = scanner.host_discovery(ip)
 
             if is_alive:
-                # 로그 출력 (GUI에 너무 많은 로그가 찍히면 느려지므로, 발견된 것만 출력)
-                self.log_signal.emit(f"[+] 호스트 발견: {ip} ({os_type})")
+                # [최적화 2] 로그 다이어트: 발견된 것만 간결하게
+                # self.log_signal.emit(f"[+] 발견: {ip} ({os_type})") -> 너무 잦으면 생략 가능
                 
-                # 자산 정보 DB 저장 (먼저 저장해야 FK 오류 안 남)
+                # DB 연결 (필요할 때만 연결)
+                db = DBConnector()
+                
+                # 자산 정보 저장
                 asset_id = db.save_asset(ip, hostname="Scanned_Asset", os_type=os_type)
 
-                # 2. 포트 스캔 (SYN Scan)
+                # 2. 포트 스캔
                 open_ports = scanner.syn_scan(ip)
                 if open_ports:
+                    # 포트가 발견되었을 때만 로그 전송 (GUI 부하 감소)
                     port_str = ", ".join(map(str, open_ports))
-                    self.log_signal.emit(f"    ㄴ [{ip}] Open Ports: {port_str}")
+                    self.log_signal.emit(f"[+] {ip} ({os_type}) -> Ports: {port_str}")
                 
-                    # 3. 배너 그래빙 및 DB 저장
+                    # 3. 배너 그래빙 및 저장
                     for port in open_ports:
                         banner = scanner.grab_banner(ip, port)
                         db.save_open_port(asset_id, port, banner)
+
         except Exception as e:
-            # 스캔 중 에러는 로그만 남기고 무시 (다른 스레드에 영향 안 주기 위해)
-            # self.log_signal.emit(f"[Error] {ip}: {e}")
+            # 에러 발생 시 로그는 남기되 멈추지 않음
+            # print(f"Error on {ip}: {e}") # 디버깅용
             pass
+            
+        finally:
+            # [최적화 3] DB 연결 확실하게 종료 (Resource Leak 방지)
+            if db:
+                try:
+                    # DBConnector에 close 메서드가 있다면 호출, 없다면 conn.close() 확인 필요
+                    # 여기서는 db_connector.py의 구현에 따라 다르지만, 보통 소멸자나 명시적 close 필요
+                    # 만약 DBConnector에 close()가 없다면 추가해야 함.
+                    if hasattr(db, 'conn') and db.conn:
+                         db.conn.close()
+                except:
+                    pass
 
     def run(self):
-        self.log_signal.emit(f"[*] 고속 멀티스레딩 스캔 시작 (Threads: {self.max_threads})...")
+        self.log_signal.emit(f"[*] 스캔 엔진 가동 (Max Threads: {self.max_threads})...")
         
-        # 1. 대상 IP 리스트 생성
         target_list = []
         try:
             if "/" in self.target_input: 
                 network = ipaddress.ip_network(self.target_input, strict=False)
                 target_list = [str(ip) for ip in network.hosts()]
-                self.log_signal.emit(f"[*] 네트워크 대역: {len(target_list)}개 IP 스캔 대기 중")
+                self.log_signal.emit(f"[*] 대상 네트워크 로드 완료: {len(target_list)}개 IP")
             else:
                 target_list = [self.target_input]
         except ValueError:
-            self.log_signal.emit(f"[Error] 잘못된 IP 형식: {self.target_input}")
+            self.log_signal.emit(f"[Error] IP 형식이 올바르지 않습니다.")
             self.finish_signal.emit("입력 오류")
             return
-        total_count = len(target_list)       # 전체 할 일 개수
-        processed_count = 0                  # 완료된 개수
-        self.progress_signal.emit(0)         # 시작 전 0%로 초기화
 
+        total_count = len(target_list)
+        processed_count = 0
+        self.progress_signal.emit(0)
+
+        # --- NETWORK_SCAN 모드 ---
         if self.mode == "NETWORK_SCAN":
-            # [핵심] ThreadPoolExecutor를 사용한 병렬 처리
             with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                # target_list에 있는 모든 IP를 process_single_ip 함수에 병렬로 던짐
                 futures = {executor.submit(self.process_single_ip, ip): ip for ip in target_list}
                 
-                # 모든 작업이 끝날 때까지 대기 (여기서 블로킹되지만 QThread 내부라 GUI는 안 멈춤)
+                # 결과 모니터링
                 for future in as_completed(futures):
+                    # 비상 정지 체크
                     if self.stop_flag:
-                        self.log_signal.emit("[!!!] 중지 신호 감지! 남은 작업들을 취소합니다...")
-                        executor.shutdown(wait=False) # 대기 중인 작업 모두 취소
-                        break # 루프 탈출
+                        self.log_signal.emit("[!!!] 중지 신호 감지. 작업을 취소합니다...")
+                        executor.shutdown(wait=False)
+                        break 
+                    
                     processed_count += 1
-                    progress = int((processed_count / total_count) * 100)
-                    self.progress_signal.emit(progress)
+                    
+                    # [최적화 4] UI 업데이트 빈도 조절 (Throttling)
+                    # 매번 업데이트하면 GUI가 굳어버림. 5개 처리할 때마다 or 마지막에만 업데이트
+                    if processed_count % 5 == 0 or processed_count == total_count:
+                        progress = int((processed_count / total_count) * 100)
+                        self.progress_signal.emit(progress)
 
+        # --- AUDIT_VULN 모드 ---
         elif self.mode == "AUDIT_VULN":
-            # 취약점 진단도 멀티스레드로 처리 가능하나, SSH 접속 부하를 고려해 일단 순차 혹은 소규모 병렬 추천
-            # 여기서는 기존 로직 유지하되 필요시 위와 같은 방식으로 변경 가능
-            self.log_signal.emit(f"[*] 취약점 진단 시작 ({len(target_list)} Hosts)...")
+            self.log_signal.emit(f"[*] 취약점 정밀 진단 시작 ({len(target_list)} Hosts)...")
+            
+            # 취약점 진단은 SSH 연결이므로 스레드를 많이 쓰면 타겟 서버가 차단할 수 있음 -> 순차 처리 권장
             for ip in target_list:
                 if self.stop_flag: 
-                    self.log_signal.emit("[!!!] 중지 신호 감지! 진단을 중단합니다.")
+                    self.log_signal.emit("[!!!] 진단 중지됨.")
                     break
-                inspector = SSHInspector(ip, username=self.user, password=self.pw)
-                if inspector.connect():
-                    self.log_signal.emit(f"[+] SSH 연결 성공: {ip}")
-                    status, detail = inspector.check_u01_root_login()
-                    
-                    db = DBConnector()
-                    asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
-                    db.save_scan_result(asset_id, "U-01", status, detail)
-                    self.log_signal.emit(f"    ㄴ 결과: {status}")
-                    inspector.close()
-                else:
-                    self.log_signal.emit(f"[-] SSH 연결 실패: {ip}")
                 
+                try:
+                    inspector = SSHInspector(ip, username=self.user, password=self.pw)
+                    if inspector.connect():
+                        self.log_signal.emit(f"[+] SSH 접속 성공: {ip}")
+                        status, detail = inspector.check_u01_root_login()
+                        
+                        db = DBConnector()
+                        asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
+                        db.save_scan_result(asset_id, "U-01", status, detail)
+                        self.log_signal.emit(f"    ㄴ 진단 결과: {status}")
+                        
+                        inspector.close()
+                        if hasattr(db, 'conn') and db.conn: db.conn.close() # DB 닫기
+                    else:
+                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
+                except Exception as e:
+                    self.log_signal.emit(f"[Error] {ip}: {str(e)}")
+
                 processed_count += 1
                 progress = int((processed_count / total_count) * 100)
                 self.progress_signal.emit(progress)
+
+        # 종료 처리
         if self.stop_flag:
-            self.finish_signal.emit("사용자 요청에 의해 작업이 강제 중단되었습니다.")
+            self.finish_signal.emit("작업이 강제 중단되었습니다.")
         else:
-            self.finish_signal.emit("작업이 완료되었습니다.")
+            self.finish_signal.emit("모든 작업이 완료되었습니다.")
 
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
