@@ -99,7 +99,7 @@ class ScanWorker(QThread):
                     # 여기서는 db_connector.py의 구현에 따라 다르지만, 보통 소멸자나 명시적 close 필요
                     # 만약 DBConnector에 close()가 없다면 추가해야 함.
                     if hasattr(db, 'conn') and db.conn:
-                         db.conn.close()
+                        db.conn.close()
                 except:
                     pass
 
@@ -146,9 +146,8 @@ class ScanWorker(QThread):
 
         # --- AUDIT_VULN 모드 ---
         elif self.mode == "AUDIT_VULN":
-            self.log_signal.emit(f"[*] 취약점 정밀 진단 시작 ({len(target_list)} Hosts)...")
+            self.log_signal.emit(f"[*] KISA 기반 정밀 보안 진단 시작 ({len(target_list)} Hosts)...")
             
-            # 취약점 진단은 SSH 연결이므로 스레드를 많이 쓰면 타겟 서버가 차단할 수 있음 -> 순차 처리 권장
             for ip in target_list:
                 if self.stop_flag: 
                     self.log_signal.emit("[!!!] 진단 중지됨.")
@@ -157,20 +156,34 @@ class ScanWorker(QThread):
                 try:
                     inspector = SSHInspector(ip, username=self.user, password=self.pw)
                     if inspector.connect():
-                        self.log_signal.emit(f"[+] SSH 접속 성공: {ip}")
-                        status, detail = inspector.check_u01_root_login()
+                        self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
                         
+                        # [핵심 변경] 하나씩 부르는 게 아니라, 전체 진단 함수 호출
+                        results = inspector.run_all_checks()
+                        
+                        # DB 연결
                         db = DBConnector()
+                        # 자산 테이블에 먼저 등록 (Audit Target)
                         asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
-                        db.save_scan_result(asset_id, "U-01", status, detail)
-                        self.log_signal.emit(f"    ㄴ 진단 결과: {status}")
                         
+                        # 결과 순회하며 저장
+                        for code, (status, detail) in results.items():
+                            db.save_scan_result(asset_id, code, status, detail)
+                            
+                            # 로그 출력 (안전한 것보다 취약한 것을 눈에 띄게)
+                            if status == "VULNERABLE":
+                                self.log_signal.emit(f"    ⚠️ [{code}] 취약: {detail}")
+                            else:
+                                self.log_signal.emit(f"    ✅ [{code}] 양호: {detail}")
+
                         inspector.close()
-                        if hasattr(db, 'conn') and db.conn: db.conn.close() # DB 닫기
+                        if hasattr(db, 'conn') and db.conn: db.conn.close()
+
                     else:
-                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
+                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip} (계정/방화벽 확인 필요)")
+                
                 except Exception as e:
-                    self.log_signal.emit(f"[Error] {ip}: {str(e)}")
+                    self.log_signal.emit(f"[Error] {ip} 진단 중 오류: {str(e)}")
 
                 processed_count += 1
                 progress = int((processed_count / total_count) * 100)
@@ -189,7 +202,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Asset-Watch Security Platform')
+        self.setWindowTitle('Z-Vul Security Platform')
         self.setGeometry(100, 100, 800, 600)
         self.setStyleSheet("background-color: #f0f0f0;")
 
