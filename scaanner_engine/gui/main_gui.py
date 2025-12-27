@@ -1,5 +1,6 @@
 import sys
 import os
+import traceback
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -15,6 +16,20 @@ from core.advanced_scanner import AdvancedScanner
 from core.audit_runner import run_server_audit, DBConnector
 from core.ssh_inspector import SSHInspector
 from output.pdf_report import PDFGenerator
+
+def my_exception_hook(exctype, value, tb):
+    error_msg = "".join(traceback.format_exception(exctype, value, tb))
+    print(error_msg)  # 콘솔에도 출력
+    # GUI로 에러 팝업 띄우기 (QApplication이 실행 중일 때만)
+    msg = QMessageBox()
+    msg.setIcon(QMessageBox.Critical)
+    msg.setText("치명적인 오류 발생")
+    msg.setInformativeText(str(value))
+    msg.setDetailedText(error_msg)
+    msg.setWindowTitle("Error")
+    msg.exec_()
+# 기존의 기본 에러 처리기를 우리의 '안전장치'로 교체
+sys.excepthook = my_exception_hook
 # --- [백그라운드 워커 스레드] ---
 # GUI가 멈추지 않게 스캔 로직을 별도 스레드로 분리합니다.
 class ScanWorker(QThread):
