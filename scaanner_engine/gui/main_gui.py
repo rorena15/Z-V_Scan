@@ -17,6 +17,7 @@ from core.advanced_scanner import AdvancedScanner
 from core.audit_runner import run_server_audit, DBConnector
 from core.ssh_inspector import SSHInspector
 from output.pdf_report import PDFGenerator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def my_exception_hook(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
@@ -29,10 +30,12 @@ def my_exception_hook(exctype, value, tb):
     msg.setDetailedText(error_msg)
     msg.setWindowTitle("Error")
     msg.exec_()
-# 기존의 기본 에러 처리기를 우리의 '안전장치'로 교체
+# 기존의 기본 에러 처리기를 '안전장치'로 교체
 sys.excepthook = my_exception_hook
+
 # --- [백그라운드 워커 스레드] ---
 # GUI가 멈추지 않게 스캔 로직을 별도 스레드로 분리합니다.
+
 class ScanWorker(QThread):
     log_signal = pyqtSignal(str)     
     finish_signal = pyqtSignal(str)  
@@ -40,87 +43,99 @@ class ScanWorker(QThread):
     def __init__(self, mode, target_input, user=None, pw=None):
         super().__init__()
         self.mode = mode
-        self.target_input = target_input # 변수명 변경 (ip -> input)
+        self.target_input = target_input
         self.user = user
         self.pw = pw
-        self.stop_flag = False # 스캔 중단 기능 대비
+        self.stop_flag = False 
+        self.max_threads = 50  # [핵심] 동시에 스캔할 스레드 개수 (PC 사양에 따라 조절)
+
+    def process_single_ip(self, ip):
+        """
+        [멀티스레드용] 단일 IP를 스캔하고 DB에 저장하는 작업 단위
+        """
+        if self.stop_flag: return
+
+        # 각 스레드마다 별도의 Scanner와 DB 객체 생성 (Thread-Safety)
+        scanner = AdvancedScanner()
+        db = DBConnector()
+
+        try:
+            # 1. 생존 확인 (ICMP/TCP Ping)
+            is_alive, os_type = scanner.host_discovery(ip)
+
+            if is_alive:
+                # 로그 출력 (GUI에 너무 많은 로그가 찍히면 느려지므로, 발견된 것만 출력)
+                self.log_signal.emit(f"[+] 호스트 발견: {ip} ({os_type})")
+                
+                # 자산 정보 DB 저장 (먼저 저장해야 FK 오류 안 남)
+                asset_id = db.save_asset(ip, hostname="Scanned_Asset", os_type=os_type)
+
+                # 2. 포트 스캔 (SYN Scan)
+                open_ports = scanner.syn_scan(ip)
+                if open_ports:
+                    port_str = ", ".join(map(str, open_ports))
+                    self.log_signal.emit(f"    ㄴ [{ip}] Open Ports: {port_str}")
+                
+                    # 3. 배너 그래빙 및 DB 저장
+                    for port in open_ports:
+                        banner = scanner.grab_banner(ip, port)
+                        db.save_open_port(asset_id, port, banner)
+        except Exception as e:
+            # 스캔 중 에러는 로그만 남기고 무시 (다른 스레드에 영향 안 주기 위해)
+            # self.log_signal.emit(f"[Error] {ip}: {e}")
+            pass
 
     def run(self):
-        self.log_signal.emit(f"[*] 작업 시작: {self.mode}")
+        self.log_signal.emit(f"[*] 고속 멀티스레딩 스캔 시작 (Threads: {self.max_threads})...")
         
-        # 1. 대상 IP 리스트 생성 (단일 IP or CIDR 대역)
+        # 1. 대상 IP 리스트 생성
         target_list = []
         try:
-            if "/" in self.target_input: # CIDR 표기법 (예: 192.168.0.0/24)
+            if "/" in self.target_input: 
                 network = ipaddress.ip_network(self.target_input, strict=False)
-                # 네트워크 주소와 브로드캐스트 주소 제외하고 호스트만 추출
                 target_list = [str(ip) for ip in network.hosts()]
-                self.log_signal.emit(f"[*] 네트워크 대역 감지: {len(target_list)}개 호스트 스캔 예정")
+                self.log_signal.emit(f"[*] 네트워크 대역: {len(target_list)}개 IP 스캔 대기 중")
             else:
                 target_list = [self.target_input]
         except ValueError:
-            self.log_signal.emit(f"[Error] 잘못된 IP 주소 형식입니다: {self.target_input}")
+            self.log_signal.emit(f"[Error] 잘못된 IP 형식: {self.target_input}")
             self.finish_signal.emit("입력 오류")
             return
 
-        try:
-            if self.mode == "NETWORK_SCAN":
-                scanner = AdvancedScanner()
-                db = DBConnector()
+        if self.mode == "NETWORK_SCAN":
+            # [핵심] ThreadPoolExecutor를 사용한 병렬 처리
+            with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+                # target_list에 있는 모든 IP를 process_single_ip 함수에 병렬로 던짐
+                futures = {executor.submit(self.process_single_ip, ip): ip for ip in target_list}
                 
-                # 생성된 IP 리스트를 순회하며 스캔
-                for ip in target_list:
-                    if self.stop_flag: break # 중단 로직 (추후 버튼 연결 가능)
+                # 모든 작업이 끝날 때까지 대기 (여기서 블로킹되지만 QThread 내부라 GUI는 안 멈춤)
+                for future in as_completed(futures):
+                    if self.stop_flag:
+                        executor.shutdown(wait=False)
+                        break
+            
+            self.log_signal.emit("[Completed] 모든 스캔 작업이 완료되었습니다.")
+
+        elif self.mode == "AUDIT_VULN":
+            # 취약점 진단도 멀티스레드로 처리 가능하나, SSH 접속 부하를 고려해 일단 순차 혹은 소규모 병렬 추천
+            # 여기서는 기존 로직 유지하되 필요시 위와 같은 방식으로 변경 가능
+            self.log_signal.emit(f"[*] 취약점 진단 시작 ({len(target_list)} Hosts)...")
+            for ip in target_list:
+                if self.stop_flag: break
+                inspector = SSHInspector(ip, username=self.user, password=self.pw)
+                if inspector.connect():
+                    self.log_signal.emit(f"[+] SSH 연결 성공: {ip}")
+                    status, detail = inspector.check_u01_root_login()
                     
-                    # 진행 상황 로그 (너무 많으면 생략 가능)
-                    # self.log_signal.emit(f"Checking {ip}...") 
+                    db = DBConnector()
+                    asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
+                    db.save_scan_result(asset_id, "U-01", status, detail)
+                    self.log_signal.emit(f"    ㄴ 결과: {status}")
+                    inspector.close()
+                else:
+                    self.log_signal.emit(f"[-] SSH 연결 실패: {ip}")
 
-                    # 1. 생존 확인
-                    is_alive, os_type = scanner.host_discovery(ip)
-                    
-                    if is_alive:
-                        self.log_signal.emit(f"[+] 호스트 발견: {ip} (OS: {os_type})")
-                        
-                        # 2. 포트 스캔
-                        open_ports = scanner.syn_scan(ip)
-                        if open_ports:
-                            self.log_signal.emit(f"    ㄴ Open Ports: {open_ports}")
-                        
-                        # 3. 배너 그래빙 및 DB 저장
-                        # 자산 먼저 저장 (Upsert)
-                        asset_id = db.save_asset(ip, hostname="Scanned_Asset", os_type=os_type)
-                        
-                        for port in open_ports:
-                            banner = scanner.grab_banner(ip, port)
-                            db.save_open_port(asset_id, port, banner)
-                            # self.log_signal.emit(f"       Port {port}: {banner}")
-
-                self.log_signal.emit("[DB] 스캔 완료 및 저장 종료")
-
-            elif self.mode == "AUDIT_VULN":
-                # 취약점 진단은 보통 특정 타겟에 하므로 단일 IP만 지원하거나, 
-                # 반복문으로 돌릴 수 있으나 시간이 오래 걸림. 여기선 리스트 첫 번째만 수행하거나 반복 지원.
-                
-                self.log_signal.emit(f"[*] 총 {len(target_list)}대 서버에 대한 취약점 진단 시도...")
-                
-                for ip in target_list:
-                    inspector = SSHInspector(ip, username=self.user, password=self.pw)
-                    if inspector.connect():
-                        self.log_signal.emit(f"[+] SSH 연결 성공: {ip}")
-                        status, detail = inspector.check_u01_root_login()
-                        self.log_signal.emit(f"    [{ip}] U-01 결과: {status}")
-                        
-                        db = DBConnector()
-                        asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
-                        db.save_scan_result(asset_id, "U-01", status, detail)
-                        inspector.close()
-                    else:
-                        self.log_signal.emit(f"[-] SSH 연결 실패: {ip}")
-
-        except Exception as e:
-            self.log_signal.emit(f"[Error] {str(e)}")
-        
-        self.finish_signal.emit("작업이 완료되었습니다.")
+        self.finish_signal.emit("작업 완료")
 
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
