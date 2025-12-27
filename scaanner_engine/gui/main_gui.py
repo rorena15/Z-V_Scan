@@ -48,10 +48,8 @@ class ScanWorker(QThread):
         self.user = user
         self.pw = pw
         self.stop_flag = False 
-        # [최적화 1] 스레드 개수 하향 조정 (50 -> 30)
-        # 너무 많으면 OS 소켓 고갈 및 GUI 프리징 원인이 됩니다.
-        self.max_threads = 30  
-
+        self.max_threads = 50
+        
     def process_single_ip(self, ip):
         """
         [멀티스레드용] 단일 IP 스캔 작업
