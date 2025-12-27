@@ -1,25 +1,22 @@
 import paramiko
-import logging
+import re
 
 class SSHInspector:
-    def __init__(self, host, port=22, username="root", password="password"):
-        self.host = host
-        self.port = port
+    def __init__(self, ip, username, password, port=22):
+        self.ip = ip
         self.username = username
         self.password = password
+        self.port = port
         self.client = None
-        
-        logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-        self.logger = logging.getLogger("SSH_Inspector")
 
     def connect(self):
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.host, port=self.port, username=self.username, password=self.password, timeout=5)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=3)
             return True
         except Exception as e:
-            self.logger.error(f"Connection Failed: {e}")
+            # print(f"SSH Connection Failed: {e}")
             return False
 
     def close(self):
@@ -27,56 +24,78 @@ class SSHInspector:
             self.client.close()
 
     def execute_command(self, command):
-        if not self.client:
-            return None
-        stdin, stdout, stderr = self.client.exec_command(command)
-        return stdout.read().decode().strip()
+        """SSH 명령 실행 및 결과 반환 헬퍼 함수"""
+        if not self.client: return ""
+        try:
+            stdin, stdout, stderr = self.client.exec_command(command)
+            return stdout.read().decode('utf-8').strip()
+        except:
+            return ""
+
+    # --- [KISA 진단 항목] ---
 
     def check_u01_root_login(self):
-        #[KISA U-01] root 계정 원격 접속 제한 점검
-        #판단기준: /etc/ssh/sshd_config 파일에서 'PermitRootLogin no' 설정 여부 확인
-        self.logger.info(f"[*] Checking U-01 (Root Login Restriction) on {self.host}...")
-        
-        # 주석(#) 제외하고 설정값 조회
-        cmd = "grep -i '^PermitRootLogin' /etc/ssh/sshd_config"
-        result = self.execute_command(cmd)
-
-        if not result:
-            # 설정이 아예 없으면 기본값이 OS마다 다르나, 보안상 명시적 설정을 권장하므로 '취약'으로 간주 가능
-            # 여기서는 '설정 미발견'으로 처리
-            self.logger.warning("   Result: [Warning] 'PermitRootLogin' setting not found (Default used).")
-            return "WARNING", "Configuration not explicitly set."
-
-        # 결과 파싱 (예: PermitRootLogin yes)
-        parts = result.split()
-        if len(parts) >= 2:
-            value = parts[1].lower()
-            if value == "no":
-                self.logger.info("   Result: [SAFE] Root login is disabled.")
-                return "SAFE", result
+        """[U-01] root 계정 원격 접속 제한"""
+        try:
+            # sshd_config 파일 내용을 읽어옴 (주석 제외)
+            cmd = "grep -i '^PermitRootLogin' /etc/ssh/sshd_config"
+            output = self.execute_command(cmd)
+            
+            if "no" in output.lower():
+                return "SAFE", f"설정 확인됨: {output}"
             else:
-                self.logger.warning(f"   Result: [VULNERABLE] Root login is allowed ({value}).")
-                return "VULNERABLE", result
-        
-        return "ERROR", "Parse Error"
+                return "VULNERABLE", f"취약한 설정: {output if output else '설정 없음(Default Yes)'}"
+        except Exception as e:
+            return "ERROR", str(e)
 
-# --- 테스트 코드 ---
-if __name__ == "__main__":
-    # 테스트할 리눅스 서버 정보 입력 (가상머신 또는 WSL)
-    target_ip = "192.168.0.10" 
-    target_user = "root"  # 또는 sudo 권한이 있는 계정
-    target_pw = "toor"
-    
-    inspector = SSHInspector(target_ip, username=target_user, password=target_pw)
-    
-    if inspector.connect():
-        print(f"\n--- Starting Audit for {target_ip} ---")
+    def check_u02_password_complexity(self):
+        """[U-02] 패스워드 복잡성 설정 (pwquality.conf or system-auth)"""
+        try:
+            # RHEL/CentOS 7 이상 기준 (pwquality.conf)
+            cmd = "cat /etc/security/pwquality.conf | grep -v '^#'"
+            output = self.execute_command(cmd)
+            
+            # 간단 체크: minlen(길이)과 minclass(문자종류) 확인
+            # 실제로는 더 복잡하지만 프로토타입용 로직
+            has_minlen = "minlen" in output
+            has_class = "minclass" in output or "dcredit" in output 
+            
+            if has_minlen and has_class:
+                return "SAFE", "패스워드 복잡성 설정이 확인되었습니다."
+            else:
+                return "VULNERABLE", "복잡성 설정(minlen, minclass 등)이 /etc/security/pwquality.conf에서 발견되지 않음"
+        except Exception as e:
+            return "ERROR", str(e)
+
+    def check_u03_account_lockout(self):
+        """[U-03] 계정 잠금 임계값 설정 (pam_tally2 or faillock)"""
+        try:
+            # system-auth 파일에서 deny=5 같은 설정 찾기
+            cmd = "grep -E 'pam_tally2|pam_faillock' /etc/pam.d/system-auth | grep 'deny='"
+            output = self.execute_command(cmd)
+            
+            if "deny=" in output:
+                # deny=5 설정 값을 추출해서 보여줌
+                return "SAFE", f"임계값 설정 확인됨: {output[:50]}..."
+            else:
+                return "VULNERABLE", "계정 잠금 정책(deny=N)이 설정되어 있지 않습니다."
+        except Exception as e:
+            return "ERROR", str(e)
+
+    def run_all_checks(self):
+        """모든 진단 함수를 한 번에 실행하고 딕셔너리로 반환"""
+        results = {}
         
-        # U-01 점검 수행
-        status, detail = inspector.check_u01_root_login()
-        print(f"U-01 Status: {status}")
-        print(f"Detail: {detail}")
+        # 1. U-01
+        status, detail = self.check_u01_root_login()
+        results['U-01'] = (status, detail)
         
-        inspector.close()
-    else:
-        print("SSH connection failed. Check IP or Creds.")
+        # 2. U-02
+        status, detail = self.check_u02_password_complexity()
+        results['U-02'] = (status, detail)
+        
+        # 3. U-03
+        status, detail = self.check_u03_account_lockout()
+        results['U-03'] = (status, detail)
+        
+        return results
