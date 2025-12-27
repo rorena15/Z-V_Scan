@@ -55,8 +55,7 @@ class ICMPScanner:
 if __name__ == "__main__":
     scanner = ICMPScanner()
     
-    # 테스트할 네트워크 대역 (본인 환경에 맞게 수정하세요)
-    # 예: 공유기 환경이라면 192.168.0.0/24 또는 172.30.1.0/24 등
+    # 테스트할 네트워크 대역
     target_network = "172.30.0.0/16" 
     
     print(f"[*] Scanning {target_network}...")
