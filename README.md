@@ -1,8 +1,8 @@
-# Z-Vuln-Watch: Enterprise Security Audit Platform 🛡️
+# Z-Vuln-Scan: Enterprise Security Audit Platform 🛡️
 
 ![Version](https://img.shields.io/badge/Version-v1.0_MVP-blue) ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white) ![Java](https://img.shields.io/badge/Dashboard-JSP-red) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
-**Asset-Watch**는 기업 네트워크 자산을 실시간으로 탐지하고, **KISA 주요정보통신기반시설 가이드라인**에 기반하여 서버의 보안 취약점을 자동으로 진단하는 **Agentless 보안 플랫폼**입니다.
+**Z-Vuln Scan**은 기업 네트워크 자산을 실시간으로 탐지하고, **KISA 주요정보통신기반시설 가이드라인**에 기반하여 서버의 보안 취약점을 자동으로 진단하는 **Agentless 보안 플랫폼**입니다.
 
 ---
 
