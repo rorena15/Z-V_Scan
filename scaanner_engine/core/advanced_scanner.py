@@ -1,6 +1,38 @@
 import logging
 from scapy.all import IP, ICMP, TCP, sr1, conf
 import socket
+import sys
+import os
+# 상위 디렉터리 모듈 import를 위한 경로 설정
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from utils.db_connector import DBConnector # DB 커넥터 임포트
+
+def run_full_scan(self, target_ip):
+    print(f"\n--- Scanning Target: {target_ip} ---")
+    
+        # DB 연결 객체 생성
+    db = DBConnector()
+    
+        # 1. 생존 확인
+    if not self.host_discovery(target_ip):
+        print(f"[-] Host {target_ip} seems down.")
+        return
+
+    # [DB 연동] 활성 자산 저장 (일단 OS는 Unknown으로 저장, 추후 OS 탐지 모듈 추가 시 업데이트)
+    asset_id = db.save_asset(target_ip, hostname="Detected_Host", os_type="Linux/Unknown")
+
+    if asset_id:
+        # 2. 포트 스캔
+        open_ports = self.syn_scan(target_ip)
+        
+            # 3. 배너 그래빙 및 DB 저장
+        for port in open_ports:
+            banner = self.grab_banner(target_ip, port)
+            
+            # [DB 연동] 포트 정보 저장
+            db.save_open_port(asset_id, port, banner)
+        
+        print("--- Scan & DB Save Completed ---")
 
 # Scapy 콘솔 출력 끄기
 conf.verb = 0
