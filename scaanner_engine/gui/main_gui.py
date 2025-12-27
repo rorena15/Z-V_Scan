@@ -223,12 +223,39 @@ class ScannerApp(QMainWindow):
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.start()
     def generate_pdf(self):
+        import subprocess
+        import sys
+        import os
+
         try:
-            gen = PDFGenerator()
-            filename = gen.generate_report()
-            self.log_message(f"[Report] PDF 문서가 생성되었습니다: {filename}")
-            QMessageBox.information(self, "성공", f"리포트 생성 완료!\n파일: {filename}")
+            self.log_message("[System] PDF 리포트 생성을 요청합니다...")
+            
+            # 1. 실행할 파일의 절대 경로 찾기
+            # 현재 main_gui.py가 있는 폴더에서 -> 상위 폴더(scanner_engine) -> output -> pdf_report.py
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(os.path.dirname(current_dir), 'output', 'pdf_report.py')
+            
+            # 2. subprocess로 실행 (터미널에서 python ... 입력하는 것과 동일한 효과)
+            # GUI가 멈추지 않게 별도 프로세스로 실행합니다.
+            if os.name == 'nt': # 윈도우의 경우
+                # creationflags=0x08000000 (CREATE_NO_WINDOW)를 쓰면 검은 창 없이 실행 가능하지만
+                # 디버깅을 위해 일단 기본값으로 둡니다.
+                process = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+            else: # 맥/리눅스
+                process = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+
+            # 3. 결과 확인
+            if process.returncode == 0:
+                self.log_message("[Success] " + process.stdout.strip()) # "Report Generated..." 메시지 출력
+                QMessageBox.information(self, "성공", "PDF 리포트가 성공적으로 생성되었습니다.\n프로젝트 폴더를 확인하세요.")
+            else:
+                # 에러가 났다면 그 이유를 로그창에 출력
+                error_msg = process.stderr.strip()
+                self.log_message(f"[Error] 생성 실패: {error_msg}")
+                QMessageBox.warning(self, "실패", f"PDF 생성 중 에러가 발생했습니다:\n{error_msg}")
+
         except Exception as e:
+            self.log_message(f"[Critical] 실행 오류: {str(e)}")
             QMessageBox.critical(self, "에러", str(e))
 
 if __name__ == '__main__':
