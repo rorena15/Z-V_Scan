@@ -240,7 +240,25 @@ class ScannerApp(QMainWindow):
         self.btn_stop = QPushButton("🛑 중지")
         self.btn_stop.setMinimumHeight(40)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("background-color: #ff9800; color: white; font-weight: bold;")
+        self.btn_stop.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9800; /* 활성화(True) 상태: 주황색 */
+                color: white;
+                font-weight: bold;
+                border-radius: 5px;
+            }
+            QPushButton:disabled {
+                background-color: #dddddd; /* 비활성화(False) 상태: 회색 */
+                color: #888888;            /* 텍스트도 흐리게 */
+                border: 1px solid #cccccc;
+            }
+            QPushButton:hover {
+                background-color: #e68900; /* 마우스 올렸을 때: 진한 주황 */
+            }
+            QPushButton:pressed {
+                background-color: #cc7a00; /* 눌렀을 때: 더 진한 색 */
+            }
+        """)
         self.btn_stop.clicked.connect(self.stop_scan)
 
         btn_layout.addWidget(self.btn_scan)
