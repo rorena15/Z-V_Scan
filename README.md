@@ -33,26 +33,30 @@
 
 ## 🛠️ System Architecture
 
+```
 Z-VulnScan_v2.0/
 ├── scanner_engine/           # [Python] 메인 엔진
 │   ├── core/
 │   │   ├── advanced_scanner.py  # 네트워크 스캔 & OS 탐지
 │   │   ├── ssh_inspector.py     # Linux 진단 모듈 (Paramiko)
+│   │   ├── audit_runner.py      # 취약점 모듈
+│   │   ├── icmp_scanner.py      # ICMP 기반 활성 진단 모듈
 │   │   └── windows_inspector.py # [NEW] Windows 진단 모듈 (PyWinRM)
 │   ├── gui/
 │   │   └── main_gui.py          # 통합 제어 패널 (PyQt5) & Smart Branching
 │   ├── utils/
+│   │   ├── check_db.py          # DB 점검 스크립트
 │   │   └── db_connector.py      # SQLite 내장 DB 핸들러 (Auto-Init)
 │   └── output/
 │       └── pdf_report.py        # 리포트 생성기 (ReportLab)
 └── zvuln_scan.db             # [SQLite] 로컬 데이터 저장소 (자동 생성)
----
+```
 
 ## 💻 Installation & Usage
 
 ### 1. Standalone Execution (권장)
-별도의 파이썬 설치 없이, 배포된 실행 파일(`Z-VulnScan.exe`)을 관리자 권한으로 실행하십시오.
-(Windows/Linux 스캔을 위해 네트워크 방화벽 오픈 필요: TCP 22, 5985)
+- 별도의 파이썬 설치 없이, 배포된 실행 파일(`Z-VulnScan.exe`)을 관리자 권한으로 실행하십시오.
+- (Windows/Linux 스캔을 위해 네트워크 방화벽 오픈 필요: TCP 22, 5985)
 
 ### 2. Run from Source (개발자용)
 #### Prerequisites
@@ -61,21 +65,29 @@ Z-VulnScan_v2.0/
 - (Windows 실행 시 Npcap 설치 권장)
 
 #### 실행 명령어
-```bash
+```
 python scanner_engine/gui/main_gui.py
+```
 ## ✅ Supported Audit List (KISA)
-###🐧 Linux Server (Unix 계열)
-- 코드    항목명  주요 점검 내용
-- U-01 root 원격 접속 제한sshd_config PermitRootLogin 설정 점검
-- U-02 패스워드 복잡성pwquality.conf 설정 점검
-- U-03 계정 잠금 임계값pam_tally2/faillock 설정 점검
-- ... ... ...
-- U-13 SUID/SGID 설정주요 시스템 파일의 권한 설정 진단
-##🪟 Windows Server (New!)
-코드 항목명  주요 점검 내용
-- W-01 Administrator 계정 이름기본 관리자 계정 이름 변경 및 활성화 여부
-- W-02 Guest 계정 상태Guest 계정 비활성화 여부 점검
-- W-03 불필요한 서비스Telnet, FTP 등 취약한 서비스 실행 여부
+
+- 🐧 Linux Server (Unix 계열)
+
+|  코드 | 항목명              | 주요 점검 내용                        |
+|--------|---------------------|---------------------------------------|
+| U-01 | root 원격 접속 제한 | sshd_config PermitRootLogin 설정 점검 |
+| U-02 | 패스워드 복잡성     | pwquality.conf 설정 점검              |
+| U-03 | 계정 잠금 임계값    | pam_tally2/faillock 설정 점검         |
+|  ...  | ...                 | ...                                   |
+|  U-13 | SUID/SGID 설정      | 주요 시스템 파일의 권한 설정 진단     |
+
+- 🪟 Windows Server (New!)
+
+| 코드 | 항목명             | 주요 점검 내용                                |
+|------|--------------------|-----------------------------------------------|
+| W-01 | Administrator 계정 | 이름기본 관리자 계정 이름 변경 및 활성화 여부 |
+| W-02 | Guest 계정 상태    | Guest 계정 비활성화 여부 점검                 |
+| W-03 | 불필요한 서비스    | Telnet, FTP 등 취약한 서비스 실행 여부        |
+
 ##🔮 Future Roadmap (Enterprise)
 - v3.0: Centralized Management (MySQL/MariaDB 연동 지원).
 - Web Dashboard: Java(JSP) 기반의 웹 관제 콘솔 제공 (Optional).
