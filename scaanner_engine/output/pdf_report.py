@@ -50,20 +50,18 @@ class PDFGenerator:
         c = canvas.Canvas(self.filename, pagesize=A4)
         width, height = A4
         
-        # 1. DB 데이터 조회
         db = DBConnector()
         conn = db.create_connection()
-
-        if not conn:
-            print("[Error] DB Connection Failed")
-            return
+        if not conn: return
 
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 자산별, 코드별 정렬 조회
+        # [수정] description, remediation 컬럼 추가 조회
         sql = """
-            SELECT A.ip_addr, A.hostname, V.code, V.name, R.status, R.detected_value, R.scan_date
+            SELECT A.ip_addr, A.hostname, V.code, V.name, 
+                V.description, V.remediation, 
+                R.status, R.detected_value
             FROM TBL_SCAN_RESULT R
             JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
             JOIN TBL_VULN_DEF V ON R.vuln_id = V.vuln_id
@@ -72,106 +70,113 @@ class PDFGenerator:
         cursor.execute(sql)
         rows = cursor.fetchall()
         
-        # 초기 페이지 설정
         self.draw_header(c, width, height)
         y = height - 100
         current_ip = None
         
-        # 반복문 시작
         for row in rows:
             ip = row['ip_addr']
             status = row['status']
             
-            # --- [섹션 1] IP가 바뀔 때마다 자산 헤더 출력 (그룹화) ---
+            # --- IP 그룹 헤더 (이전과 동일) ---
             if ip != current_ip:
-                # 페이지 공간 체크 (자산 헤더 + 내용 들어갈 공간 없으면 넘김)
                 if y < 150: 
                     c.showPage()
                     self.draw_header(c, width, height)
                     y = height - 100
-                
-                # 이전 IP와의 간격 띄우기 (첫 IP가 아니면)
                 if current_ip is not None:
                     y -= 20
                     c.setStrokeColorRGB(0.8, 0.8, 0.8)
-                    c.line(30, y, width - 30, y) # 구분선
+                    c.line(30, y, width - 30, y)
                     y -= 30
 
-                # 자산 정보 헤더 (박스 + 텍스트)
-                c.setFillColorRGB(0.95, 0.95, 0.95) # 회색 배경
+                c.setFillColorRGB(0.95, 0.95, 0.95)
                 c.rect(30, y-5, width-60, 25, fill=1, stroke=0)
-                
                 c.setFillColorRGB(0, 0, 0)
                 c.setFont(self.bold_font, 12)
                 hostname = row['hostname'] if row['hostname'] else "Unknown"
                 c.drawString(40, y+2, f"■ 대상 자산: {ip}  ({hostname})")
-                
                 current_ip = ip
-                y -= 30 # 한 칸 아래로
+                y -= 30
 
-            # --- [섹션 2] 취약점 항목 출력 ---
-            # 페이지 공간 체크
-            if y < 50:
+            # --- 진단 항목 출력 ---
+            is_vuln = status in ['VULNERABLE', '취약', 'Fail']
+            
+            if y < 120: # 상세 내용이 길기 때문에 여유 공간을 더 확보해야 함
                 c.showPage()
                 self.draw_header(c, width, height)
                 y = height - 100
-                # 페이지 넘겨도 현재 IP 맥락 유지용 헤더 표시
                 c.setFont(self.font_name, 9)
                 c.setFillColorRGB(0.5, 0.5, 0.5)
                 c.drawString(30, y, f"(Continue: {current_ip})")
                 y -= 20
 
-            # 스타일 설정 (취약 vs 양호)
-            is_vuln = status in ['VULNERABLE', '취약', 'Fail']
-            
             if is_vuln:
-                # [강조] 빨간색 + 굵은 글씨
                 c.setFillColorRGB(0.8, 0, 0) # Red
                 status_text = "[취약]"
                 c.setFont(self.bold_font, 10)
             else:
-                # [일반] 파란색/검은색 + 일반 글씨
                 c.setFillColorRGB(0, 0.4, 0.8) # Blue
                 status_text = "[양호]"
                 c.setFont(self.font_name, 10)
 
-            # 항목 제목 출력
-            # 예: [취약] U-01 root 계정 원격 접속 제한
             line = f"{status_text}  {row['code']} : {row['name']}"
             c.drawString(50, y, line)
             
-            # --- [섹션 3] 취약일 때만 상세 내용 출력 (가독성 UP) ---
+            # --- [핵심 추가] 취약 시 상세 가이드 출력 ---
             if is_vuln:
                 y -= 15
-                c.setFillColorRGB(0.3, 0.3, 0.3) # 진한 회색
+                
+                # 1. 현황 (detected_value)
+                c.setFont(self.bold_font, 9)
+                c.setFillColorRGB(0, 0, 0)
+                c.drawString(70, y, "• 진단 결과:")
+                
                 c.setFont(self.font_name, 9)
+                c.setFillColorRGB(0.3, 0.3, 0.3)
+                det_val = row['detected_value'] if row['detected_value'] else "-"
+                c.drawString(130, y, det_val[:70]) # 길이 제한
+                y -= 15
                 
-                # 상세 내용이 너무 길면 자르거나 줄바꿈 처리해야 하지만, 여기선 간단히 길이 제한
-                detail = row['detected_value'] if row['detected_value'] else "내용 없음"
+                # 2. 위험 설명 (Description)
+                c.setFont(self.bold_font, 9)
+                c.setFillColorRGB(0, 0, 0)
+                c.drawString(70, y, "• 위험도:")
                 
-                # 긴 텍스트 줄바꿈 처리 (간단 구현)
-                max_len = 80
-                while len(detail) > 0:
-                    chunk = detail[:max_len]
-                    detail = detail[max_len:]
-                    c.drawString(70, y, f"└ {chunk}")
+                c.setFont(self.font_name, 9)
+                c.setFillColorRGB(0.3, 0.3, 0.3)
+                desc = row['description'] if row['description'] else "설명 없음"
+                # 긴 텍스트 줄바꿈 (간단 처리)
+                if len(desc) > 70:
+                    c.drawString(130, y, desc[:70])
+                    y -= 12
+                    c.drawString(130, y, desc[70:140])
+                else:
+                    c.drawString(130, y, desc)
+                y -= 15
+                
+                # 3. 조치 방안 (Remediation) - 파란색 강조
+                c.setFont(self.bold_font, 9)
+                c.setFillColorRGB(0, 0.2, 0.8) # 진한 파랑
+                c.drawString(70, y, "• 조치 방안:")
+                
+                c.setFont(self.font_name, 9)
+                remed = row['remediation'] if row['remediation'] else "가이드 참조"
+                
+                # 조치 방안은 여러 줄일 수 있음 (\n 기준 분리)
+                lines = remed.split('\n')
+                for l in lines:
+                    c.drawString(130, y, l)
                     y -= 12
                     
-                    # 상세 내용 출력 중 페이지 넘어감 방지
-                    if y < 40:
-                        c.showPage()
-                        self.draw_header(c, width, height)
-                        y = height - 100
+                y -= 10 # 항목 간 추가 간격
             else:
-                # 양호일 때는 상세 내용 생략하거나 한 줄 띄우기만 함
-                y -= 20 # 다음 항목과의 간격
+                y -= 20
 
-        # 마무리
         cursor.close()
         conn.close()
         c.save()
         print(f"Report Generated: {os.path.abspath(self.filename)}")
-
 if __name__ == "__main__":
     gen = PDFGenerator()
     gen.generate()
