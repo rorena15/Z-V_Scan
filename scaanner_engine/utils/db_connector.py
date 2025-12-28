@@ -141,6 +141,18 @@ class DBConnector:
                     ('U-13', 'SetUID, SetGID, Sticky Bit 설정 파일 점검', 'Filesystem',
                     '불필요한 SetUID 파일은 권한 상승 공격의 주요 타겟이 됩니다.',
                     '주요 실행 파일 외 불필요한 SetUID 비트 제거 (chmod -s 파일명)')
+                    # --- Windows Server 진단 항목 (W-Type) ---
+                    ('W-01', 'Administrator 계정 이름 변경', 'Account', 
+                    '기본 관리자 계정(Administrator)을 그대로 사용할 경우, 공격자가 계정명을 이미 알고 있어 무차별 대입 공격(Brute Force)에 취약해집니다.', 
+                    '1. 제어판 > 관리 도구 > 로컬 보안 정책\n2. 로컬 정책 > 보안 옵션\n3. "계정: Administrator 계정 이름 바꾸기" 정책에서 추측하기 어려운 이름으로 변경'),
+
+                    ('W-02', 'Guest 계정 비활성화', 'Account', 
+                    'Guest 계정은 불특정 다수의 접근을 허용할 수 있어 보안상 매우 위험합니다. 사용하지 않는다면 반드시 비활성화해야 합니다.', 
+                    '1. 컴퓨터 관리(compmgmt.msc) > 로컬 사용자 및 그룹 > 사용자\n2. Guest 계정 우클릭 > 속성\n3. "계정 사용 안 함" 체크'),
+
+                    ('W-03', '불필요한 서비스 제거 (Telnet)', 'Service', 
+                    'Telnet은 데이터를 평문으로 전송하므로 패킷 스니핑 공격을 통해 계정 정보가 유출될 수 있습니다.', 
+                    '1. 서비스 관리자(services.msc) 실행\n2. Telnet 서비스 중지 및 시작 유형을 "사용 안 함"으로 설정\n3. 가급적 SSH 등 암호화된 프로토콜 사용 권장')
                 ]
                 
                 cursor.executemany("""
