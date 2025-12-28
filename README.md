@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/badge/Version-v2.0_Hybrid-blue) ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white) ![Build](https://img.shields.io/badge/Build-Standalone_EXE-green) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
-**Z-Vuln Scan**은 기업 내 이기종 서버(Linux/Windows) 환경을 지원하는 **하이브리드 보안 진단 자동화 도구**입니다.
+**Z-Vuln Scan**은 기업 내 이기종 서버(Linux/Windows) 환경을 지원하는 **하이브리드 보안 진단 자동화 도구**입니다.  
 **Agentless** 방식을 채택하여 별도의 설치 없이 즉시 실행 가능하며, **KISA 주요정보통신기반시설 가이드라인**에 기반한 정밀 진단을 수행합니다.
 
 > **v2.0 Update:** Windows 서버 진단(WinRM) 지원 및 자동 OS 식별 기능 탑재, Portable(.exe) 배포 최적화.
