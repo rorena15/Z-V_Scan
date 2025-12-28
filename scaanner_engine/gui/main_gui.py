@@ -161,7 +161,14 @@ class ScanWorker(QThread):
         try:
             if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
-                total_count = network.num_addresses # 카운트만 미리 계산
+                if network.prefixlen == 32:
+                    total_count = 1
+                elif network.prefixlen == 31:
+                    total_count = 2
+                else:
+                    # 일반적인 서브넷인 경우 네트워크, 브로드캐스트 2개 제외
+                    total_count = network.num_addresses - 2
+                
                 target_gen = network.hosts() # Generator 반환
             else:
                 total_count = 1
@@ -205,9 +212,13 @@ class ScanWorker(QThread):
                 
                 processed_count += 1
                 # 진행률 업데이트 (너무 잦은 emit 방지)
-                if processed_count % 5 == 0 or processed_count == total_count:
+                if total_count > 0:
                     progress = int((processed_count / total_count) * 100)
-                    self.progress_signal.emit(progress)
+                    # 너무 자주 업데이트하면 UI 버벅임 -> 5회마다 혹은 마지막에 전송
+                    if processed_count % 5 == 0 or processed_count >= total_count:
+                        self.progress_signal.emit(progress)
+        if not self.stop_flag:
+            self.progress_signal.emit(100)
 
         # 종료 처리
         self.writer_stop = True
@@ -383,6 +394,7 @@ class ScannerApp(QMainWindow):
 
     def scan_finished(self, msg):
         self.timer.stop()
+        self.pbar.setValue(100)
         final_min = self.elapsed_seconds // 60
         final_sec = self.elapsed_seconds % 60
         self.time_label.setText(f"✅ 완료 (소요 시간: {final_min:02d}:{final_sec:02d})")
