@@ -9,7 +9,6 @@ import ipaddress
 import threading
 import math
 import socket
-from core.windows_inspector import WindowsInspector
 
 # 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +28,7 @@ from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
 from utils.db_connector import DBConnector
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from core.windows_inspector import WindowsInspector
 
 def my_exception_hook(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
@@ -124,34 +124,81 @@ class ScanWorker(QThread):
 
     # --- [작업 2] Audit(취약점) 진단 단위 작업 ---
     def process_audit_scan(self, ip):
+        """OS 자동 식별 및 진단 모듈 분기 처리 (Smart Branching)"""
         if self.stop_flag: return
 
+        # --- [1. OS 식별 로직 (Port Heuristics)] ---
+        target_os = "Unknown"
+        
+        # 간단한 소켓 연결로 포트 개방 여부 확인 (Timeout 1초)
+        def check_port(target_ip, port):
+            try:
+                with socket.create_connection((target_ip, port), timeout=1):
+                    return True
+            except:
+                return False
+
+        # 우선순위: WinRM(5985)이 열려있으면 Windows로 판단
+        if check_port(ip, 5985):
+            target_os = "Windows"
+        # SSH(22)가 열려있으면 Linux로 판단
+        elif check_port(ip, 22):
+            target_os = "Linux"
+        else:
+            # 둘 다 닫혀있으면 진단 불가
+            self.log_signal.emit(f"[-] {ip} 진단 불가 (Port 22/5985 닫힘)")
+            return
+
+        # --- [2. OS별 진단 수행] ---
+        conn_success = False
+        results = {}
+        
         try:
-            inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
-            
-            if inspector.connect():
-                self.log_signal.emit(f"[+] SSH 접속 성공: {ip} (User: {self.user})")
-                results = inspector.run_all_checks()
-                # DB 저장은 Writer Queue를 타지 않고 직접 저장 (Audit은 결과가 복잡하여 로직 분리 추천되나, 여기선 직접 저장 유지)
-                # 단, DB Lock 방지를 위해 매번 생성/종료
-                db_local = DBConnector() 
-                asset_id = db_local.save_asset(ip, hostname="Audit_Target", os_type="Linux")
+            if target_os == "Windows":
+                self.log_signal.emit(f"[*] {ip} -> Windows 진단 모듈 가동 (WinRM)...")
+                # WindowsInspector 호출
+                inspector = WindowsInspector(ip, self.user, self.pw)
+                if inspector.connect():
+                    conn_success = True
+                    self.log_signal.emit(f"[+] WinRM 접속 성공: {ip}")
+                    results = inspector.run_all_checks()
+                else:
+                    self.log_signal.emit(f"[-] WinRM 접속 실패: {ip} (계정/설정 확인)")
+
+            elif target_os == "Linux":
+                self.log_signal.emit(f"[*] {ip} -> Linux 진단 모듈 가동 (SSH)...")
+                # SSHInspector 호출
+                inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
+                if inspector.connect():
+                    conn_success = True
+                    self.log_signal.emit(f"[+] SSH 접속 성공: {ip}")
+                    results = inspector.run_all_checks()
+                    inspector.close()
+                else:
+                    self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
+
+            # --- [3. 결과 DB 저장 (공통 로직)] ---
+            if conn_success and results:
+                # Audit 모드는 결과가 많으므로 별도 DB 커넥션 사용 (Lock 방지)
+                db_local = DBConnector()
+                
+                # 자산 정보 갱신 (OS 타입 확정 저장)
+                asset_id = db_local.save_asset(ip, hostname="Audit_Target", os_type=target_os)
                 
                 save_count = 0
                 if asset_id:
                     for code, (status, detail) in results.items():
+                        # DB에 진단 결과 저장
                         if db_local.save_scan_result(asset_id, code, status, detail):
                             save_count += 1
-                            # 로그 양이 너무 많으면 성능 저하되므로 취약한 것만 출력
-                            if status in ["VULNERABLE", "취약"]:
+                            # 취약한 항목만 로그 출력
+                            if status in ["VULNERABLE", "취약", "Fail"]:
                                 self.log_signal.emit(f"    ⚠️ [{ip}] {code} 취약!")
                 
-                self.log_signal.emit(f"    -> {ip} 진단 완료. (항목: {save_count}개)")
-                inspector.close()
-            else:
-                self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
+                self.log_signal.emit(f"    -> {ip} ({target_os}) 진단 완료. (항목: {save_count}개)")
+
         except Exception as e:
-            self.log_signal.emit(f"[Error] {ip} 진단 중 예외: {str(e)}")
+            self.log_signal.emit(f"[Error] {ip} 진단 중 치명적 오류: {str(e)}")
 
     def run(self):
         self.log_signal.emit(f"[*] 스캔 엔진 가동 (Net Threads: {self.max_threads}, Audit Threads: {self.audit_threads})")
