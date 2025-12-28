@@ -26,7 +26,7 @@ class SSHInspector:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             # 타임아웃을 2초로 짧게 잡음 (테스트 편의성)
-            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=2)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=2, banner_timeout=2)
             return True
         except Exception:
             # [핵심] 실제 연결 실패 시, 에러를 내는 게 아니라 시뮬레이션 모드로 전환

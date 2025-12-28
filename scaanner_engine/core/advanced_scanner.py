@@ -70,11 +70,14 @@ class AdvancedScanner:
                     detected_os = "Unknown (Error)"
                 except Exception:
                     detected_os = "Unknown"
-                except:
-                    pass
-
-        except Exception:
-            pass
+        except OSError as e:
+                    # 소켓 오류는 흔하므로 경고 레벨
+            print(f"[Warn] {ip} 스캔 중 소켓 오류: {e}")
+        except Exception as e:
+            # 그 외 오류는 상세 기록
+            import traceback
+            print(f"[Error] {ip} 스캔 중 예상치 못한 오류: {e}")
+            traceback.print_exc()
 
         return is_alive, detected_os
 
@@ -96,9 +99,19 @@ class AdvancedScanner:
                 if result == 0:
                     open_ports.append(port)
                 s.close()
-            except:
-                pass
-                
+            except OSError:
+                # [Errno 22] Invalid argument 발생 시 무시하고 넘어감
+                detected_os = "Unknown (Error)"
+            except Exception:
+                detected_os = "Unknown"
+            except OSError as e:
+                # 소켓 오류는 흔하므로 경고 레벨
+                print(f"[Warn] {ip} 스캔 중 소켓 오류: {e}")
+            except Exception as e:
+                # 그 외 오류는 상세 기록
+                import traceback
+                print(f"[Error] {ip} 스캔 중 예상치 못한 오류: {e}")
+                traceback.print_exc()
         return open_ports
 
     def grab_banner(self, ip, port):
