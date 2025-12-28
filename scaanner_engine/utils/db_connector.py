@@ -140,7 +140,7 @@ class DBConnector:
                     
                     ('U-13', 'SetUID, SetGID, Sticky Bit 설정 파일 점검', 'Filesystem',
                     '불필요한 SetUID 파일은 권한 상승 공격의 주요 타겟이 됩니다.',
-                    '주요 실행 파일 외 불필요한 SetUID 비트 제거 (chmod -s 파일명)')
+                    '주요 실행 파일 외 불필요한 SetUID 비트 제거 (chmod -s 파일명)'),
                     # --- Windows Server 진단 항목 (W-Type) ---
                     ('W-01', 'Administrator 계정 이름 변경', 'Account', 
                     '기본 관리자 계정(Administrator)을 그대로 사용할 경우, 공격자가 계정명을 이미 알고 있어 무차별 대입 공격(Brute Force)에 취약해집니다.', 
