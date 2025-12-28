@@ -294,9 +294,9 @@ class ScannerApp(QMainWindow):
         
         # 시뮬레이션 모드 테스트를 위해 IP가 localhost면 user/pw 검사 생략 가능
         if ip not in ["127.0.0.1", "localhost"] and (not user or not pw):
-             QMessageBox.warning(self, "경고", "실제 서버 진단을 위해 계정/비밀번호가 필요합니다.\n(localhost 입력 시 시뮬레이션 모드 동작)")
-             # 테스트 편의를 위해 리턴하지 않고 진행할 수도 있음 (여기선 리턴)
-             # return 
+            QMessageBox.warning(self, "경고", "실제 서버 진단을 위해 계정/비밀번호가 필요합니다.\n(localhost 입력 시 시뮬레이션 모드 동작)")
+            # 테스트 편의를 위해 리턴하지 않고 진행할 수도 있음 (여기선 리턴)
+            # return 
 
         self.reset_ui_state()
         self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
