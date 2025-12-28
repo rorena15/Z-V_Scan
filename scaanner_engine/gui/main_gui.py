@@ -8,6 +8,8 @@ import traceback
 import ipaddress
 import threading
 import math
+import socket
+from core.windows_inspector import WindowsInspector
 
 # 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
