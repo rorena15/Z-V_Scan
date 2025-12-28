@@ -126,10 +126,10 @@ class ScanWorker(QThread):
 
         try:
             inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
+            
             if inspector.connect():
-                self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
+                self.log_signal.emit(f"[+] SSH 접속 성공: {ip} (User: {self.user})")
                 results = inspector.run_all_checks()
-
                 # DB 저장은 Writer Queue를 타지 않고 직접 저장 (Audit은 결과가 복잡하여 로직 분리 추천되나, 여기선 직접 저장 유지)
                 # 단, DB Lock 방지를 위해 매번 생성/종료
                 db_local = DBConnector() 
@@ -149,7 +149,7 @@ class ScanWorker(QThread):
             else:
                 self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
         except Exception as e:
-            self.log_signal.emit(f"[Error] {ip} Audit 중 예외: {str(e)}")
+            self.log_signal.emit(f"[Error] {ip} 진단 중 예외: {str(e)}")
 
     def run(self):
         self.log_signal.emit(f"[*] 스캔 엔진 가동 (Net Threads: {self.max_threads}, Audit Threads: {self.audit_threads})")
