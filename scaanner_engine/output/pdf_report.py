@@ -18,6 +18,7 @@ class PDFGenerator:
         self.filename = "Security_Report.pdf"
         # [핵심] 한글 폰트 등록 (Windows 기준: 맑은 고딕)
         try:
+            # 폰트 경로는 배포 환경에 따라 수정이 필요할 수 있습니다.
             font_path = "C:/Windows/Fonts/malgun.ttf"
             if os.path.exists(font_path):
                 pdfmetrics.registerFont(TTFont('Malgun', font_path))
@@ -38,14 +39,19 @@ class PDFGenerator:
         c.setFont(self.font_name, 10)
         c.drawString(50, height - 80, "본 보고서는 KISA 주요정보통신기반시설 가이드라인을 기준으로 작성되었습니다.")
 
-        # 2. DB 데이터 조회
+        # 2. DB 데이터 조회 (SQLite 방식 적용)
         db = DBConnector()
-        if db.conn:
-            cursor = db.conn.cursor(dictionary=True)
+        conn = db.create_connection() # DBConnector의 메서드 호출
+
+        if conn:
+            # [수정 1] SQLite에서 컬럼명으로 접근하기 위한 설정 (dictionary=True 대체)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-            # 취약점 발견 현황 (Fail 항목만)
+            # [수정 2] 쿼리 수정 (V.title -> V.name)
+            # 앞서 db_connector.py에서 테이블 생성 시 컬럼명을 'name'으로 정의했으므로 일치시켜야 함
             sql = """
-                SELECT A.ip_addr, V.code, V.title, R.status, R.detected_value 
+                SELECT A.ip_addr, V.code, V.name, R.status, R.detected_value 
                 FROM TBL_SCAN_RESULT R
                 JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
                 JOIN TBL_VULN_DEF V ON R.vuln_id = V.vuln_id
@@ -61,29 +67,33 @@ class PDFGenerator:
             y -= 20
             
             for row in rows:
-                if y < 50: # 페이지 넘김 처리 (간단 구현)
+                if y < 50: # 페이지 넘김 처리
                     c.showPage()
                     c.setFont(self.font_name, 10)
                     y = height - 50
                 
                 # 색상 처리 (취약하면 빨강)
-                if row['status'] == 'VULNERABLE':
+                # 'VULNERABLE' 혹은 '취약' 상태일 때 빨간색 표시
+                if row['status'] in ['VULNERABLE', '취약']:
                     c.setFillColorRGB(1, 0, 0)
                 else:
                     c.setFillColorRGB(0, 0, 0)
-                    
-                line = f"[{row['code']}] {row['ip_addr']} - {row['title']} : {row['status']}"
+                
+                # [수정 3] row['title'] -> row['name'] 변경
+                line = f"[{row['code']}] {row['ip_addr']} - {row['name']} : {row['status']}"
                 c.drawString(50, y, line)
                 
                 # 상세 내용 (작게)
                 c.setFillColorRGB(0.3, 0.3, 0.3)
-                detail = f"   └ {row['detected_value'][:60]}..." # 길이 제한
+                # None 타입 방지를 위한 안전한 처리
+                det_val = row['detected_value'] if row['detected_value'] else ""
+                detail = f"   └ {det_val[:60]}..." 
                 c.drawString(50, y-12, detail)
                 
                 y -= 30
 
             cursor.close()
-            db.conn.close()
+            conn.close()
 
         c.save()
         print(f"Report Generated: {os.path.abspath(self.filename)}")
