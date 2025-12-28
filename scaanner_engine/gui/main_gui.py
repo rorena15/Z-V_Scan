@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                                 QTextEdit, QMessageBox, QGroupBox, QProgressBar
                             )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
 
 # [수정] 정확한 모듈 Import
@@ -183,7 +183,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-Vul Security Platform (SQLite Edition)')
+        self.setWindowTitle('Z-Vul Security Platform')
         self.setGeometry(100, 100, 800, 600)
         self.setStyleSheet("background-color: #f0f0f0;")
 
@@ -268,10 +268,34 @@ class ScannerApp(QMainWindow):
         layout.addLayout(btn_layout)
 
         # 프로그래스 바
+        progress_layout = QVBoxLayout()
+        # 1. 시간 표시 라벨 (우측 정렬)
+        self.time_label = QLabel("Ready")
+        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        self.time_label.setStyleSheet("color: #555; font-weight: bold; font-size: 12px;")
+        progress_layout.addWidget(self.time_label)
+
+        # 2. 프로그레스 바 (기존 코드 유지하되 스타일 조금 다듬기)
         self.pbar = QProgressBar(self)
         self.pbar.setValue(0)
-        self.pbar.setStyleSheet("QProgressBar { border: 1px solid grey; border-radius: 5px; text-align: center; } QProgressBar::chunk { background-color: #007bff; }")
-        layout.addWidget(self.pbar)
+        self.pbar.setTextVisible(True) # 퍼센트 글자 보이기
+        self.pbar.setFormat("%p%")     # 포맷 설정 (기본값)
+        self.pbar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #bbb;
+                border-radius: 5px;
+                text-align: center;
+                height: 25px;
+                background-color: #e0e0e0;
+            }
+            QProgressBar::chunk {
+                background-color: #007bff;
+                width: 20px;
+            }
+        """)
+        progress_layout.addWidget(self.pbar)
+        
+        layout.addLayout(progress_layout) # 메인 레이아웃에 추가
         
         # 로그 콘솔
         self.log_console = QTextEdit()
@@ -281,6 +305,22 @@ class ScannerApp(QMainWindow):
         layout.addWidget(self.log_console)
         central_widget.setLayout(layout)
         
+        #타이머 설정
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000) # 1000ms = 1초
+        self.timer.timeout.connect(self.update_timer_display)
+        self.elapsed_seconds = 0
+        
+    def update_timer_display(self):
+        self.elapsed_seconds += 1
+        
+        # 초 -> 분:초 변환
+        minutes = self.elapsed_seconds // 60
+        seconds = self.elapsed_seconds % 60
+        
+        # 텍스트 갱신 (예: ⏱️ 진행 시간: 02:15)
+        self.time_label.setText(f"진행 시간: {minutes:02d}:{seconds:02d}")
+        
     def update_progress(self, val):
         self.pbar.setValue(val)
 
@@ -288,6 +328,10 @@ class ScannerApp(QMainWindow):
         self.log_console.append(msg)
 
     def scan_finished(self, msg):
+        self.timer.stop() # [중요] 타이머 멈춤
+        final_min = self.elapsed_seconds // 60
+        final_sec = self.elapsed_seconds % 60
+        self.time_label.setText(f"완료 (소요 시간: {final_min:02d}:{final_sec:02d})")
         QMessageBox.information(self, "완료", msg)
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
@@ -300,6 +344,10 @@ class ScannerApp(QMainWindow):
             QMessageBox.warning(self, "경고", "IP 주소를 입력하세요.")
             return
         self.reset_ui_state()
+        self.elapsed_seconds = 0
+        self.time_label.setText("진행 시간: 00:00")
+        self.timer.start() # 타이머 START
+        
         self.worker = ScanWorker("NETWORK_SCAN", ip)
         self.connect_worker()
         self.worker.start()
@@ -317,6 +365,10 @@ class ScannerApp(QMainWindow):
             # return 
 
         self.reset_ui_state()
+        self.elapsed_seconds = 0
+        self.time_label.setText("진행 시간: 00:00")
+        self.timer.start() # 타이머 START
+        
         self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
         self.connect_worker()
         self.worker.start()
@@ -349,6 +401,7 @@ class ScannerApp(QMainWindow):
             
     def stop_scan(self):
         if hasattr(self, 'worker') and self.worker.isRunning():
+            self.timer.stop() # 중지 시에도 타이머 멈춤
             self.log_message("[!!!] 중지 요청 중...")
             self.worker.stop_flag = True
             self.btn_stop.setEnabled(False)
@@ -365,6 +418,25 @@ class ScannerApp(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.progress_signal.connect(self.update_progress)
+        
+    def closeEvent(self, event):
+        #[안전 종료] 창 닫기(X) 버튼을 눌렀을 때 호출됩니다.
+        #실행 중인 스레드가 있다면 멈추고 기다린 후 종료합니다.
+        # 워커 스레드가 존재하고, 현재 실행 중이라면
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.log_message("[System] 프로그램 종료 요청. 스레드를 정리 중입니다...")
+            
+            # 1. 스레드에게 멈추라고 신호 보냄
+            self.worker.stop_flag = True
+            
+            # 2. 스레드가 루프를 빠져나와 run()이 끝날 때까지 기다림 (Blocking)
+            # wait()를 안 하면 바로 종료되면서 에러가 다시 뜹니다.
+            # 2000ms(2초) 동안 기다려보고 안 꺼지면 강제 종료 (GUI 멈춤 방지)
+            if not self.worker.wait(2000):
+                self.worker.terminate() # 2초 뒤에도 안 꺼지면 강제 종료 (최후의 수단)
+                
+        # 3. 안전하게 이벤트 수락 (창 닫기 진행)
+        event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
