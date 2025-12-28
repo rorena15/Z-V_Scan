@@ -33,6 +33,7 @@ Asset-Watch/
 │   ├── core/
 │   │   ├── advanced_scanner.py  # 하이브리드 스캔 & OS 탐지
 │   │   ├── ssh_inspector.py     # SSH 기반 취약점 진단 (U-01~13)
+│   │   ├── windows_insctector.py# 윈도우 기반  진단
 │   │   └── audit_runner.py      # 통합 실행 모듈
 │   ├── gui/
 │   │   └── main_gui.py          # PyQt5 제어 패널 (Control Tower)
@@ -40,14 +41,14 @@ Asset-Watch/
 │       └── pdf_report.py        # PDF 리포트 생성기 (한글 폰트 내장)
 ├── webapp/                   # [Java] 웹 대시보드
 │   └── dashboard.jsp         # 실시간 통계 및 차트
-└── database/                 # [MySQL] 데이터베이스
+└── database/                 # 데이터베이스 스키마
     └── schema.sql            # 테이블 정의서
 
 ```
 ## 💻 Installation & Usage
 ### Prerequisites
-- Python3.10+, MySQL 8.0+, Java JDK & Tomcat 9.01. Python Engine Setup
-- (scapy, paramiko, mysql-connector-python, PyQt5, reportlab, python-dotenv)
+- Python3.10+, Java JDK & Tomcat 9.01. Python Engine Setup
+- (scapy, paramiko, PyQt5, reportlab, python-dotenv)
 
 ## 실행
 - python scanner_engine/gui/main_gui.py
