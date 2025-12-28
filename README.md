@@ -88,8 +88,10 @@ python scanner_engine/gui/main_gui.py
 | W-02 | Guest 계정 상태    | Guest 계정 비활성화 여부 점검                 |
 | W-03 | 불필요한 서비스    | Telnet, FTP 등 취약한 서비스 실행 여부        |
 
-##🔮 Future Roadmap (Enterprise)
+## 🔮 Future Roadmap (Enterprise)
 - v3.0: Centralized Management (MySQL/MariaDB 연동 지원).
 - Web Dashboard: Java(JSP) 기반의 웹 관제 콘솔 제공 (Optional).
 - CVE Scan: NVD 데이터베이스 연동을 통한 버전 기반 취약점(CVE) 스캔.
-###📝 License & Warning허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다. 본 도구는 인가된 자산에 대해서만 사용하십시오.Proprietary License: Copyright (c) 2025 rorena15. All rights reserved.
+### 📝 License & Warning허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.  
+#### 본 도구는 인가된 자산에 대해서만 사용하십시오.  
+#### Proprietary License: Copyright (c) 2025 rorena15. All rights reserved.
