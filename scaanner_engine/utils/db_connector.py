@@ -25,17 +25,15 @@ class DBConnector:
         return None
 
     def _init_database(self):
-        """테이블이 없을 경우 자동으로 생성하는 내부 메서드"""
+        """테이블 생성 및 초기 데이터(상세 설명/조치 방안 포함) 적재"""
         conn = self.create_connection()
-        if not conn:
-            return
+        if not conn: return
 
         try:
             cursor = conn.cursor()
-            # 성능 향상을 위한 WAL 모드 설정 (동시성 처리 유리)
             cursor.execute("PRAGMA journal_mode=WAL;")
 
-            # (1) 자산 테이블
+            # 1. 자산 테이블
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS TBL_ASSETS (
                     asset_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +45,7 @@ class DBConnector:
                 )
             """)
 
-            # (2) 오픈 포트 테이블
+            # 2. 오픈 포트 테이블
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS TBL_OPEN_PORTS (
                     port_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,17 +57,19 @@ class DBConnector:
                 )
             """)
 
-            # (3) 취약점 정의 테이블 (진단 항목)
+            # 3. 취약점 정의 테이블 (컬럼 추가: description, remediation)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS TBL_VULN_DEF (
                     vuln_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT UNIQUE,  -- 예: U-01
+                    code TEXT UNIQUE,
                     name TEXT,
-                    category TEXT
+                    category TEXT,
+                    description TEXT,  -- 왜 위험한지?
+                    remediation TEXT   -- 어떻게 고치는지?
                 )
             """)
 
-            # (4) 스캔 결과 테이블
+            # 4. 스캔 결과 테이블
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS TBL_SCAN_RESULT (
                     result_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,12 +83,70 @@ class DBConnector:
                 )
             """)
 
-            # [중요] 기초 데이터(U-01 ~ U-13) 자동 삽입 (테이블이 비어있을 경우)
+            # [핵심] 기초 데이터 적재 (설명 및 조치방안 포함)
             cursor.execute("SELECT count(*) FROM TBL_VULN_DEF")
             if cursor.fetchone()[0] == 0:
-                self.logger.info("[DB] Initializing default vulnerability codes (U-01~U-13)...")
-                base_vulns = [(f'U-{i:02d}', f'Check Item {i:02d}', 'System') for i in range(1, 14)]
-                cursor.executemany("INSERT INTO TBL_VULN_DEF (code, name, category) VALUES (?, ?, ?)", base_vulns)
+                self.logger.info("[DB] KISA 가이드 상세 데이터 초기화 중...")
+                
+                # (코드, 항목명, 카테고리, 위험설명, 조치방법)
+                vuln_data = [
+                    ('U-01', 'root 계정 원격 접속 제한', 'Account', 
+                    'root 계정으로 직접 로그인이 허용될 경우, 공격자가 무차별 대입 공격(Brute Force)을 통해 관리자 권한을 획득할 위험이 매우 높습니다.', 
+                    '1. /etc/ssh/sshd_config 파일 수정\n2. PermitRootLogin no 설정\n3. SSH 서비스 재시작 (systemctl restart sshd)'),
+                    
+                    ('U-02', '패스워드 복잡성 설정', 'Account', 
+                    '단순한 패스워드는 사전 대입 공격 등에 취약합니다. 영문, 숫자, 특수문자를 조합하여 설정해야 합니다.', 
+                    '/etc/security/pwquality.conf 파일에서 minlen=8, minclass=3 이상으로 설정하십시오.'),
+                    
+                    ('U-03', '계정 잠금 임계값 설정', 'Account', 
+                    '로그인 실패 시 계정을 잠그지 않으면 공격자가 비밀번호를 맞출 때까지 무한정 시도할 수 있습니다.', 
+                    '/etc/pam.d/system-auth 파일에 auth required pam_tally2.so deny=5 unlock_time=120 설정 추가'),
+                    
+                    ('U-04', '/etc/shadow 파일 소유자 및 권한 설정', 'Filesystem',
+                    'shadow 파일에는 암호화된 패스워드가 저장되어 있어 유출 시 복호화 공격에 노출될 수 있습니다.',
+                    '1. 소유자: root로 변경 (chown root /etc/shadow)\n2. 권한: 400으로 변경 (chmod 400 /etc/shadow)'),
+                    
+                    ('U-05', 'PATH 환경변수 점검', 'System',
+                    'PATH에 ".(현재 디렉토리)"가 포함되면, 공격자가 악의적인 파일을 실행하도록 유도할 수 있습니다.',
+                    '/etc/profile 등 설정 파일에서 PATH 변수에 "." 또는 "::" 제거'),
+                    
+                    ('U-06', '소유자 없는 파일 및 디렉터리 관리', 'Filesystem',
+                    '소유자가 존재하지 않는 파일은 관리가 되지 않아 공격자가 이를 악용하거나 변조할 수 있습니다.',
+                    'find / -nouser -o -nogroup 명령으로 파일 식별 후 삭제하거나 소유자 지정'),
+                    
+                    ('U-07', '/etc/passwd 파일 소유자 및 권한 설정', 'Filesystem',
+                    'passwd 파일의 권한이 개방되어 있으면 계정 정보를 탈취당할 수 있습니다.',
+                    'chmod 644 /etc/passwd 및 chown root /etc/passwd 수행'),
+                    
+                    ('U-08', '/etc/shadow 파일 소유자 및 권한 설정', 'Filesystem',
+                    '(중복 항목) shadow 파일 보호는 필수적입니다.',
+                    'chmod 400 /etc/shadow 수행'),
+                    
+                    ('U-09', '/etc/hosts 파일 소유자 및 권한 설정', 'Filesystem',
+                    'hosts 파일 변조 시 피싱 사이트로 유도되는 파밍 공격에 노출될 수 있습니다.',
+                    'chmod 600 /etc/hosts 및 소유자 root 확인'),
+                    
+                    ('U-10', '/etc/xinetd.conf 파일 소유자 및 권한 설정', 'Service',
+                    '서비스 설정 파일이 변조되면 백도어 포트가 열릴 수 있습니다.',
+                    'chmod 600 /etc/xinetd.conf 수행'),
+                    
+                    ('U-11', '/etc/rsyslog.conf 파일 소유자 및 권한 설정', 'Log',
+                    '로그 설정이 변조되면 침해 사고 발생 시 추적이 불가능해집니다.',
+                    'chmod 644 /etc/rsyslog.conf 수행'),
+                    
+                    ('U-12', '/etc/services 파일 소유자 및 권한 설정', 'Service',
+                    '포트와 서비스 매핑 정보가 변조되면 정상 서비스가 방해받을 수 있습니다.',
+                    'chmod 644 /etc/services 수행'),
+                    
+                    ('U-13', 'SetUID, SetGID, Sticky Bit 설정 파일 점검', 'Filesystem',
+                    '불필요한 SetUID 파일은 권한 상승 공격의 주요 타겟이 됩니다.',
+                    '주요 실행 파일 외 불필요한 SetUID 비트 제거 (chmod -s 파일명)')
+                ]
+                
+                cursor.executemany("""
+                    INSERT INTO TBL_VULN_DEF (code, name, category, description, remediation) 
+                    VALUES (?, ?, ?, ?, ?)
+                """, vuln_data)
 
             conn.commit()
         except sqlite3.Error as e:
