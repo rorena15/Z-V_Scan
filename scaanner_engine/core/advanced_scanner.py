@@ -3,6 +3,7 @@
 # Proprietary License - No redistribution or modification without permission.
 import logging
 import socket
+import time
 import sys
 import os
 import subprocess
@@ -56,11 +57,19 @@ class AdvancedScanner:
                 # 여기가 병목이 되지 않도록 타임아웃을 짧게 설정
                 try:
                     with scapy_lock:
+                        # sr1 호출 전 아주 짧은 대기 (OS 파일 핸들 정리 시간 확보)
+                        time.sleep(0.01)
                         ans = sr1(IP(dst=ip)/ICMP(), timeout=0.5, verbose=0)
+                    
                     if ans and IP in ans:
                         detected_os = self.estimate_os(ans[IP].ttl)
                     else:
                         detected_os = "Unknown (Firewall)"
+                except OSError:
+                    # [Errno 22] Invalid argument 발생 시 무시하고 넘어감
+                    detected_os = "Unknown (Error)"
+                except Exception:
+                    detected_os = "Unknown"
                 except:
                     pass
 
@@ -80,7 +89,7 @@ class AdvancedScanner:
             try:
                 # 표준 소켓 사용 (스레드 안전)
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.3) # 0.3초 타임아웃
+                s.settimeout(0.2) # 0.3초 타임아웃
                 
                 # connect_ex는 성공 시 0 반환
                 result = s.connect_ex((ip, port))

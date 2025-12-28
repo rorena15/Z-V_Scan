@@ -3,8 +3,10 @@
 # Proprietary License - No redistribution or modification without permission.
 import sys
 import os
+import queue
 import traceback
 import ipaddress
+import threading
 
 # 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,10 +21,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
 
-# [수정] 정확한 모듈 Import
+# 정확한 모듈 Import
 from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
-from utils.db_connector import DBConnector  # [중요] utils에서 직접 가져옴
+from utils.db_connector import DBConnector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def my_exception_hook(exctype, value, tb):
@@ -41,6 +43,7 @@ class ScanWorker(QThread):
     log_signal = pyqtSignal(str)
     finish_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
+    started_signal = pyqtSignal(int)
 
     def __init__(self, mode, target_input, user=None, pw=None, key_path=None):
         super().__init__()
@@ -48,54 +51,71 @@ class ScanWorker(QThread):
         self.target_input = target_input
         self.user = user
         self.pw = pw
-        self.stop_flag = False 
-        self.max_threads = 50
+        self.stop_flag = False
+        self.max_threads = 20
         self.key_path = key_path
-        
+        self.db_queue = queue.Queue()  # DB 쓰기 큐
+        self.writer_thread = None
+        self.writer_stop = False
+
     def process_single_ip(self, ip):
-        """[네트워크 스캔] 포트 스캔 및 자산 식별"""
-        if self.stop_flag: return
+        if self.stop_flag:
+            return
 
         scanner = AdvancedScanner()
-        db = None 
-
         try:
             is_alive, os_type = scanner.host_discovery(ip)
+            if not is_alive:
+                return
 
-            if is_alive:
-                # DB 연결
-                db = DBConnector()
-                
-                # [DB] 자산 정보 저장
-                asset_id = db.save_asset(ip, hostname="Scanned_Asset", os_type=os_type)
+            # DB 쓰기 대신 Queue에 넣음
+            self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
 
-                # 포트 스캔
-                open_ports = scanner.syn_scan(ip)
-                if open_ports:
-                    port_str = ", ".join(map(str, open_ports))
-                    self.log_signal.emit(f"[+] {ip} ({os_type}) -> Ports: {port_str}")
-                
-                    # [DB] 포트 정보 저장
-                    for port in open_ports:
-                        banner = scanner.grab_banner(ip, port)
-                        db.save_open_port(asset_id, port, banner)
+            open_ports = scanner.syn_scan(ip)
+            if open_ports:
+                port_str = ", ".join(map(str, open_ports))
+                self.log_signal.emit(f"[+] {ip} ({os_type}) -> Ports: {port_str}")
+
+                for port in open_ports:
+                    banner = scanner.grab_banner(ip, port)
+                    self.db_queue.put(('save_open_port', ip, port, banner))  # asset_id 대신 ip로 임시 저장 (Writer에서 처리)
 
         except Exception as e:
-            pass # 로그 너무 많아 생략
-            
+            pass
+
+    def db_writer(self):
+        """단일 스레드에서 Queue에서 꺼내 DB에 쓰기"""
+        db = DBConnector()
+        try:
+            while not self.writer_stop:
+                try:
+                    item = self.db_queue.get(timeout=1)
+                    if item[0] == 'save_asset':
+                        _, ip, hostname, os_type = item
+                        asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
+                        # asset_id를 나중에 포트 저장에 사용할 수 있도록 (임시로 dict에 저장)
+                        self.asset_ids[ip] = asset_id
+                    elif item[0] == 'save_open_port':
+                        _, ip, port, banner = item
+                        asset_id = self.asset_ids.get(ip)
+                        if asset_id:
+                            db.save_open_port(asset_id, port, banner)
+                except queue.Empty:
+                    continue
+                except Exception as e:
+                    self.log_signal.emit(f"[DB Writer Error] {str(e)}")
         finally:
-            if db and hasattr(db, 'create_connection'): # DBConnector 안전 종료
-                pass # SQLite는 with문이나 명시적 close가 필요 없을 수도 있으나, 커넥터 구현에 따름
+            db.conn.close()  # 안전 종료
 
     def run(self):
         self.log_signal.emit(f"[*] 스캔 엔진 가동 (Max Threads: {self.max_threads})...")
-        
+        self.log_signal.emit(f"[*] 대상 IP 리스트를 계산 중입니다...")
+
         target_list = []
         try:
-            if "/" in self.target_input: 
+            if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
                 target_list = [str(ip) for ip in network.hosts()]
-                self.log_signal.emit(f"[*] 대상 네트워크 로드 완료: {len(target_list)}개 IP")
             else:
                 target_list = [self.target_input]
         except ValueError:
@@ -104,72 +124,70 @@ class ScanWorker(QThread):
             return
 
         total_count = len(target_list)
-        processed_count = 0
-        self.progress_signal.emit(0)
+        self.log_signal.emit(f"[*] 대상 식별 완료: {total_count}개 IP")
+        self.started_signal.emit(total_count)
 
-        # --- [모드 1] 네트워크 스캔 (Port Scan) ---
+        # asset_id 저장용 dict (ip -> asset_id)
+        self.asset_ids = {}
+
+        # DB Writer 스레드 시작
+        self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
+        self.writer_thread.start()
+
+        processed_count = 0
+
         if self.mode == "NETWORK_SCAN":
             with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
                 futures = {executor.submit(self.process_single_ip, ip): ip for ip in target_list}
-                
+
                 for future in as_completed(futures):
                     if self.stop_flag:
-                        executor.shutdown(wait=False)
-                        break 
+                        executor.shutdown(wait=True)  # 완전 종료 대기
+                        break
                     processed_count += 1
-                    if processed_count % 5 == 0 or processed_count == total_count:
-                        self.progress_signal.emit(int((processed_count / total_count) * 100))
+                    progress_percent = int((processed_count / total_count) * 100)
+                    self.progress_signal.emit(progress_percent)
 
-        # --- [모드 2] 취약점 정밀 진단 (Audit) ---
         elif self.mode == "AUDIT_VULN":
-            self.log_signal.emit(f"[*] KISA 기반 정밀 보안 진단 시작 ({len(target_list)} Hosts)...")
-            
+            self.log_signal.emit(f"[*] KISA 기반 정밀 보안 진단 시작 ({total_count} Hosts)...")
             for ip in target_list:
-                if self.stop_flag: break
-                
+                if self.stop_flag:
+                    break
                 try:
-                    # 1. SSH 연결 시도
                     inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
                     if inspector.connect():
                         self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
-                        
-                        # 2. 전체 진단 수행
                         results = inspector.run_all_checks()
-                        
-                        # 3. DB 저장
+
                         db = DBConnector()
-                        # 자산 ID 확보 (중요)
                         asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
-                        
-                        if not asset_id:
-                            self.log_signal.emit(f"[Error] DB 자산 등록 실패: {ip}")
-                            continue
-
-                        save_count = 0
-                        for code, (status, detail) in results.items():
-                            # [핵심] 결과 저장 호출
-                            success = db.save_scan_result(asset_id, code, status, detail)
-                            
-                            if success:
-                                save_count += 1
-                                if status == "VULNERABLE" or status == "취약":
-                                    self.log_signal.emit(f"    ⚠️ [{code}] 취약: {detail}")
-                                else:
-                                    self.log_signal.emit(f"    ✅ [{code}] 양호: {detail}")
-                            else:
-                                self.log_signal.emit(f"    [!] DB 저장 실패: {code} (DBConnector 확인 필요)")
-
-                        self.log_signal.emit(f"    -> {ip} 진단 완료. (저장된 항목: {save_count}개)")
+                        if asset_id:
+                            self.asset_ids[ip] = asset_id
+                            save_count = 0
+                            for code, (status, detail) in results.items():
+                                success = db.save_scan_result(asset_id, code, status, detail)
+                                if success:
+                                    save_count += 1
+                                    if status in ["VULNERABLE", "취약"]:
+                                        self.log_signal.emit(f"    ⚠️ [{code}] 취약: {detail}")
+                                    else:
+                                        self.log_signal.emit(f"    ✅ [{code}] 양호: {detail}")
+                            self.log_signal.emit(f"    -> {ip} 진단 완료. (저장된 항목: {save_count}개)")
                         inspector.close()
-
+                        db.conn.close()  # AUDIT 모드는 별도 DB 연결 사용
                     else:
-                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip} (계정/방화벽/시뮬레이션 모드 확인)")
-                
+                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
                 except Exception as e:
                     self.log_signal.emit(f"[Error] {ip} 진단 중 예외 발생: {str(e)}")
 
                 processed_count += 1
-                self.progress_signal.emit(int((processed_count / total_count) * 100))
+                progress_percent = int((processed_count / total_count) * 100)
+                self.progress_signal.emit(progress_percent)
+
+        # 작업 종료 후 Queue 비우기
+        self.writer_stop = True
+        if self.writer_thread:
+            self.writer_thread.join(timeout=5)  # 최대 5초 대기
 
         if self.stop_flag:
             self.finish_signal.emit("작업이 강제 중단되었습니다.")
@@ -180,10 +198,11 @@ class ScanWorker(QThread):
 class ScannerApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.worker = None # 워커 초기화
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-Vul Security Platform')
+        self.setWindowTitle('Z-Vuln Security Platform')
         self.setGeometry(100, 100, 800, 600)
         self.setStyleSheet("background-color: #f0f0f0;")
 
@@ -242,21 +261,21 @@ class ScannerApp(QMainWindow):
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet("""
             QPushButton {
-                background-color: #ff9800; /* 활성화(True) 상태: 주황색 */
+                background-color: #ff9800; 
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
             }
             QPushButton:disabled {
-                background-color: #dddddd; /* 비활성화(False) 상태: 회색 */
-                color: #888888;            /* 텍스트도 흐리게 */
+                background-color: #dddddd;
+                color: #888888;
                 border: 1px solid #cccccc;
             }
             QPushButton:hover {
-                background-color: #e68900; /* 마우스 올렸을 때: 진한 주황 */
+                background-color: #e68900;
             }
             QPushButton:pressed {
-                background-color: #cc7a00; /* 눌렀을 때: 더 진한 색 */
+                background-color: #cc7a00;
             }
         """)
         self.btn_stop.clicked.connect(self.stop_scan)
@@ -269,17 +288,15 @@ class ScannerApp(QMainWindow):
 
         # 프로그래스 바
         progress_layout = QVBoxLayout()
-        # 1. 시간 표시 라벨 (우측 정렬)
         self.time_label = QLabel("Ready")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
         self.time_label.setStyleSheet("color: #555; font-weight: bold; font-size: 12px;")
         progress_layout.addWidget(self.time_label)
 
-        # 2. 프로그레스 바 (기존 코드 유지하되 스타일 조금 다듬기)
         self.pbar = QProgressBar(self)
         self.pbar.setValue(0)
-        self.pbar.setTextVisible(True) # 퍼센트 글자 보이기
-        self.pbar.setFormat("%p%")     # 포맷 설정 (기본값)
+        self.pbar.setTextVisible(True)
+        self.pbar.setFormat("%p%")
         self.pbar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #bbb;
@@ -295,7 +312,7 @@ class ScannerApp(QMainWindow):
         """)
         progress_layout.addWidget(self.pbar)
         
-        layout.addLayout(progress_layout) # 메인 레이아웃에 추가
+        layout.addLayout(progress_layout)
         
         # 로그 콘솔
         self.log_console = QTextEdit()
@@ -305,21 +322,36 @@ class ScannerApp(QMainWindow):
         layout.addWidget(self.log_console)
         central_widget.setLayout(layout)
         
-        #타이머 설정
+        # 타이머 설정
         self.timer = QTimer(self)
-        self.timer.setInterval(1000) # 1000ms = 1초
+        self.timer.setInterval(1000)
         self.timer.timeout.connect(self.update_timer_display)
         self.elapsed_seconds = 0
         
     def update_timer_display(self):
         self.elapsed_seconds += 1
         
-        # 초 -> 분:초 변환
-        minutes = self.elapsed_seconds // 60
-        seconds = self.elapsed_seconds % 60
+        # 1. 경과 시간 포맷팅
+        e_min = self.elapsed_seconds // 60
+        e_sec = self.elapsed_seconds % 60
+        elapsed_str = f"{e_min:02d}:{e_sec:02d}"
         
-        # 텍스트 갱신 (예: ⏱️ 진행 시간: 02:15)
-        self.time_label.setText(f"진행 시간: {minutes:02d}:{seconds:02d}")
+        # 2. ETA 계산
+        current_progress = self.pbar.value()
+        eta_str = "계산 중..."
+        
+        if current_progress > 0:
+            total_estimated_seconds = self.elapsed_seconds / (current_progress / 100)
+            remaining_seconds = total_estimated_seconds - self.elapsed_seconds
+            
+            if remaining_seconds < 0: remaining_seconds = 0
+            
+            r_min = int(remaining_seconds // 60)
+            r_sec = int(remaining_seconds % 60)
+            eta_str = f"{r_min:02d}:{r_sec:02d}"
+
+        # 3. 라벨 업데이트 (아이콘 포함)
+        self.time_label.setText(f" 경과: {elapsed_str}  |  남은 시간: {eta_str}")
         
     def update_progress(self, val):
         self.pbar.setValue(val)
@@ -328,10 +360,10 @@ class ScannerApp(QMainWindow):
         self.log_console.append(msg)
 
     def scan_finished(self, msg):
-        self.timer.stop() # [중요] 타이머 멈춤
+        self.timer.stop()
         final_min = self.elapsed_seconds // 60
         final_sec = self.elapsed_seconds % 60
-        self.time_label.setText(f"완료 (소요 시간: {final_min:02d}:{final_sec:02d})")
+        self.time_label.setText(f"✅ 완료 (소요 시간: {final_min:02d}:{final_sec:02d})")
         QMessageBox.information(self, "완료", msg)
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
@@ -344,9 +376,7 @@ class ScannerApp(QMainWindow):
             QMessageBox.warning(self, "경고", "IP 주소를 입력하세요.")
             return
         self.reset_ui_state()
-        self.elapsed_seconds = 0
-        self.time_label.setText("진행 시간: 00:00")
-        self.timer.start() # 타이머 START
+        self.time_label.setText("설정 로드 및 대상 계산 중...")
         
         self.worker = ScanWorker("NETWORK_SCAN", ip)
         self.connect_worker()
@@ -356,18 +386,14 @@ class ScannerApp(QMainWindow):
         ip = self.ip_input.text()
         user = self.user_input.text()
         pw = self.pw_input.text()
-        key = self.key_input.text() # 키 입력 추가
+        key = self.key_input.text()
         
-        # 시뮬레이션 모드 테스트를 위해 IP가 localhost면 user/pw 검사 생략 가능
         if ip not in ["127.0.0.1", "localhost"] and (not user or not pw):
             QMessageBox.warning(self, "경고", "실제 서버 진단을 위해 계정/비밀번호가 필요합니다.\n(localhost 입력 시 시뮬레이션 모드 동작)")
-            # 테스트 편의를 위해 리턴하지 않고 진행할 수도 있음 (여기선 리턴)
             # return 
 
         self.reset_ui_state()
-        self.elapsed_seconds = 0
-        self.time_label.setText("진행 시간: 00:00")
-        self.timer.start() # 타이머 START
+        self.time_label.setText("SSH 모듈 초기화 및 대상 계산 중...")
         
         self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
         self.connect_worker()
@@ -380,7 +406,6 @@ class ScannerApp(QMainWindow):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             script_path = os.path.join(os.path.dirname(current_dir), 'output', 'pdf_report.py')
             
-            # 윈도우 검은창 숨기기
             startupinfo = None
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
@@ -401,7 +426,7 @@ class ScannerApp(QMainWindow):
             
     def stop_scan(self):
         if hasattr(self, 'worker') and self.worker.isRunning():
-            self.timer.stop() # 중지 시에도 타이머 멈춤
+            self.timer.stop()
             self.log_message("[!!!] 중지 요청 중...")
             self.worker.stop_flag = True
             self.btn_stop.setEnabled(False)
@@ -418,25 +443,21 @@ class ScannerApp(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.progress_signal.connect(self.update_progress)
+        self.worker.started_signal.connect(self.handle_scan_started)
         
     def closeEvent(self, event):
-        #[안전 종료] 창 닫기(X) 버튼을 눌렀을 때 호출됩니다.
-        #실행 중인 스레드가 있다면 멈추고 기다린 후 종료합니다.
-        # 워커 스레드가 존재하고, 현재 실행 중이라면
-        if hasattr(self, 'worker') and self.worker.isRunning():
+        if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
             self.log_message("[System] 프로그램 종료 요청. 스레드를 정리 중입니다...")
-            
-            # 1. 스레드에게 멈추라고 신호 보냄
             self.worker.stop_flag = True
-            
-            # 2. 스레드가 루프를 빠져나와 run()이 끝날 때까지 기다림 (Blocking)
-            # wait()를 안 하면 바로 종료되면서 에러가 다시 뜹니다.
-            # 2000ms(2초) 동안 기다려보고 안 꺼지면 강제 종료 (GUI 멈춤 방지)
             if not self.worker.wait(2000):
-                self.worker.terminate() # 2초 뒤에도 안 꺼지면 강제 종료 (최후의 수단)
-                
-        # 3. 안전하게 이벤트 수락 (창 닫기 진행)
+                self.worker.terminate()
         event.accept()
+
+    def handle_scan_started(self, total_count):
+        self.log_message(f"[System] 실제 진단을 시작합니다. (대상: {total_count}개)")
+        self.elapsed_seconds = 0
+        self.time_label.setText(" 진행 시간: 00:00 | 남은 시간: 계산 중...")
+        self.timer.start()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
