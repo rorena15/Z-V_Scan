@@ -53,25 +53,59 @@ class ScanWorker(QThread):
         self.user = user
         self.pw = pw
         self.stop_flag = False
-        self.max_threads = 20
+        self.max_threads = 20  # 네트워크 스캔용 스레드
+        self.audit_threads = 5 # SSH 연결용 스레드 (너무 많으면 차단당함)
         self.key_path = key_path
-        self.db_queue = queue.Queue()  # DB 쓰기 큐
+        self.db_queue = queue.Queue()
         self.writer_thread = None
         self.writer_stop = False
+        self.asset_ids = {} # 스레드 간 공유 자원 (주의 필요)
+        self.lock = threading.Lock() # asset_ids 접근 보호용
 
-    def process_single_ip(self, ip):
-        if self.stop_flag:
-            return
+    # --- [공통] DB Writer (수정됨: finally 제거) ---
+    def db_writer(self):
+        db = DBConnector()
+        while not self.writer_stop:
+            try:
+                item = self.db_queue.get(timeout=1)
+                
+                if item[0] == 'save_asset':
+                    _, ip, hostname, os_type = item
+                    # 내부적으로 connect/close 하므로 안전
+                    asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
+                    with self.lock: # 딕셔너리 쓰기 보호
+                        self.asset_ids[ip] = asset_id
 
+                elif item[0] == 'save_open_port':
+                    _, ip, port, banner = item
+                    # asset_id가 아직 딕셔너리에 없을 수 있으므로 잠시 대기 혹은 재시도 로직 필요하나
+                    # 구조상 asset 저장 후 포트 저장이 오므로 락만 걸면 대부분 해결
+                    asset_id = None
+                    with self.lock:
+                        asset_id = self.asset_ids.get(ip)
+                    
+                    if asset_id:
+                        db.save_open_port(asset_id, port, banner)
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.log_signal.emit(f"[DB Writer Error] {str(e)}")
+
+    # --- [작업 1] 네트워크 스캔 단위 작업 ---
+    def process_network_scan(self, ip):
+        if self.stop_flag: return
+        
         scanner = AdvancedScanner()
         try:
+            # 1. 생존 확인 (Ping/ARP)
             is_alive, os_type = scanner.host_discovery(ip)
             if not is_alive:
                 return
 
-            # DB 쓰기 대신 Queue에 넣음
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
 
+            # 2. 포트 스캔
             open_ports = scanner.syn_scan(ip)
             if open_ports:
                 port_str = ", ".join(map(str, open_ports))
@@ -79,120 +113,109 @@ class ScanWorker(QThread):
 
                 for port in open_ports:
                     banner = scanner.grab_banner(ip, port)
-                    self.db_queue.put(('save_open_port', ip, port, banner))  # asset_id 대신 ip로 임시 저장 (Writer에서 처리)
+                    self.db_queue.put(('save_open_port', ip, port, banner))
 
+        except OSError as e:
+            self.log_signal.emit(f"[!] {ip} 스캔 중 OS 오류: {e}")
         except Exception as e:
-            pass
+            self.log_signal.emit(f"[!] {ip} 알 수 없는 오류: {e}")
 
-    def db_writer(self):
-        """단일 스레드에서 Queue에서 꺼내 DB에 쓰기"""
-        db = DBConnector()
-        
-        while not self.writer_stop:
-            try:
-                item = self.db_queue.get(timeout=1)
-                if item[0] == 'save_asset':
-                    _, ip, hostname, os_type = item
-                    asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
-                    # asset_id를 나중에 포트 저장에 사용할 수 있도록 (임시로 dict에 저장)
-                    self.asset_ids[ip] = asset_id
-                elif item[0] == 'save_open_port':
-                    _, ip, port, banner = item
-                    asset_id = self.asset_ids.get(ip)
-                    if asset_id:
-                        db.save_open_port(asset_id, port, banner)
-            except queue.Empty:
-                continue
-            except Exception as e:
-                self.log_signal.emit(f"[DB Writer Error] {str(e)}")
+    # --- [작업 2] Audit(취약점) 진단 단위 작업 ---
+    def process_audit_scan(self, ip):
+        if self.stop_flag: return
+
+        try:
+            inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
+            if inspector.connect():
+                self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
+                results = inspector.run_all_checks()
+
+                # DB 저장은 Writer Queue를 타지 않고 직접 저장 (Audit은 결과가 복잡하여 로직 분리 추천되나, 여기선 직접 저장 유지)
+                # 단, DB Lock 방지를 위해 매번 생성/종료
+                db_local = DBConnector() 
+                asset_id = db_local.save_asset(ip, hostname="Audit_Target", os_type="Linux")
+                
+                save_count = 0
+                if asset_id:
+                    for code, (status, detail) in results.items():
+                        if db_local.save_scan_result(asset_id, code, status, detail):
+                            save_count += 1
+                            # 로그 양이 너무 많으면 성능 저하되므로 취약한 것만 출력
+                            if status in ["VULNERABLE", "취약"]:
+                                self.log_signal.emit(f"    ⚠️ [{ip}] {code} 취약!")
+                
+                self.log_signal.emit(f"    -> {ip} 진단 완료. (항목: {save_count}개)")
+                inspector.close()
+            else:
+                self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
+        except Exception as e:
+            self.log_signal.emit(f"[Error] {ip} Audit 중 예외: {str(e)}")
 
     def run(self):
-        self.log_signal.emit(f"[*] 스캔 엔진 가동 (Max Threads: {self.max_threads})...")
-        self.log_signal.emit(f"[*] 대상 IP 리스트를 계산 중입니다...")
+        self.log_signal.emit(f"[*] 스캔 엔진 가동 (Net Threads: {self.max_threads}, Audit Threads: {self.audit_threads})")
 
-        target_list = []
+        # 1. 대상 IP 생성 (Generator 사용으로 메모리 절약)
+        target_gen = None
+        total_count = 0
+        
         try:
             if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
-                target_list = [str(ip) for ip in network.hosts()]
+                total_count = network.num_addresses # 카운트만 미리 계산
+                target_gen = network.hosts() # Generator 반환
             else:
-                target_list = [self.target_input]
+                total_count = 1
+                target_gen = [self.target_input] # 리스트
         except ValueError:
-            self.log_signal.emit(f"[Error] IP 형식이 올바르지 않습니다.")
+            self.log_signal.emit("[Error] IP 형식이 올바르지 않습니다.")
             self.finish_signal.emit("입력 오류")
             return
 
-        total_count = len(target_list)
-        self.log_signal.emit(f"[*] 대상 식별 완료: {total_count}개 IP")
         self.started_signal.emit(total_count)
-
-        # asset_id 저장용 dict (ip -> asset_id)
         self.asset_ids = {}
 
-        # DB Writer 스레드 시작
+        # DB Writer 시작
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
+        # 스레드 풀 실행
         processed_count = 0
-
+        
+        # 모드에 따른 작업 함수 및 스레드 수 결정
+        work_func = None
+        cur_threads = 0
+        
         if self.mode == "NETWORK_SCAN":
-            with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                futures = {executor.submit(self.process_single_ip, ip): ip for ip in target_list}
-
-                for future in as_completed(futures):
-                    if self.stop_flag:
-                        executor.shutdown(wait=True)  # 완전 종료 대기
-                        break
-                    processed_count += 1
-                    progress_percent = int((processed_count / total_count) * 100)
-                    self.progress_signal.emit(progress_percent)
-
+            work_func = self.process_network_scan
+            cur_threads = self.max_threads
         elif self.mode == "AUDIT_VULN":
-            self.log_signal.emit(f"[*] KISA 기반 정밀 보안 진단 시작 ({total_count} Hosts)...")
-            for ip in target_list:
+            work_func = self.process_audit_scan
+            cur_threads = self.audit_threads # SSH는 연결 제한 고려하여 적게 설정
+
+        # ThreadPoolExecutor로 병렬 처리
+        with ThreadPoolExecutor(max_workers=cur_threads) as executor:
+            # Generator를 사용하여 작업 제출 (메모리 효율적)
+            futures = {executor.submit(work_func, str(ip)): str(ip) for ip in target_gen}
+
+            for future in as_completed(futures):
                 if self.stop_flag:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    self.log_signal.emit("[!] 사용자 중단 요청 감지. 작업을 정리합니다...")
                     break
-                try:
-                    inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
-                    if inspector.connect():
-                        self.log_signal.emit(f"[+] SSH 접속 성공: {ip} -> 진단 수행 중...")
-                        results = inspector.run_all_checks()
-
-                        db = DBConnector()
-                        asset_id = db.save_asset(ip, hostname="Audit_Target", os_type="Linux")
-                        if asset_id:
-                            self.asset_ids[ip] = asset_id
-                            save_count = 0
-                            for code, (status, detail) in results.items():
-                                success = db.save_scan_result(asset_id, code, status, detail)
-                                if success:
-                                    save_count += 1
-                                    if status in ["VULNERABLE", "취약"]:
-                                        self.log_signal.emit(f"    ⚠️ [{code}] 취약: {detail}")
-                                    else:
-                                        self.log_signal.emit(f"    ✅ [{code}] 양호: {detail}")
-                            self.log_signal.emit(f"    -> {ip} 진단 완료. (저장된 항목: {save_count}개)")
-                        inspector.close()
-                        db.conn.close()  # AUDIT 모드는 별도 DB 연결 사용
-                    else:
-                        self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
-                except Exception as e:
-                    self.log_signal.emit(f"[Error] {ip} 진단 중 예외 발생: {str(e)}")
-
+                
                 processed_count += 1
-                progress_percent = int((processed_count / total_count) * 100)
-                self.progress_signal.emit(progress_percent)
+                # 진행률 업데이트 (너무 잦은 emit 방지)
+                if processed_count % 5 == 0 or processed_count == total_count:
+                    progress = int((processed_count / total_count) * 100)
+                    self.progress_signal.emit(progress)
 
-        # 작업 종료 후 Queue 비우기
+        # 종료 처리
         self.writer_stop = True
-        if self.writer_thread:
-            self.writer_thread.join(timeout=5)  # 최대 5초 대기
+        if self.writer_thread.is_alive():
+            self.writer_thread.join(timeout=3)
 
-        if self.stop_flag:
-            self.finish_signal.emit("작업이 강제 중단되었습니다.")
-        else:
-            self.finish_signal.emit("모든 작업이 완료되었습니다.")
-
+        status_msg = "작업이 중단되었습니다." if self.stop_flag else "모든 작업이 완료되었습니다."
+        self.finish_signal.emit(status_msg)
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
     def __init__(self):
