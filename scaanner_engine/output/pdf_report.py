@@ -34,7 +34,7 @@ class PDFGenerator:
 
         # 1. 타이틀
         c.setFont(self.font_name, 24)
-        c.drawString(50, height - 50, "Asset-Watch 보안 진단 보고서")
+        c.drawString(50, height - 50, "Z-Vuln Scan 보안 진단 보고서")
         
         c.setFont(self.font_name, 10)
         c.drawString(50, height - 80, "본 보고서는 KISA 주요정보통신기반시설 가이드라인을 기준으로 작성되었습니다.")
