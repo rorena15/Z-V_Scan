@@ -7,6 +7,7 @@ import queue
 import traceback
 import ipaddress
 import threading
+import math
 
 # 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -86,26 +87,24 @@ class ScanWorker(QThread):
     def db_writer(self):
         """단일 스레드에서 Queue에서 꺼내 DB에 쓰기"""
         db = DBConnector()
-        try:
-            while not self.writer_stop:
-                try:
-                    item = self.db_queue.get(timeout=1)
-                    if item[0] == 'save_asset':
-                        _, ip, hostname, os_type = item
-                        asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
-                        # asset_id를 나중에 포트 저장에 사용할 수 있도록 (임시로 dict에 저장)
-                        self.asset_ids[ip] = asset_id
-                    elif item[0] == 'save_open_port':
-                        _, ip, port, banner = item
-                        asset_id = self.asset_ids.get(ip)
-                        if asset_id:
-                            db.save_open_port(asset_id, port, banner)
-                except queue.Empty:
-                    continue
-                except Exception as e:
-                    self.log_signal.emit(f"[DB Writer Error] {str(e)}")
-        finally:
-            db.conn.close()  # 안전 종료
+        
+        while not self.writer_stop:
+            try:
+                item = self.db_queue.get(timeout=1)
+                if item[0] == 'save_asset':
+                    _, ip, hostname, os_type = item
+                    asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
+                    # asset_id를 나중에 포트 저장에 사용할 수 있도록 (임시로 dict에 저장)
+                    self.asset_ids[ip] = asset_id
+                elif item[0] == 'save_open_port':
+                    _, ip, port, banner = item
+                    asset_id = self.asset_ids.get(ip)
+                    if asset_id:
+                        db.save_open_port(asset_id, port, banner)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.log_signal.emit(f"[DB Writer Error] {str(e)}")
 
     def run(self):
         self.log_signal.emit(f"[*] 스캔 엔진 가동 (Max Threads: {self.max_threads})...")
@@ -371,30 +370,79 @@ class ScannerApp(QMainWindow):
         self.btn_stop.setEnabled(False)
 
     def start_network_scan(self):
-        ip = self.ip_input.text()
+        """네트워크 스캔 시작 버튼 핸들러 (ETA 선행 계산 적용)"""
+        ip = self.ip_input.text().strip()
         if not ip:
             QMessageBox.warning(self, "경고", "IP 주소를 입력하세요.")
             return
-        self.reset_ui_state()
-        self.time_label.setText("설정 로드 및 대상 계산 중...")
         
+        self.reset_ui_state()
+        
+        # --- [ETA 선행 계산 로직] ---
+        try:
+            total_hosts = 0
+            if "/" in ip:
+                # CIDR 계산 (예: 192.168.0.0/24)
+                net = ipaddress.ip_network(ip, strict=False)
+                total_hosts = net.num_addresses
+            else:
+                # 단일 IP
+                total_hosts = 1
+
+            # ETA 공식: (호스트 수 / 스레드 수 20) * 배지당 1.5초
+            batch_count = math.ceil(total_hosts / 20)
+            est_time = batch_count * 1.5
+            
+            msg = f"[*] 대기열 등록: {total_hosts}개 호스트 / 예상 소요: 약 {est_time:.1f}초"
+            self.time_label.setText(msg)
+            self.log_message(msg)
+            
+            # UI가 멈추지 않고 글자가 바로 뜨도록 강제 갱신
+            QApplication.processEvents()
+            
+        except Exception as e:
+            # IP 형식이 잘못되었을 때는 Worker에서 처리하도록 패스
+            self.log_message(f"[Info] 대상 계산 보류: {e}")
+
+        # ---------------------------------
+
         self.worker = ScanWorker("NETWORK_SCAN", ip)
         self.connect_worker()
         self.worker.start()
 
     def start_audit(self):
-        ip = self.ip_input.text()
-        user = self.user_input.text()
-        pw = self.pw_input.text()
-        key = self.key_input.text()
+        """보안 진단 시작 버튼 핸들러 (ETA 선행 계산 적용)"""
+        ip = self.ip_input.text().strip()
+        user = self.user_input.text().strip()
+        pw = self.pw_input.text().strip()
+        key = self.key_input.text().strip()
         
         if ip not in ["127.0.0.1", "localhost"] and (not user or not pw):
             QMessageBox.warning(self, "경고", "실제 서버 진단을 위해 계정/비밀번호가 필요합니다.\n(localhost 입력 시 시뮬레이션 모드 동작)")
-            # return 
+            # return (필요시 주석 해제)
 
         self.reset_ui_state()
-        self.time_label.setText("SSH 모듈 초기화 및 대상 계산 중...")
-        
+
+        # --- [ ETA 선행 계산 로직] ---
+        try:
+            total_hosts = 0
+            if "/" in ip:
+                net = ipaddress.ip_network(ip, strict=False)
+                total_hosts = net.num_addresses
+            else:
+                total_hosts = 1
+            
+            # Audit 모드는 순차 처리이므로 시간이 더 걸림 (호스트당 약 3~5초 가정)
+            est_time = total_hosts * 5.0
+            
+            msg = f"[*] SSH 연결 준비: {total_hosts}개 호스트 / 예상 소요: 약 {est_time:.1f}초"
+            self.time_label.setText(msg)
+            self.log_message(msg)
+            
+            QApplication.processEvents() # UI 강제 갱신
+
+        except Exception:
+            pass
         self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
         self.connect_worker()
         self.worker.start()
