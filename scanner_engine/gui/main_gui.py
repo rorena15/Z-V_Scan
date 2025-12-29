@@ -133,6 +133,15 @@ QComboBox QAbstractItemView {
     selection-color: #ffffff;
     border: 1px solid #3e3e3e;
 }
+QMessageBox {
+    background-color: #252526;
+    color: #e0e0e0;
+    border: 1px solid #3e3e3e;
+}
+QMessageBox QLabel {
+    color: #e0e0e0; /* 메시지 텍스트 색상 */
+    font-weight: normal;
+}
 """
 
 # --- [백그라운드 워커 스레드] ---
