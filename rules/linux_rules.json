@@ -1,0 +1,47 @@
+[
+  {
+    "code": "U-01",
+    "name": "root 계정 원격 접속 제한",
+    "category": "Account",
+    "command": "grep -i '^PermitRootLogin' /etc/ssh/sshd_config",
+    "vulnerable_keyword": "yes",
+    "description": "root 계정 원격 접속 허용 시 무차별 대입 공격에 취약합니다.",
+    "remediation": "/etc/ssh/sshd_config에서 PermitRootLogin no 설정"
+  },
+  {
+    "code": "U-02",
+    "name": "패스워드 복잡성 설정",
+    "category": "Account",
+    "command": "cat /etc/security/pwquality.conf | grep -v '^#'",
+    "safe_keyword": "minlen",
+    "description": "패스워드 복잡성 설정이 미흡하면 사전 대입 공격에 취약합니다.",
+    "remediation": "pwquality.conf 파일에서 minlen=8, minclass=3 이상 설정"
+  },
+  {
+    "code": "U-03",
+    "name": "계정 잠금 임계값 설정",
+    "category": "Account",
+    "command": "grep -E 'pam_tally2|pam_faillock' /etc/pam.d/system-auth",
+    "safe_keyword": "deny=",
+    "description": "로그인 실패 시 계정 잠금 설정이 없으면 무한 시도가 가능합니다.",
+    "remediation": "system-auth 파일에 deny=5 설정 추가"
+  },
+  {
+    "code": "U-04",
+    "name": "/etc/shadow 파일 소유자 및 권한",
+    "category": "Filesystem",
+    "command": "ls -l /etc/shadow",
+    "safe_keyword": "root",
+    "description": "shadow 파일 권한이 취약하면 패스워드 해시가 유출될 수 있습니다.",
+    "remediation": "chmod 400 /etc/shadow"
+  },
+  {
+    "code": "U-19",
+    "name": "Finger 서비스 비활성화",
+    "category": "Service",
+    "command": "ps -ef | grep finger | grep -v grep",
+    "vulnerable_keyword": "finger",
+    "description": "Finger 서비스는 사용자 정보를 노출할 수 있습니다.",
+    "remediation": "Finger 서비스 중지 및 삭제"
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "code": "W-01",
+    "name": "Administrator 계정 이름 변경",
+    "category": "Account",
+    "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Administrator' -and $_.Enabled -eq $True}",
+    "vulnerable_keyword": "Administrator",
+    "description": "기본 관리자 계정 이름을 변경하지 않으면 공격 대상이 되기 쉽습니다.",
+    "remediation": "로컬 보안 정책에서 Administrator 계정 이름 변경"
+  },
+  {
+    "code": "W-02",
+    "name": "Guest 계정 비활성화",
+    "category": "Account",
+    "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Guest' -and $_.Enabled -eq $True}",
+    "vulnerable_keyword": "Guest",
+    "description": "Guest 계정 활성화 시 불필요한 접근이 허용될 수 있습니다.",
+    "remediation": "Guest 계정 속성에서 '계정 사용 안 함' 체크"
+  },
+  {
+    "code": "W-03",
+    "name": "불필요한 서비스 제거 (Telnet)",
+    "category": "Service",
+    "command": "Get-Service -Name TlntSvr -ErrorAction SilentlyContinue | Select-Object Status",
+    "vulnerable_keyword": "Running",
+    "description": "Telnet은 평문 통신을 하므로 스니핑 위험이 있습니다.",
+    "remediation": "Telnet 서비스 중지 및 사용 안 함 설정"
+  }
+]
