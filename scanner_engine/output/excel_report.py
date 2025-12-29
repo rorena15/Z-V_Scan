@@ -26,7 +26,7 @@ class ExcelGenerator:
         self.center_align = Alignment(horizontal='center', vertical='center')
         self.left_align = Alignment(horizontal='left', vertical='center')
         self.thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                                  top=Side(style='thin'), bottom=Side(style='thin'))
+                                    top=Side(style='thin'), bottom=Side(style='thin'))
         
         # 상태별 색상
         self.vuln_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid') # Red text box style
