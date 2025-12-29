@@ -23,12 +23,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QIcon
 
+
 # 정확한 모듈 Import
 from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
 from utils.db_connector import DBConnector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.windows_inspector import WindowsInspector
+from output.pdf_report import PDFGenerator
 
 def resource_path(relative_path):
     #PyInstaller 빌드 시 리소스 경로 문제 해결
@@ -589,29 +591,25 @@ class ScannerApp(QMainWindow):
         self.worker.start()
 
     def generate_pdf(self):
-        import subprocess
         try:
-            self.log_message("[System] PDF 리포트 생성을 요청합니다...")
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            script_path = os.path.join(os.path.dirname(current_dir), 'output', 'pdf_report.py')
+            self.log_message("[System] PDF 리포트 생성을 시작합니다...")
             
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            # [수정] subprocess 대신 직접 클래스 호출
+            # UI 프리징 방지를 위해 간단히 처리 (데이터가 많으면 스레드로 빼야 함)
+            QApplication.setOverrideCursor(Qt.WaitCursor) # 로딩 마우스 커서
             
-            process = subprocess.run([sys.executable, script_path], capture_output=True, text=True, startupinfo=startupinfo)
-
-            if process.returncode == 0:
-                self.log_message("[Success] " + process.stdout.strip())
-                QMessageBox.information(self, "성공", "PDF 리포트가 생성되었습니다.\n(scan_result.pdf 확인)")
-            else:
-                error_msg = process.stderr.strip()
-                self.log_message(f"[Error] {error_msg}")
-                QMessageBox.warning(self, "실패", f"PDF 생성 실패:\n{error_msg}")
+            generator = PDFGenerator()
+            generator.generate() # PDF 생성 실행
+            
+            QApplication.restoreOverrideCursor() # 커서 복구
+            
+            self.log_message(f"[Success] 리포트 생성 완료: {generator.filename}")
+            QMessageBox.information(self, "성공", f"PDF 리포트가 생성되었습니다.\n({generator.filename})")
 
         except Exception as e:
-            self.log_message(f"[Critical] 실행 오류: {str(e)}")
+            QApplication.restoreOverrideCursor()
+            self.log_message(f"[Critical] PDF 생성 오류: {str(e)}")
+            QMessageBox.warning(self, "실패", f"PDF 생성 중 오류 발생:\n{str(e)}")
             
     def stop_scan(self):
         if hasattr(self, 'worker') and self.worker.isRunning():
