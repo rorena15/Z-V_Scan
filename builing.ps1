@@ -1,5 +1,5 @@
 pyinstaller --noconfirm --onefile --windowed --clean `
-    --name "Z-VulnScan_Enterprise_v2.1" `
+    --name "Z-VulnScan_Enterprise_v2.1.0_release" `
     --icon "app_icon.ico" `
     --paths "dist/obf" `
     --add-data "dist/obf/scanner_engine/core;core" `
@@ -7,8 +7,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --add-data "dist/obf/scanner_engine/output;output" `
     --add-data "rules;rules" `
     --add-data "app_icon.ico;." `
-    --hidden-import "openpyxl" `
-    --hidden-import "reportlab" `
+    --collect-all "reportlab" `
     --hidden-import "winrm" `
     --hidden-import "paramiko" `
     --hidden-import "PyQt5" `
