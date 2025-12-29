@@ -45,11 +45,23 @@ class AdvancedScanner:
             # 1. 시스템 Ping으로 생존 확인 (-n 1: 1회, -w 200: 타임아웃 200ms)
             # 윈도우는 'ping', 리눅스는 'ping -c 1'
             cmd = ['ping', '-n', '1', '-w', '200', ip] if os.name == 'nt' else ['ping', '-c', '1', '-W', '1', ip]
-            
+            startupinfo = None
+            creationflags = 0
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                creationflags = subprocess.CREATE_NO_WINDOW
+                
             # subprocess를 이용해 백그라운드 실행
-            ret = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ret = subprocess.run(
+                cmd, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL,
+                startupinfo=startupinfo,      # 창 숨김
+                creationflags=creationflags   # 창 숨김 (PyInstaller 호환)
+            )
             
-            if ret == 0:
+            if ret.returncode == 0:
                 is_alive = True
                 
                 # 2. 살아있다면 OS 탐지를 위해 딱 한 번만 Scapy 사용 (락 적용)
