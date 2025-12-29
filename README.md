@@ -1,68 +1,142 @@
-# Z-Vuln-Scan: Hybrid Security Audit Tool 🛡️
+# Z-VulnScan Professional Edition v2.1  
+### Network Asset Discovery & Security Visibility Tool
 
-![Version](https://img.shields.io/badge/Version-v2.1.0_Hybrid-blue) ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white) ![Build](https://img.shields.io/badge/Build-Standalone_EXE-green) ![License](https://img.shields.io/badge/License-Proprietary-red)
+**Z-VulnScan Professional**은  
+인가된 네트워크 환경에서 **자산 가시화, 포트 노출 현황 파악, 서비스 배너 수집**을 통해  
+보안 담당자가 **사전 위험 요소를 식별하고 점검 결과를 문서화**할 수 있도록 지원하는  
+**보안 가시화(Security Visibility) 및 사전 점검 도구**입니다.
 
-**Z-Vuln Scan**은 기업 내 이기종 서버(Linux/Windows) 환경을 지원하는 **하이브리드 보안 진단 자동화 도구**입니다.  
-**Agentless** 방식을 채택하여 별도의 설치 없이 즉시 실행 가능하며, **KISA 주요정보통신기반시설 가이드라인**에 기반한 정밀 진단을 수행합니다.
-
-> **v2.0 Update:** Windows 서버 진단(WinRM) 지원 및 자동 OS 식별 기능 탑재, Portable(.exe) 배포 최적화.
-
----
-
-## 🚀 Key Features (핵심 기능)
-
-### 1. ⚡ Hybrid & Smart Discovery
-* **Auto OS Detection:** 포트 핑거프린팅(Port Fingerprinting)을 통해 대상 서버의 OS(Linux vs Windows)를 자동으로 식별하고 적절한 진단 모듈을 로드합니다.
-* **Dual Protocol Support:**
-    * 🐧 **Linux:** SSH (Port 22) 기반 무결성 점검.
-    * 🪟 **Windows:** WinRM (Port 5985) 기반 PowerShell 진단.
-* **High-Speed Scan:** 멀티스레딩(Multi-threading) 및 Generator 기반 메모리 최적화로 대규모 대역(/16, /24)도 안정적으로 스캔.
-
-### 2. 🔍 KISA Standard Security Audit
-* **Coverage:** KISA 가이드라인 기반의 핵심 취약점 자동 진단.
-    * **Linux (U-Type):** 계정 관리, 파일 권한, 프로세스 점검 등 (U-01 ~ U-13).
-    * **Windows (W-Type):** 관리자 계정 보호, 불필요한 서비스 제거 등 (W-01 ~ W-03 Beta).
-* **Agentless:** 타겟 서버에 에이전트를 설치할 필요 없이, 인증 정보(ID/PW)만으로 원격 점검 수행.
-
-### 3. 💼 Portable & Standalone
-* **No Installation Required:** 내장 DB(SQLite)를 사용하여 별도의 데이터베이스 서버 구축 없이 **EXE 파일 하나로 즉시 실행**.
-* **Instant Reporting:** 진단 종료 즉시 경영진 보고용 **PDF 리포트(차트 포함)** 자동 생성.
-* **Simulation Mode:** 폐쇄망 환경이나 계정 정보가 없는 경우를 대비한 가상 시뮬레이션 기능 제공.
+본 도구는 **침투 테스트(PT) 또는 공격 도구가 아니며**,  
+보안 정책 수립, 교육, 내부 점검, 감사 대응을 위한 **보조 수단**으로 설계되었습니다.
 
 ---
 
-## 🛠️ System Architecture
+## 🔐 Legal & Ethical Notice (중요)
 
-```
-Z-VulnScan_v2.0/
-├── scanner_engine/           # [Python] 메인 엔진
-│   ├── core/
-│   │   ├── advanced_scanner.py  # 네트워크 스캔 & OS 탐지
-│   │   ├── ssh_inspector.py     # Linux 진단 모듈 (Paramiko)
-│   │   ├── audit_runner.py      # 취약점 모듈
-│   │   ├── icmp_scanner.py      # ICMP 기반 활성 진단 모듈
-│   │   └── windows_inspector.py # [NEW] Windows 진단 모듈 (PyWinRM)
-│   ├── gui/
-│   │   └── main_gui.py          # 통합 제어 패널 (PyQt5) & Smart Branching
-│   ├── utils/
-│   │   ├── check_db.py          # DB 점검 스크립트
-│   │   └── db_connector.py      # SQLite 내장 DB 핸들러 (Auto-Init)
-│   ├── report/                  # 생성된 리포트 경로
-│   ├── rules/
-│   │   ├── linux_rules.json     # 리눅스 점검 가이드라인 모듈
-│   │   └── windows_rules.json   # 윈도우 점검 가이드라인 모듈
-│   │
-│   └── output/
-│       ├── excel_report.py      # 엑셀 리포트 생성기 (openpyxl)
-│       └── pdf_report.py        # 리포트 생성기 (ReportLab)
-└── zvuln_scan.db             # [SQLite] 로컬 데이터 저장소 (자동 생성)
-```
+⚠ **본 프로그램은 반드시 인가된 자산 및 네트워크 환경에서만 사용해야 합니다.**
 
-## 💻 Installation & Usage
+- 본 도구는 **네트워크 포트 스캔, 서비스 정보 수집 기능**을 포함합니다.
+- 사전 허가 없이 제3자의 네트워크 또는 시스템을 스캔하는 행위는  
+  관련 법률에 의해 **형사·민사 책임**이 발생할 수 있습니다.
+- 사용자는 본 도구 사용에 따른 **모든 법적 책임을 스스로 부담**합니다.
 
-### 1. Standalone Execution (권장)
-- 별도의 파이썬 설치 없이, 배포된 실행 파일(`Z-VulnScan_v2.1.0_release.exe`)을 관리자 권한으로 실행하십시오.
-- (Windows/Linux 스캔을 위해 네트워크 방화벽 오픈 필요: TCP 22, 5985)
+👉 프로그램 실행 시, 위 사항에 대한 **명시적 동의(Disclaimer Dialog)**를 요구합니다.
+
+---
+
+## 🎯 Intended Use (권장 사용 목적)
+
+Z-VulnScan Professional은 다음 목적에 적합합니다.
+
+- ✅ 내부 네트워크 **자산 식별 및 현황 파악**
+- ✅ 서버/서비스 **노출 포트 점검**
+- ✅ 보안 감사 전 **사전 점검(Checklist 보조)**
+- ✅ 보안 교육 및 실습 환경
+- ✅ 점검 결과 **보고서(PDF/Excel) 자동화**
+
+❌ 다음 용도로는 설계되지 않았습니다.
+
+- 침투 테스트(Exploit 기반 공격)
+- 무차별 외부 네트워크 스캔
+- 실시간 공격 시뮬레이션
+
+---
+
+## 🚀 Key Features
+
+### 1. Network Asset Discovery
+- ICMP Ping 기반 활성 호스트 탐지
+- ARP Scan을 통한 내부 네트워크 자산 식별
+- 인가된 로컬 네트워크 환경 최적화
+
+---
+
+### 2. Port Exposure Scanning
+- **Fast Scan:** 주요 포트 빠른 점검
+- **Custom Scan:** 사용자 정의 포트 범위
+- **Full Scan:** 전체 포트 노출 현황 분석
+- TCP Connect / TCP SYN Scan 모드 제공  
+  *관리자 권한 필요*
+
+---
+
+### 3. Service Banner Collection
+- 서비스 배너 정보 수집
+- 소프트웨어 버전 및 서비스 식별
+- **CVE 직접 탐지 ❌**
+- **참고용 보안 정보 매핑(Reference Only)**
+
+> ⚠ 배너 기반 정보는 정확하지 않을 수 있으며,  
+> 실제 취약 여부 판단은 별도의 검증이 필요합니다.
+
+---
+
+### 4. Professional Reporting
+- **Excel Report (.xlsx)**
+  - 자산 목록 / 포트 현황 / 상세 결과
+  - 취약 가능 항목 시각적 강조
+- **PDF Report (.pdf)**
+  - 점검 개요
+  - 네트워크 노출 요약
+  - 감사 및 보고용 문서 활용 가능
+
+---
+
+### 5. Modern GUI
+- PyQt5 기반 다크 모드 UI
+- 실시간 진행률, ETA 표시
+- 입력값 검증 및 UI 상태 제어
+- 로그 콘솔 제공
+
+---
+
+## 🛠 Technology Stack
+
+- **Language:** Python 3.13+
+- **GUI:** PyQt5
+- **Network:** Scapy, Python Socket
+- **Reporting:** ReportLab, OpenPyXL
+- **Build & Security:** PyArmor, PyInstaller
+
+---
+
+## 📦 Deployment
+
+- **Standalone Executable (EXE)**
+- 별도 Python 환경 불필요
+- 단일 파일 실행
+- 내부 배포 및 폐쇄망 환경 지원
+
+---
+
+## 🧭 Product Positioning
+
+Z-VulnScan Professional은 다음 범주에 속합니다.
+
+| 구분 | 해당 여부 |
+|---|---|
+| 네트워크 가시화 도구 | ⭕ |
+| 보안 설정 사전 점검 | ⭕ |
+| 교육/훈련용 도구 | ⭕ |
+| 취약점 자동 공격 도구 | ❌ |
+| 침투 테스트 프레임워크 | ❌ |
+
+> **본 도구는 “보안 판단을 대체하지 않으며”,  
+> 보안 담당자의 의사결정을 보조합니다.**
+
+---
+
+## 🗓 Roadmap
+
+- [x] 자산 탐지 및 포트 스캔
+- [x] GUI 기반 스캔 제어
+- [x] PDF / Excel 리포트
+- [ ] 실행 전 법적 동의 팝업
+- [ ] OS별 스캔 모드 분리 (Windows/Linux)
+- [ ] CVE 연관 정보 *Reference View* 제공
+- [ ] 정책 기반 스캔 프로파일
+
+---
 
 ## ✅ Supported Audit List (KISA)
 
@@ -86,11 +160,18 @@ Z-VulnScan_v2.0/
 |  ...  | ...                 | ...                                   |
 |  w-70 | 자동 로그인 기능     | 자동 로그인 시 활성화 여부    |
 
+---
 
 ## 🔮 Future Roadmap (Enterprise)
 - v3.0: Centralized Management (MySQL/MariaDB 연동 지원).
 - Web Dashboard: Java(JSP) 기반의 웹 관제 콘솔 제공 (Optional).
 - CVE Scan: NVD 데이터베이스 연동을 통한 버전 기반 취약점(CVE) 스캔.
-### 📝 License & Warning 허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.  
-#### 본 도구는 인가된 자산에 대해서만 사용하십시오.  
-#### Proprietary License: Copyright (c) 2025 rorena15. All rights reserved.
+
+## 📜 License
+
+**Proprietary License**
+
+Copyright © 2025  
+Z-VulnScan Team. All Rights Reserved.
+
+본 소프트웨어는 사전 허가 없이 재배포, 역공학, 무단 수정할 수 없습니다.
