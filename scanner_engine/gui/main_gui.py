@@ -674,8 +674,31 @@ class ScannerApp(QMainWindow):
 
     def update_timer(self):
         self.elapsed_seconds += 1
-        mins, secs = divmod(self.elapsed_seconds, 60)
-        self.time_label.setText(f"Elapsed: {mins:02d}:{secs:02d}")
+        
+        # 경과 시간 포맷팅
+        m, s = divmod(self.elapsed_seconds, 60)
+        elapsed_str = f"{m:02d}:{s:02d}"
+        
+        # ETA (남은 시간) 계산 로직
+        current_progress = self.pbar.value()
+        eta_str = "--:--"
+        
+        if current_progress > 0 and current_progress < 100:
+            # (경과시간 / 진행률) = 1%당 소요 시간
+            # 남은 시간 = 1%당 소요 시간 * 남은 퍼센트
+            estimated_total = self.elapsed_seconds / (current_progress / 100)
+            remaining = int(estimated_total - self.elapsed_seconds)
+            
+            if remaining > 0:
+                rm, rs = divmod(remaining, 60)
+                eta_str = f"{rm:02d}:{rs:02d}"
+            else:
+                eta_str = "00:00"
+        elif current_progress >= 100:
+            eta_str = "Done"
+
+        # 라벨 업데이트 (경과 시간 | 남은 시간)
+        self.time_label.setText(f"Elapsed: {elapsed_str}  |  ETA: {eta_str}")
 
     def update_progress(self, val):
         self.pbar.setValue(val)
@@ -690,26 +713,103 @@ class ScannerApp(QMainWindow):
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        
+    def set_ui_busy(self, busy):
+        """UI 상태를 '작업 중' 또는 '대기 중'으로 변경"""
+        # 버튼 활성화/비활성화 토글
+        self.btn_scan.setDisabled(busy)
+        self.btn_audit.setDisabled(busy)
+        self.btn_stop.setEnabled(busy)
+        
+        # 포트 입력창도 작업 중엔 잠금
+        self.ip_input.setDisabled(busy)
+        self.port_mode_combo.setDisabled(busy)
+        if busy:
+            self.port_input.setDisabled(True)
+        else:
+            # 작업 끝났을 때 커스텀 모드면 다시 활성화
+            if self.port_mode_combo.currentIndex() == 1:
+                self.port_input.setEnabled(True)
+
+        # 타이머 및 프로그레스바 제어
+        if busy:
+            self.pbar.setValue(0)
+            self.elapsed_seconds = 0
+            self.timer.start(1000) # 1초마다 타이머 갱신
+        else:
+            self.timer.stop()
+            self.ip_input.setDisabled(False)
+            self.port_mode_combo.setDisabled(False)
 
     def start_network_scan(self):
+        # 1. IP 유효성 검사 (기능: IP 미입력 시 경고 및 포커스 이동)
         ip = self.ip_input.text().strip()
         if not ip:
-            QMessageBox.warning(self, "Error", "Please input IP address.")
+            QMessageBox.warning(self, "Input Error", "Target IP 주소를 입력해주세요.")
+            self.ip_input.setFocus() # UX 강화: 입력창으로 커서 이동
             return
-        # 스캔 시작 시 자동 초기화 여부는 선택 사항 (여기서는 수동 Clear 버튼이 있으므로 유지)
-        if "/" in ip: self.asset_table.setRowCount(0)
-        self.prepare_scan()
-        self.worker = ScanWorker("NETWORK_SCAN", ip)
+
+        # 2. 포트 설정 모드 확인
+        mode_idx = self.port_mode_combo.currentIndex()
+        target_ports = None # 기본값 (None이면 Fast Scan)
+
+        # 3. 사용자 정의 포트(Custom Range) 처리
+        if mode_idx == 1: 
+            p_str = self.port_input.text().strip()
+            if not p_str:
+                QMessageBox.warning(self, "Input Error", "Custom 포트 범위를 입력해주세요.")
+                self.port_input.setFocus()
+                return
+            
+            # 포트 파싱 및 유효성 검증
+            target_ports = AdvancedScanner.parse_ports(p_str)
+            if not target_ports:
+                QMessageBox.warning(self, "Input Error", "유효하지 않은 포트 형식입니다.\n(예: 80,443 또는 1-1000)")
+                return
+        
+        # 4. 전체 포트(Full Scan) 처리
+        elif mode_idx == 2: 
+            # 사용자 실수 방지를 위한 확인창 (안전 장치)
+            reply = QMessageBox.question(self, "Warning", "전체 포트(65535개) 스캔은 시간이 오래 걸립니다.\n계속하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No: return
+            target_ports = list(range(1, 65536))
+
+        # 5. 스캔 시작 프로세스
+        self.set_ui_busy(True) # UI 잠금 및 타이머 시작
+        
+        # CIDR(대역) 스캔인 경우 자산 리스트 초기화
+        if "/" in ip: 
+            self.asset_table.setRowCount(0)
+        
+        # 워커 쓰레드 시작 (포트 리스트 전달)
+        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
         self.connect_worker()
         self.worker.start()
 
     def start_audit(self):
+        # 1. IP 유효성 검사 (가장 먼저 실행)
         ip = self.ip_input.text().strip()
+        if not ip:
+            QMessageBox.warning(self, "Input Error", "진단할 Target IP 주소를 입력해주세요.")
+            self.ip_input.setFocus()
+            return
+
+        # 2. CIDR 입력 방지 (Audit은 단일 호스트 대상)
+        if "/" in ip:
+            QMessageBox.warning(self, "Notice", "정밀 진단(Audit)은 단일 IP만 지원합니다.\n네트워크 스캔을 먼저 수행하세요.")
+            return
+
+        # 3. 계정 정보 확인 (Audit 필수)
         user = self.user_input.text().strip()
         pw = self.pw_input.text().strip()
-        if "/" in ip:
-            QMessageBox.warning(self, "Notice", "Please select a single target for deep audit.")
-        self.prepare_scan()
+        
+        # 시뮬레이션 IP가 아니면 계정 정보 요구
+        if ip not in ["127.0.0.1", "localhost", "0.0.0.0"] and (not user or not pw):
+            QMessageBox.warning(self, "Auth Error", "원격 진단을 위해 SSH/WinRM 계정 정보(User, PW)가 필요합니다.")
+            return
+
+        # 4. 모든 검사 통과 후 시작
+        self.set_ui_busy(True)
         self.worker = ScanWorker("AUDIT_VULN", ip, user, pw)
         self.connect_worker()
         self.worker.start()
@@ -718,33 +818,42 @@ class ScannerApp(QMainWindow):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             generator = PDFGenerator()
-            generator.generate()
-            QApplication.restoreOverrideCursor()
-            self.log_message(f"[Success] Report Generated: {generator.filename}")
-            QMessageBox.information(self, "Success", f"Report saved:\n{generator.filename}")
-        except Exception as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "Error", str(e))
-            
-    def generate_excel(self):
-        """Excel 리포트 생성 핸들러"""
-        try:
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            generator = ExcelGenerator()
             filepath = generator.generate()
-            QApplication.restoreOverrideCursor()
+            QApplication.restoreOverrideCursor() # 커서 복구
             
-            self.log_message(f"[Success] Excel Report Saved: {filepath}")
+            self.log_message(f"[Success] Report Generated: {generator.filename}")
             
-            # 사용자에게 알림 및 파일 열기 여부 질문
             reply = QMessageBox.question(
                 self, "Success", 
-                f"리포트가 생성되었습니다:\n{filepath}\n\n지금 여시겠습니까?",
+                f"PDF 리포트가 생성되었습니다:\n{filepath}\n\n지금 여시겠습니까?",
                 QMessageBox.Yes | QMessageBox.No
             )
             
             if reply == QMessageBox.Yes:
-                os.startfile(filepath) # Windows 전용 파일 실행
+                self.open_file_platform_safe(filepath) # [변경] 헬퍼 메서드 호출
+                
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", str(e))
+
+    # [수정] Excel 생성 메서드
+    def generate_excel(self):
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            generator = ExcelGenerator()
+            filepath = generator.generate()
+            QApplication.restoreOverrideCursor() # 커서 복구
+            
+            self.log_message(f"[Success] Excel Report Saved: {filepath}")
+            
+            reply = QMessageBox.question(
+                self, "Success", 
+                f"Excel 리포트가 생성되었습니다:\n{filepath}\n\n지금 여시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.open_file_platform_safe(filepath) # [변경] 헬퍼 메서드 호출
                 
         except ImportError:
             QApplication.restoreOverrideCursor()
@@ -753,6 +862,21 @@ class ScannerApp(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.log_message(f"[Error] Excel Generate Failed: {e}")
             QMessageBox.warning(self, "Error", f"생성 실패: {str(e)}")
+
+    def open_file_platform_safe(self, filepath):
+        """OS에 따라 적절한 방식으로 파일을 엽니다 (Win/Linux/Mac)"""
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(filepath)
+            elif sys.platform == 'darwin':  # macOS
+                subprocess.call(['open', filepath])
+            else:  # Linux (xdg-open 사용)
+                subprocess.call(['xdg-open', filepath])
+        except FileNotFoundError:
+            QMessageBox.warning(self, "Error", "파일을 열 수 있는 기본 프로그램이 없습니다.")
+        except Exception as e:
+            self.log_message(f"[Error] Open File Failed: {e}")
+            QMessageBox.warning(self, "Error", f"파일 열기 실패:\n{e}")
 
     def stop_scan(self):
         if self.worker and self.worker.isRunning():
@@ -788,40 +912,7 @@ class ScannerApp(QMainWindow):
         self.port_input.setEnabled(index == 1)
         if index == 1: self.port_input.setFocus()
 
-    # [교체] 스캔 시작 로직 (포트 파싱 로직 추가됨)
-    def start_network_scan(self):
-        ip = self.ip_input.text().strip()
-        if not ip:
-            QMessageBox.warning(self, "Error", "IP를 입력하세요.")
-            return
 
-        # 포트 모드 확인 및 파싱
-        mode_idx = self.port_mode_combo.currentIndex()
-        target_ports = None # None이면 Default(Fast)
-
-        if mode_idx == 1: # Custom Range
-            p_str = self.port_input.text().strip()
-            if not p_str:
-                QMessageBox.warning(self, "Error", "포트 범위를 입력하세요.")
-                return
-            # AdvancedScanner.parse_ports는 advanced_scanner.py에 추가된 정적 메서드입니다.
-            target_ports = AdvancedScanner.parse_ports(p_str)
-            if not target_ports:
-                QMessageBox.warning(self, "Error", "유효한 포트 형식이 아닙니다.")
-                return
-        elif mode_idx == 2: # Full Scan
-            reply = QMessageBox.question(self, "Warning", "전체 포트(65535개) 스캔은 시간이 오래 걸립니다.\n계속하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.No: return
-            target_ports = list(range(1, 65536))
-
-        # UI 비활성화 및 스캔 시작
-        self.set_ui_busy(True)
-        if "/" in ip: self.asset_table.setRowCount(0)
-        
-        # worker에 ports 파라미터 전달
-        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
-        self.connect_worker()
-        self.worker.start()
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()

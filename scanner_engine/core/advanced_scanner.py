@@ -24,7 +24,7 @@ scapy_lock = threading.Lock()
 class AdvancedScanner:
     def __init__(self):
         # 주요 포트 리스트
-        self.target_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
+        self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
 
     @staticmethod
     def parse_ports(port_str):

@@ -1,0 +1,32 @@
+
+==================================================
+[2025-12-30 00:36:48.510150]
+Traceback (most recent call last):
+  File "e:\Z-V_Scan\scanner_engine\gui\main_gui.py", line 775, in start_audit
+    self.set_ui_busy(True)
+    ^^^^^^^^^^^^^^^^
+AttributeError: 'ScannerApp' object has no attribute 'set_ui_busy'
+
+==================================================
+[2025-12-30 00:36:51.365448]
+Traceback (most recent call last):
+  File "e:\Z-V_Scan\scanner_engine\gui\main_gui.py", line 775, in start_audit
+    self.set_ui_busy(True)
+    ^^^^^^^^^^^^^^^^
+AttributeError: 'ScannerApp' object has no attribute 'set_ui_busy'
+
+==================================================
+[2025-12-30 00:41:30.719860]
+Traceback (most recent call last):
+  File "e:\Z-V_Scan\scanner_engine\gui\main_gui.py", line 843, in closeEvent
+    QMessageBox.Yes | QMessageBox.No
+    
+KeyboardInterrupt
+
+==================================================
+[2025-12-30 00:46:31.313112]
+Traceback (most recent call last):
+  File "e:\Z-V_Scan\scanner_engine\gui\main_gui.py", line 880, in closeEvent
+    self.btn_scan.setEnabled(False)
+    
+KeyboardInterrupt
