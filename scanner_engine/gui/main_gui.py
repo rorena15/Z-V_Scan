@@ -32,6 +32,7 @@ from utils.db_connector import DBConnector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.windows_inspector import WindowsInspector
 from output.pdf_report import PDFGenerator
+from output.excel_report import ExcelGenerator
 
 def resource_path(relative_path):
     """PyInstaller 빌드 환경 대응"""
@@ -491,13 +492,21 @@ class ScannerApp(QMainWindow):
         )
         self.btn_audit.clicked.connect(self.start_audit)
         
-        self.btn_pdf = QPushButton("📄 Generate Report")
+        self.btn_pdf = QPushButton("📄 PDF Report")
         self.btn_pdf.setToolTip("PDF 리포트 생성")
         self.btn_pdf.setStyleSheet(
             "QPushButton { border-color: #28a745; } "
             "QPushButton:hover { border-color: #4cd964; background-color: #1e3a20; }"
         )
         self.btn_pdf.clicked.connect(self.generate_pdf)
+        
+        self.btn_excel = QPushButton("📊 Excel Export")
+        self.btn_excel.setToolTip("Enterprise: 상세 진단 결과 엑셀 저장")
+        self.btn_excel.setStyleSheet(
+            "QPushButton { border-color: #1e7145; color: #ffffff; }"
+            "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"
+        )
+        self.btn_excel.clicked.connect(self.generate_excel)
         
         self.btn_stop = QPushButton("🛑 Stop")
         self.btn_stop.setEnabled(False)
@@ -507,6 +516,7 @@ class ScannerApp(QMainWindow):
         btn_layout.addWidget(self.btn_audit)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_pdf)
+        btn_layout.addWidget(self.btn_excel)
         btn_layout.addWidget(self.btn_stop)
         main_layout.addLayout(btn_layout)
 
@@ -706,6 +716,34 @@ class ScannerApp(QMainWindow):
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", str(e))
+            
+    def generate_excel(self):
+        """Excel 리포트 생성 핸들러"""
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            generator = ExcelGenerator()
+            filepath = generator.generate()
+            QApplication.restoreOverrideCursor()
+            
+            self.log_message(f"[Success] Excel Report Saved: {filepath}")
+            
+            # 사용자에게 알림 및 파일 열기 여부 질문
+            reply = QMessageBox.question(
+                self, "Success", 
+                f"리포트가 생성되었습니다:\n{filepath}\n\n지금 여시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                os.startfile(filepath) # Windows 전용 파일 실행
+                
+        except ImportError:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Error", "openpyxl 라이브러리가 필요합니다.\n(pip install openpyxl)")
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            self.log_message(f"[Error] Excel Generate Failed: {e}")
+            QMessageBox.warning(self, "Error", f"생성 실패: {str(e)}")
 
     def stop_scan(self):
         if self.worker and self.worker.isRunning():
