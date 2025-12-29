@@ -5,3 +5,4 @@ ico.py
 app_icon_preview.png
 /build
 /dist
+.spec
