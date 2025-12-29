@@ -1,3 +1,4 @@
+#pyarmor gen -O dist/obf -r scanner_engine
 pyinstaller --noconfirm --onefile --windowed --clean `
     --name "Z-VulnScan_Enterprise_v2.1.0_release" `
     --icon "app_icon.ico" `
