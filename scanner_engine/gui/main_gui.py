@@ -19,13 +19,14 @@ sys.path.append(parent_dir)
 from PyQt5.QtWidgets import (
                                 QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-                                QTextEdit, QMessageBox, QGroupBox, QProgressBar
+                                QTextEdit, QMessageBox, QGroupBox, QProgressBar,
+                                QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
+                                QFrame
                             )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush
 
-
-# 정확한 모듈 Import
+# 모듈 Import
 from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
 from utils.db_connector import DBConnector
@@ -34,7 +35,6 @@ from core.windows_inspector import WindowsInspector
 from output.pdf_report import PDFGenerator
 
 def resource_path(relative_path):
-    #PyInstaller 빌드 시 리소스 경로 문제 해결
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
@@ -42,13 +42,116 @@ def resource_path(relative_path):
 def my_exception_hook(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
     print(error_msg)
-    msg = QMessageBox()
-    msg.setIcon(QMessageBox.Critical)
-    msg.setText("치명적인 오류 발생")
-    msg.setDetailedText(error_msg)
-    msg.exec_()
 
 sys.excepthook = my_exception_hook
+
+# --- [스타일시트: 다크 모드 & 모던 UI] ---
+STYLESHEET = """
+QMainWindow {
+    background-color: #1e1e1e;
+}
+QWidget {
+    color: #e0e0e0;
+    font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+    font-size: 14px;
+}
+QGroupBox {
+    border: 1px solid #3e3e3e;
+    border-radius: 8px;
+    margin-top: 20px;
+    background-color: #252526;
+    font-weight: bold;
+    color: #007acc;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 15px;
+    padding: 0 5px;
+}
+QLineEdit {
+    background-color: #333333;
+    border: 1px solid #444444;
+    border-radius: 4px;
+    padding: 8px;
+    color: #ffffff;
+    selection-background-color: #007acc;
+}
+QLineEdit:focus {
+    border: 1px solid #007acc;
+}
+QPushButton {
+    background-color: #3a3a3a;
+    border: 1px solid #555555;
+    border-radius: 6px;
+    padding: 10px 15px;
+    color: #ffffff;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #4a4a4a;
+    border-color: #007acc;
+}
+QPushButton:pressed {
+    background-color: #2a2a2a;
+}
+QPushButton:disabled {
+    background-color: #252526;
+    color: #666666;
+    border-color: #333333;
+}
+/* 클리어 버튼 전용 스타일 */
+QPushButton#ClearBtn {
+    padding: 4px 10px;
+    font-size: 12px;
+    background-color: #444;
+    border: 1px solid #666;
+}
+QPushButton#ClearBtn:hover {
+    background-color: #c0392b; /* 붉은색 호버 */
+    border-color: #e74c3c;
+}
+QTableWidget {
+    background-color: #252526;
+    border: 1px solid #3e3e3e;
+    gridline-color: #3e3e3e;
+    selection-background-color: #264f78;
+    color: #cccccc;
+}
+QHeaderView::section {
+    background-color: #333333;
+    padding: 6px;
+    border: 1px solid #3e3e3e;
+    color: #e0e0e0;
+    font-weight: bold;
+}
+QTextEdit {
+    background-color: #1e1e1e;
+    border: 1px solid #3e3e3e;
+    color: #00ff00;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+}
+QProgressBar {
+    border: 1px solid #3e3e3e;
+    border-radius: 5px;
+    text-align: center;
+    background-color: #252526;
+    color: white;
+}
+QProgressBar::chunk {
+    background-color: #007acc;
+    border-radius: 4px;
+}
+QSplitter::handle {
+    background-color: #3e3e3e;
+}
+QLabel#Title {
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+"""
 
 # --- [백그라운드 워커 스레드] ---
 class ScanWorker(QThread):
@@ -56,6 +159,7 @@ class ScanWorker(QThread):
     finish_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
     started_signal = pyqtSignal(int)
+    asset_found_signal = pyqtSignal(str, str, str)
 
     def __init__(self, mode, target_input, user=None, pw=None, key_path=None):
         super().__init__()
@@ -64,223 +168,150 @@ class ScanWorker(QThread):
         self.user = user
         self.pw = pw
         self.stop_flag = False
-        self.max_threads = 20  # 네트워크 스캔용 스레드
-        self.audit_threads = 5 # SSH 연결용 스레드 (너무 많으면 차단당함)
-        self.key_path = key_path
+        self.max_threads = 20  
+        self.audit_threads = 5 
         self.db_queue = queue.Queue()
         self.writer_thread = None
         self.writer_stop = False
-        self.asset_ids = {} # 스레드 간 공유 자원 (주의 필요)
-        self.lock = threading.Lock() # asset_ids 접근 보호용
+        self.asset_ids = {} 
+        self.lock = threading.Lock() 
 
-    # --- [공통] DB Writer ---
     def db_writer(self):
         db = DBConnector()
         while not self.writer_stop:
             try:
                 item = self.db_queue.get(timeout=1)
-                
                 if item[0] == 'save_asset':
                     _, ip, hostname, os_type = item
-                    # 내부적으로 connect/close 하므로 안전
                     asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
-                    with self.lock: # 딕셔너리 쓰기 보호
+                    with self.lock:
                         self.asset_ids[ip] = asset_id
-
                 elif item[0] == 'save_open_port':
                     _, ip, port, banner = item
-                    # asset_id가 아직 딕셔너리에 없을 수 있으므로 잠시 대기 혹은 재시도 로직 필요하나
-                    # 구조상 asset 저장 후 포트 저장이 오므로 락만 걸면 대부분 해결
                     asset_id = None
                     with self.lock:
                         asset_id = self.asset_ids.get(ip)
-                    
                     if asset_id:
                         db.save_open_port(asset_id, port, banner)
-
             except queue.Empty:
                 continue
-            except Exception as e:
-                self.log_signal.emit(f"[DB Writer Error] {str(e)}")
+            except Exception:
+                pass
 
-    # --- [작업 1] 네트워크 스캔 단위 작업 ---
     def process_network_scan(self, ip):
         if self.stop_flag: return
-        
         scanner = AdvancedScanner()
         try:
-            # 1. 생존 확인 (Ping/ARP)
             is_alive, os_type = scanner.host_discovery(ip)
-            if not is_alive:
-                return
+            if not is_alive: return
 
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
-
-            # 2. 포트 스캔
             open_ports = scanner.syn_scan(ip)
+            port_str = "None"
+            
             if open_ports:
                 port_str = ", ".join(map(str, open_ports))
-                self.log_signal.emit(f"[+] {ip} ({os_type}) -> Ports: {port_str}")
-
+                self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: {port_str}")
                 for port in open_ports:
                     banner = scanner.grab_banner(ip, port)
                     self.db_queue.put(('save_open_port', ip, port, banner))
+            else:
+                self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: None")
 
-        except OSError as e:
-            self.log_signal.emit(f"[!] {ip} 스캔 중 OS 오류: {e}")
+            self.asset_found_signal.emit(ip, os_type, port_str)
+
         except Exception as e:
-            self.log_signal.emit(f"[!] {ip} 알 수 없는 오류: {e}")
+            self.log_signal.emit(f"[!] {ip} 스캔 오류: {e}")
 
-    # --- [작업 2] Audit(취약점) 진단 단위 작업 ---
     def process_audit_scan(self, ip):
-        """OS 자동 식별 및 진단 모듈 분기 처리 (Smart Branching)"""
+        """[수정됨] 시뮬레이션 모드도 Inspector를 통해 정식 진단 수행"""
         if self.stop_flag: return
+        
+        # IP 정리
         clean_ip = ip.strip().lower()
-        if clean_ip.startswith("127.") or clean_ip == "localhost" or clean_ip == "0.0.0.0":
-            self._run_simulation(clean_ip)
-            return
-        # --- [1. OS 식별 로직 (Port Heuristics)] ---
+        
+        # OS 판단 로직
         target_os = "Unknown"
         
-        # 간단한 소켓 연결로 포트 개방 여부 확인 (Timeout 1초)
-        def check_port(target_ip, port):
-            try:
-                with socket.create_connection((target_ip, port), timeout=1):
-                    return True
-            except:
-                return False
-
-        # 우선순위: WinRM(5985)이 열려있으면 Windows로 판단
-        if check_port(ip, 5985):
-            target_os = "Windows"
-        # SSH(22)가 열려있으면 Linux로 판단
-        elif check_port(ip, 22):
+        # 1. 시뮬레이션 IP인 경우 강제 할당
+        if clean_ip in ["localhost", "127.0.0.1"]:
             target_os = "Linux"
+        elif clean_ip in ["0.0.0.0", "127.0.0.2"]:
+            target_os = "Windows"
         else:
-            # 둘 다 닫혀있으면 진단 불가
-            self.log_signal.emit(f"[-] {ip} 진단 불가 (Port 22/5985 닫힘)")
-            return
+            # 2. 실제 포트 스캔으로 판단
+            def check_port(target_ip, port):
+                try:
+                    with socket.create_connection((target_ip, port), timeout=1): return True
+                except: return False
 
-        # --- [2. OS별 진단 수행] ---
+            if check_port(ip, 5985): target_os = "Windows"
+            elif check_port(ip, 22): target_os = "Linux"
+            else:
+                self.log_signal.emit(f"[-] {ip} 진단 불가 (Port 22/5985 닫힘)")
+                return
+
         conn_success = False
         results = {}
         
         try:
+            # Inspector 호출 (시뮬레이션 로직은 Inspector 내부로 위임)
             if target_os == "Windows":
-                self.log_signal.emit(f"[*] {ip} -> Windows 진단 모듈 가동 (WinRM)...")
-                # WindowsInspector 호출
+                self.log_signal.emit(f"[*] {ip} -> WinRM 진단 시작...")
                 inspector = WindowsInspector(ip, self.user, self.pw)
                 if inspector.connect():
                     conn_success = True
-                    self.log_signal.emit(f"[+] WinRM 접속 성공: {ip}")
                     results = inspector.run_all_checks()
                 else:
-                    self.log_signal.emit(f"[-] WinRM 접속 실패: {ip} (계정/설정 확인)")
+                    self.log_signal.emit(f"[-] WinRM 접속 실패: {ip}")
 
             elif target_os == "Linux":
-                self.log_signal.emit(f"[*] {ip} -> Linux 진단 모듈 가동 (SSH)...")
-                # SSHInspector 호출
-                inspector = SSHInspector(ip, username=self.user, password=self.pw, port=22)
+                self.log_signal.emit(f"[*] {ip} -> SSH 진단 시작...")
+                inspector = SSHInspector(ip, username=self.user, password=self.pw)
                 if inspector.connect():
                     conn_success = True
-                    self.log_signal.emit(f"[+] SSH 접속 성공: {ip}")
                     results = inspector.run_all_checks()
                     inspector.close()
                 else:
                     self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
 
-            # --- [3. 결과 DB 저장 (공통 로직)] ---
+            # 결과 DB 저장 및 로그 출력
             if conn_success and results:
-                # Audit 모드는 결과가 많으므로 별도 DB 커넥션 사용 (Lock 방지)
                 db_local = DBConnector()
-                
-                # 자산 정보 갱신 (OS 타입 확정 저장)
                 asset_id = db_local.save_asset(ip, hostname="Audit_Target", os_type=target_os)
                 
-                save_count = 0
+                vuln_count = 0
+                safe_count = 0
+                
                 if asset_id:
                     for code, (status, detail) in results.items():
-                        # DB에 진단 결과 저장
                         if db_local.save_scan_result(asset_id, code, status, detail):
-                            save_count += 1
-                            # 취약한 항목만 로그 출력
                             if status in ["VULNERABLE", "취약", "Fail"]:
-                                self.log_signal.emit(f"    ⚠️ [{ip}] {code} 취약!")
+                                vuln_count += 1
+                                self.log_signal.emit(f"    ❌ [{code}] 취약: {detail}")
+                            else:
+                                safe_count += 1
+                                # 양호 항목은 너무 많으니 로그 생략하거나 필요 시 주석 해제
+                                # self.log_signal.emit(f"    ✅ [{code}] 양호")
                 
-                self.log_signal.emit(f"    -> {ip} ({target_os}) 진단 완료. (항목: {save_count}개)")
+                self.log_signal.emit(f"    -> 진단 완료: 취약 {vuln_count}건 / 양호 {safe_count}건")
 
         except Exception as e:
-            self.log_signal.emit(f"[Error] {ip} 진단 중 치명적 오류: {str(e)}")
-    def _run_simulation(self, ip):
-        """[시뮬레이션 모드] 네트워크 연결 없이 가상 취약점 데이터 생성"""
-        self.log_signal.emit(f"[*] [Simulation] {ip} 가상 진단 모드 시작...")
-        import time
-        time.sleep(0.5) # 자연스러운 연출을 위한 딜레이
-
-        target_os = "Linux" # 기본값
-        results = {}
-
-        # 1. 입력값에 따른 가상 OS 및 결과 분기
-        # - localhost, 127.0.0.1 -> Linux (취약점 많음)
-        # - 0.0.0.0, 127.0.0.2 -> Windows (취약점 적음)
-        
-        if ip in ["localhost", "127.0.0.1"]:
-            target_os = "Linux"
-            self.log_signal.emit(f"[*] {ip} -> Linux(SSH) 가상 모듈 로드됨")
-            results = {
-                'U-01': ('VULNERABLE', 'root 원격 접속 허용(PermitRootLogin yes) 상태입니다.'),
-                'U-02': ('VULNERABLE', '패스워드 최소 길이가 8자 미만입니다.'),
-                'U-03': ('SAFE', '계정 잠금 정책이 적절히 설정되어 있습니다.'),
-                'U-04': ('VULNERABLE', '/etc/shadow 파일 권한이 취약합니다(644).'),
-                'U-13': ('SAFE', '주요 파일의 SUID 설정이 양호합니다.')
-            }
-        else:
-            # 0.0.0.0 이나 127.0.0.2 등 나머지는 Windows로 처리하여 다양성 확보
-            target_os = "Windows"
-            self.log_signal.emit(f"[*] {ip} -> Windows(WinRM) 가상 모듈 로드됨")
-            results = {
-                'W-01': ('VULNERABLE', 'Administrator 계정 이름이 변경되지 않았습니다.'),
-                'W-02': ('SAFE', 'Guest 계정이 비활성화되어 있습니다.'),
-                'W-03': ('VULNERABLE', 'Telnet 서비스(23)가 실행 중입니다.')
-            }
-
-        # 2. 결과 DB 저장
-        db_local = DBConnector()
-        # 호스트네임을 Demo_Server로 고정하여 실제 자산과 구분
-        asset_id = db_local.save_asset(ip, hostname="Simulation_Target", os_type=target_os)
-        
-        save_count = 0
-        if asset_id:
-            for code, (status, detail) in results.items():
-                if db_local.save_scan_result(asset_id, code, status, detail):
-                    save_count += 1
-                    if status in ["VULNERABLE", "취약", "Fail"]:
-                        self.log_signal.emit(f"    ⚠️ [Sim] {code} 취약 발견!")
-        
-        self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {save_count}개)")
+            self.log_signal.emit(f"[Error] {ip} 진단 중 오류: {str(e)}")
 
     def run(self):
-        self.log_signal.emit(f"[*] 스캔 엔진 가동 (Net Threads: {self.max_threads}, Audit Threads: {self.audit_threads})")
-
-        # 1. 대상 IP 생성 (Generator 사용으로 메모리 절약)
+        self.log_signal.emit(f"[*] 엔진 가동 (Threads: {self.max_threads})")
+        
         target_gen = None
         total_count = 0
-        
         try:
             if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
-                if network.prefixlen == 32:
-                    total_count = 1
-                elif network.prefixlen == 31:
-                    total_count = 2
-                else:
-                    # 일반적인 서브넷인 경우 네트워크, 브로드캐스트 2개 제외
-                    total_count = network.num_addresses - 2
-                
-                target_gen = network.hosts() # Generator 반환
+                total_count = network.num_addresses - 2 if network.prefixlen < 31 else 1
+                target_gen = network.hosts()
             else:
                 total_count = 1
-                target_gen = [self.target_input] # 리스트
+                target_gen = [self.target_input]
         except ValueError:
             self.log_signal.emit("[Error] IP 형식이 올바르지 않습니다.")
             self.finish_signal.emit("입력 오류")
@@ -288,213 +319,266 @@ class ScanWorker(QThread):
 
         self.started_signal.emit(total_count)
         self.asset_ids = {}
-
-        # DB Writer 시작
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
-        # 스레드 풀 실행
         processed_count = 0
-        
-        # 모드에 따른 작업 함수 및 스레드 수 결정
-        work_func = None
-        cur_threads = 0
-        
-        if self.mode == "NETWORK_SCAN":
-            work_func = self.process_network_scan
-            cur_threads = self.max_threads
-        elif self.mode == "AUDIT_VULN":
-            work_func = self.process_audit_scan
-            cur_threads = self.audit_threads # SSH는 연결 제한 고려하여 적게 설정
+        work_func = self.process_network_scan if self.mode == "NETWORK_SCAN" else self.process_audit_scan
+        cur_threads = self.max_threads if self.mode == "NETWORK_SCAN" else self.audit_threads
 
-        # ThreadPoolExecutor로 병렬 처리
         with ThreadPoolExecutor(max_workers=cur_threads) as executor:
-            # Generator를 사용하여 작업 제출 (메모리 효율적)
             futures = {executor.submit(work_func, str(ip)): str(ip) for ip in target_gen}
-
             for future in as_completed(futures):
                 if self.stop_flag:
                     executor.shutdown(wait=False, cancel_futures=True)
-                    self.log_signal.emit("[!] 사용자 중단 요청 감지. 작업을 정리합니다...")
                     break
-                
                 processed_count += 1
-                # 진행률 업데이트 (너무 잦은 emit 방지)
-                if total_count > 0:
-                    progress = int((processed_count / total_count) * 100)
-                    # 너무 자주 업데이트하면 UI 버벅임 -> 5회마다 혹은 마지막에 전송
-                    if processed_count % 5 == 0 or processed_count >= total_count:
-                        self.progress_signal.emit(progress)
-        if not self.stop_flag:
-            self.progress_signal.emit(100)
+                if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
+                     self.progress_signal.emit(int((processed_count / total_count) * 100))
 
-        # 종료 처리
+        if not self.stop_flag: self.progress_signal.emit(100)
         self.writer_stop = True
-        if self.writer_thread.is_alive():
-            self.writer_thread.join(timeout=3)
+        self.writer_thread.join(timeout=3)
+        self.finish_signal.emit("작업 완료")
 
-        status_msg = "작업이 중단되었습니다." if self.stop_flag else "모든 작업이 완료되었습니다."
-        self.finish_signal.emit(status_msg)
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.worker = None # 워커 초기화
+        self.worker = None
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-Vuln Security Platform')
-        self.setGeometry(100, 100, 800, 600)
+        self.setWindowTitle('Z-VulnScan v2.0 Enterprise')
+        self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
-        self.setStyleSheet("background-color: #f0f0f0;")
+        
+        # 다크 모드 스타일 적용
+        self.setStyleSheet(STYLESHEET)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(20, 20, 20, 20) 
+        main_layout.setSpacing(15) 
 
-        # 타이틀
-        title_label = QLabel("지능형 취약점 진단 시스템 (Control Panel)")
-        title_label.setFont(QFont("Arial", 16, QFont.Bold))
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        # 1. 헤더 (타이틀 + 버전)
+        header_layout = QHBoxLayout()
+        title_label = QLabel("🛡️ Z-VulnScan Security Auditor")
+        title_label.setObjectName("Title")
+        ver_label = QLabel("v2.0.0")
+        ver_label.setStyleSheet("color: #666; font-weight: bold; margin-top: 10px;")
+        
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(ver_label)
+        main_layout.addLayout(header_layout)
 
-        # 입력 그룹
+        # 2. 입력 패널 (카드 UI)
         input_group = QGroupBox("Target Configuration")
         input_layout = QHBoxLayout()
+        input_layout.setContentsMargins(20, 25, 20, 20)
+        input_layout.setSpacing(15)
         
         self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("Target IP (ex: 192.168.0.10)")
+        self.ip_input.setPlaceholderText("IP Address or CIDR (e.g., 192.168.0.0/24)")
+        self.ip_input.setMinimumWidth(250)
+        
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("SSH User (root)")
-        self.pw_input = QLineEdit()
-        self.pw_input.setPlaceholderText("SSH Password")
-        self.pw_input.setEchoMode(QLineEdit.Password)
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("SSH Key Path (Optional)")
         
-        input_layout.addWidget(QLabel("IP:"))
+        self.pw_input = QLineEdit()
+        self.pw_input.setPlaceholderText("Password")
+        self.pw_input.setEchoMode(QLineEdit.Password)
+        
+        input_layout.addWidget(QLabel("Target:"))
         input_layout.addWidget(self.ip_input)
         input_layout.addWidget(QLabel("User:"))
         input_layout.addWidget(self.user_input)
         input_layout.addWidget(QLabel("PW:"))
         input_layout.addWidget(self.pw_input)
         input_group.setLayout(input_layout)
-        layout.addWidget(input_group)
+        main_layout.addWidget(input_group)
 
-        # 버튼 그룹
+        # 3. 액션 버튼 그룹
         btn_layout = QHBoxLayout()
-        self.btn_scan = QPushButton("🔍 1. 네트워크 스캔 (Port)")
-        self.btn_scan.setMinimumHeight(40)
-        self.btn_scan.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
+        btn_layout.setSpacing(10)
+        
+        self.btn_scan = QPushButton("🔍 Network Discovery")
+        self.btn_scan.setToolTip("활성 자산을 식별하고 포트를 스캔합니다.")
         self.btn_scan.clicked.connect(self.start_network_scan)
         
-        self.btn_audit = QPushButton("🛡️ 2. 취약점 정밀진단 (Audit)")
-        self.btn_audit.setMinimumHeight(40)
-        self.btn_audit.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
+        self.btn_audit = QPushButton("🛡️ Vulnerability Audit")
+        self.btn_audit.setToolTip("식별된 자산에 대해 정밀 진단을 수행합니다.")
+        self.btn_audit.setStyleSheet("QPushButton { border-color: #d73a49; } QPushButton:hover { border-color: #ff5555; background-color: #3e2020; }")
         self.btn_audit.clicked.connect(self.start_audit)
         
-        self.btn_pdf = QPushButton("📄 3. PDF 리포트 생성")
-        self.btn_pdf.setMinimumHeight(40)
-        self.btn_pdf.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.btn_pdf = QPushButton("📄 Generate Report")
+        self.btn_pdf.setToolTip("진단 결과를 PDF 리포트로 저장합니다.")
+        self.btn_pdf.setStyleSheet("QPushButton { border-color: #28a745; } QPushButton:hover { border-color: #4cd964; background-color: #1e3a20; }")
         self.btn_pdf.clicked.connect(self.generate_pdf)
         
-        self.btn_stop = QPushButton("🛑 중지")
-        self.btn_stop.setMinimumHeight(40)
+        self.btn_stop = QPushButton("🛑 Stop")
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("""
-            QPushButton {
-                background-color: #ff9800; 
-                color: white;
-                font-weight: bold;
-                border-radius: 5px;
-            }
-            QPushButton:disabled {
-                background-color: #dddddd;
-                color: #888888;
-                border: 1px solid #cccccc;
-            }
-            QPushButton:hover {
-                background-color: #e68900;
-            }
-            QPushButton:pressed {
-                background-color: #cc7a00;
-            }
-        """)
         self.btn_stop.clicked.connect(self.stop_scan)
 
         btn_layout.addWidget(self.btn_scan)
         btn_layout.addWidget(self.btn_audit)
+        btn_layout.addStretch() 
         btn_layout.addWidget(self.btn_pdf)
         btn_layout.addWidget(self.btn_stop)
-        layout.addLayout(btn_layout)
+        main_layout.addLayout(btn_layout)
 
-        # 프로그래스 바
-        progress_layout = QVBoxLayout()
-        self.time_label = QLabel("Ready")
-        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
-        self.time_label.setStyleSheet("color: #555; font-weight: bold; font-size: 12px;")
-        progress_layout.addWidget(self.time_label)
+        # 4. 메인 콘텐츠 (Splitter)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(2)
+        
+        # [LEFT] 자산 리스트
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(0, 0, 5, 0)
+        
+        # [NEW] 테이블 헤더 (라벨 + Clear 버튼)
+        table_header_layout = QHBoxLayout()
+        lbl_assets = QLabel("📋 Identified Assets")
+        lbl_assets.setStyleSheet("font-weight: bold; color: #007acc;")
+        
+        self.btn_clear_assets = QPushButton("🗑️ Clear List")
+        self.btn_clear_assets.setObjectName("ClearBtn") # 스타일 적용용 ID
+        self.btn_clear_assets.setToolTip("목록을 비웁니다.")
+        self.btn_clear_assets.clicked.connect(self.clear_asset_table)
+        
+        table_header_layout.addWidget(lbl_assets)
+        table_header_layout.addStretch()
+        table_header_layout.addWidget(self.btn_clear_assets)
+        
+        left_layout.addLayout(table_header_layout)
+        
+        self.asset_table = QTableWidget()
+        self.asset_table.setColumnCount(3)
+        self.asset_table.setHorizontalHeaderLabels(["IP Address", "OS Type", "Open Ports"])
+        self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.asset_table.verticalHeader().setVisible(False) 
+        self.asset_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.asset_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.asset_table.setShowGrid(False) 
+        self.asset_table.setAlternatingRowColors(True) 
+        self.asset_table.doubleClicked.connect(self.on_asset_double_click)
+        
+        left_layout.addWidget(self.asset_table)
+        left_widget.setLayout(left_layout)
+        
+        # [RIGHT] 로그 콘솔
+        right_widget = QWidget()
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(5, 0, 0, 0)
+        
+        # 로그 헤더
+        log_header_layout = QHBoxLayout()
+        lbl_logs = QLabel("💻 System Logs")
+        lbl_logs.setStyleSheet("font-weight: bold; color: #28a745;")
+        
+        # 로그 클리어 버튼도 있으면 좋음
+        self.btn_clear_logs = QPushButton("🗑️ Clear Logs")
+        self.btn_clear_logs.setObjectName("ClearBtn")
+        self.btn_clear_logs.clicked.connect(lambda: self.log_console.clear())
 
-        self.pbar = QProgressBar(self)
-        self.pbar.setValue(0)
-        self.pbar.setTextVisible(True)
-        self.pbar.setFormat("%p%")
-        self.pbar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #bbb;
-                border-radius: 5px;
-                text-align: center;
-                height: 25px;
-                background-color: #e0e0e0;
-            }
-            QProgressBar::chunk {
-                background-color: #007bff;
-                width: 20px;
-            }
-        """)
-        progress_layout.addWidget(self.pbar)
+        log_header_layout.addWidget(lbl_logs)
+        log_header_layout.addStretch()
+        log_header_layout.addWidget(self.btn_clear_logs)
+
+        right_layout.addLayout(log_header_layout)
         
-        layout.addLayout(progress_layout)
-        
-        # 로그 콘솔
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
-        self.log_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas;")
-        layout.addWidget(QLabel("Execution Logs:"))
-        layout.addWidget(self.log_console)
-        central_widget.setLayout(layout)
+        right_layout.addWidget(self.log_console)
+        right_widget.setLayout(right_layout)
+
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([450, 650])
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
         
-        # 타이머 설정
+        main_layout.addWidget(splitter)
+
+        # 5. 하단 상태바
+        status_container = QWidget()
+        status_container.setStyleSheet("background-color: #252526; border-radius: 5px; padding: 5px;")
+        status_layout = QHBoxLayout(status_container)
+        status_layout.setContentsMargins(10, 5, 10, 5)
+        
+        self.pbar = QProgressBar()
+        self.pbar.setFixedHeight(15)
+        self.pbar.setTextVisible(False)
+        
+        self.time_label = QLabel("Ready")
+        self.time_label.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: bold;")
+        
+        status_layout.addWidget(self.pbar)
+        status_layout.addWidget(self.time_label)
+        
+        main_layout.addWidget(status_container)
+        central_widget.setLayout(main_layout)
+        
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
-        self.timer.timeout.connect(self.update_timer_display)
+        self.timer.timeout.connect(self.update_timer)
         self.elapsed_seconds = 0
-        
-    def update_timer_display(self):
-        self.elapsed_seconds += 1
-        
-        # 1. 경과 시간 포맷팅
-        e_min = self.elapsed_seconds // 60
-        e_sec = self.elapsed_seconds % 60
-        elapsed_str = f"{e_min:02d}:{e_sec:02d}"
-        
-        # 2. ETA 계산
-        current_progress = self.pbar.value()
-        eta_str = "계산 중..."
-        
-        if current_progress > 0:
-            total_estimated_seconds = self.elapsed_seconds / (current_progress / 100)
-            remaining_seconds = total_estimated_seconds - self.elapsed_seconds
-            
-            if remaining_seconds < 0: remaining_seconds = 0
-            
-            r_min = int(remaining_seconds // 60)
-            r_sec = int(remaining_seconds % 60)
-            eta_str = f"{r_min:02d}:{r_sec:02d}"
 
-        # 3. 라벨 업데이트 (아이콘 포함)
-        self.time_label.setText(f" 경과: {elapsed_str}  |  남은 시간: {eta_str}")
+    # --- 기능 로직 ---
+    def add_asset_to_table(self, ip, os_type, ports):
+        items = self.asset_table.findItems(ip, Qt.MatchExactly)
+        row = -1
+        if items:
+            row = items[0].row()
+        else:
+            row = self.asset_table.rowCount()
+            self.asset_table.insertRow(row)
+
+        c_ip = QTableWidgetItem(ip)
+        c_os = QTableWidgetItem(os_type)
+        c_port = QTableWidgetItem(ports)
         
+        c_ip.setForeground(QBrush(QColor("#ffffff")))
+        c_port.setForeground(QBrush(QColor("#aaaaaa")))
+
+        if os_type == "Linux":
+            c_os.setForeground(QBrush(QColor("#ff9900"))) # 오렌지
+        elif os_type == "Windows":
+            c_os.setForeground(QBrush(QColor("#00bfff"))) # 딥스카이 블루
+        else:
+            c_os.setForeground(QBrush(QColor("#777777"))) # 회색
+
+        self.asset_table.setItem(row, 0, c_ip)
+        self.asset_table.setItem(row, 1, c_os)
+        self.asset_table.setItem(row, 2, c_port)
+
+    # [NEW] 테이블 비우기 함수
+    def clear_asset_table(self):
+        self.asset_table.setRowCount(0)
+        self.log_message("[UI] Asset list cleared.")
+
+    def on_asset_double_click(self):
+        row = self.asset_table.currentRow()
+        if row >= 0:
+            ip = self.asset_table.item(row, 0).text()
+            self.ip_input.setText(ip)
+            self.log_message(f"[UI] Target Selected: {ip} -> Ready to Audit.")
+            if ip in ["127.0.0.1", "localhost"]:
+                self.user_input.setText("root")
+                self.pw_input.setText("toor")
+            elif ip == "0.0.0.0":
+                self.user_input.setText("Administrator")
+                self.pw_input.setText("password123")
+
+    def update_timer(self):
+        self.elapsed_seconds += 1
+        mins, secs = divmod(self.elapsed_seconds, 60)
+        self.time_label.setText(f"Elapsed: {mins:02d}:{secs:02d}")
+
     def update_progress(self, val):
         self.pbar.setValue(val)
 
@@ -504,148 +588,73 @@ class ScannerApp(QMainWindow):
     def scan_finished(self, msg):
         self.timer.stop()
         self.pbar.setValue(100)
-        final_min = self.elapsed_seconds // 60
-        final_sec = self.elapsed_seconds % 60
-        self.time_label.setText(f"✅ 완료 (소요 시간: {final_min:02d}:{final_sec:02d})")
-        QMessageBox.information(self, "완료", msg)
+        QMessageBox.information(self, "Finished", msg)
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
-        self.btn_pdf.setEnabled(True)
         self.btn_stop.setEnabled(False)
 
     def start_network_scan(self):
-        """네트워크 스캔 시작 버튼 핸들러 (ETA 선행 계산 적용)"""
         ip = self.ip_input.text().strip()
         if not ip:
-            QMessageBox.warning(self, "경고", "IP 주소를 입력하세요.")
+            QMessageBox.warning(self, "Error", "Please input IP address.")
             return
-        
-        self.reset_ui_state()
-        
-        # --- [ETA 선행 계산 로직] ---
-        try:
-            total_hosts = 0
-            if "/" in ip:
-                # CIDR 계산 (예: 192.168.0.0/24)
-                net = ipaddress.ip_network(ip, strict=False)
-                total_hosts = net.num_addresses
-            else:
-                # 단일 IP
-                total_hosts = 1
-
-            # ETA 공식: (호스트 수 / 스레드 수 20) * 배지당 1.5초
-            batch_count = math.ceil(total_hosts / 20)
-            est_time = batch_count * 1.5
-            
-            msg = f"[*] 대기열 등록: {total_hosts}개 호스트 / 예상 소요: 약 {est_time:.1f}초"
-            self.time_label.setText(msg)
-            self.log_message(msg)
-            
-            # UI가 멈추지 않고 글자가 바로 뜨도록 강제 갱신
-            QApplication.processEvents()
-            
-        except Exception as e:
-            # IP 형식이 잘못되었을 때는 Worker에서 처리하도록 패스
-            self.log_message(f"[Info] 대상 계산 보류: {e}")
-
-        # ---------------------------------
-
+        # 스캔 시작 시 자동 초기화 여부는 선택 사항 (여기서는 수동 Clear 버튼이 있으므로 유지)
+        if "/" in ip: self.asset_table.setRowCount(0)
+        self.prepare_scan()
         self.worker = ScanWorker("NETWORK_SCAN", ip)
         self.connect_worker()
         self.worker.start()
 
     def start_audit(self):
-        """보안 진단 시작 버튼 핸들러 (ETA 선행 계산 적용)"""
         ip = self.ip_input.text().strip()
         user = self.user_input.text().strip()
         pw = self.pw_input.text().strip()
-        key = self.key_input.text().strip()
-        
-        if ip not in ["127.0.0.1", "localhost"] and (not user or not pw):
-            QMessageBox.warning(self, "경고", "실제 서버 진단을 위해 계정/비밀번호가 필요합니다.\n(localhost 입력 시 시뮬레이션 모드 동작)")
-            # return (필요시 주석 해제)
-
-        self.reset_ui_state()
-
-        # --- [ ETA 선행 계산 로직] ---
-        try:
-            total_hosts = 0
-            if "/" in ip:
-                net = ipaddress.ip_network(ip, strict=False)
-                total_hosts = net.num_addresses
-            else:
-                total_hosts = 1
-            
-            # Audit 모드는 순차 처리이므로 시간이 더 걸림 (호스트당 약 3~5초 가정)
-            est_time = total_hosts * 5.0
-            
-            msg = f"[*] SSH 연결 준비: {total_hosts}개 호스트 / 예상 소요: 약 {est_time:.1f}초"
-            self.time_label.setText(msg)
-            self.log_message(msg)
-            
-            QApplication.processEvents() # UI 강제 갱신
-
-        except Exception:
-            pass
-        self.worker = ScanWorker("AUDIT_VULN", ip, user=user, pw=pw, key_path=key)
+        if "/" in ip:
+            QMessageBox.warning(self, "Notice", "Please select a single target for deep audit.")
+        self.prepare_scan()
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, pw)
         self.connect_worker()
         self.worker.start()
 
     def generate_pdf(self):
         try:
-            self.log_message("[System] PDF 리포트 생성을 시작합니다...")
-            
-            # [수정] subprocess 대신 직접 클래스 호출
-            # UI 프리징 방지를 위해 간단히 처리 (데이터가 많으면 스레드로 빼야 함)
-            QApplication.setOverrideCursor(Qt.WaitCursor) # 로딩 마우스 커서
-            
+            QApplication.setOverrideCursor(Qt.WaitCursor)
             generator = PDFGenerator()
-            generator.generate() # PDF 생성 실행
-            
-            QApplication.restoreOverrideCursor() # 커서 복구
-            
-            self.log_message(f"[Success] 리포트 생성 완료: {generator.filename}")
-            QMessageBox.information(self, "성공", f"PDF 리포트가 생성되었습니다.\n({generator.filename})")
-
+            generator.generate()
+            QApplication.restoreOverrideCursor()
+            self.log_message(f"[Success] Report Generated: {generator.filename}")
+            QMessageBox.information(self, "Success", f"Report saved:\n{generator.filename}")
         except Exception as e:
             QApplication.restoreOverrideCursor()
-            self.log_message(f"[Critical] PDF 생성 오류: {str(e)}")
-            QMessageBox.warning(self, "실패", f"PDF 생성 중 오류 발생:\n{str(e)}")
-            
+            QMessageBox.warning(self, "Error", str(e))
+
     def stop_scan(self):
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.timer.stop()
-            self.log_message("[!!!] 중지 요청 중...")
+        if self.worker and self.worker.isRunning():
             self.worker.stop_flag = True
             self.btn_stop.setEnabled(False)
+            self.log_message("[!!!] Stopping...")
 
-    def reset_ui_state(self):
-        self.log_console.clear()
+    def prepare_scan(self):
+        # self.log_console.clear() # 로그는 남겨두는 게 좋을 수 있음 (수동 Clear 사용)
         self.btn_scan.setEnabled(False)
         self.btn_audit.setEnabled(False)
-        self.btn_pdf.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.pbar.setValue(0)
+        self.elapsed_seconds = 0
+        self.timer.start()
 
     def connect_worker(self):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.progress_signal.connect(self.update_progress)
-        self.worker.started_signal.connect(self.handle_scan_started)
-        
-    def closeEvent(self, event):
-        if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
-            self.log_message("[System] 프로그램 종료 요청. 스레드를 정리 중입니다...")
-            self.worker.stop_flag = True
-            if not self.worker.wait(2000):
-                self.worker.terminate()
-        event.accept()
+        self.worker.started_signal.connect(lambda n: self.log_message(f"[Info] Target Count: {n}"))
+        self.worker.asset_found_signal.connect(self.add_asset_to_table)
 
-    def handle_scan_started(self, total_count):
-        self.log_message(f"[System] 실제 진단을 시작합니다. (대상: {total_count}개)")
-        self.elapsed_seconds = 0
-        self.time_label.setText(" 진행 시간: 00:00 | 남은 시간: 계산 중...")
-        self.timer.start()
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop_flag = True
+            self.worker.wait(2000)
+        event.accept()
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()

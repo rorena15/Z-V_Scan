@@ -14,6 +14,7 @@ class WindowsInspector:
         self.password = password
         self.session = None
         self.is_connected = False
+        self.is_simulation = False
         
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.rules_path = os.path.join(base_dir, 'rules', 'windows_rules.json')
@@ -21,20 +22,55 @@ class WindowsInspector:
             self.rules_path = os.path.join(sys._MEIPASS, 'rules', 'windows_rules.json')
 
     def connect(self):
+        if self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
+            self.is_simulation = True
+            return True
+
         try:
             self.session = winrm.Session(f'http://{self.ip}:5985/wsman', auth=(self.username, self.password), transport='ntlm', read_timeout_sec=5)
             if self.session.run_cmd('hostname').status_code == 0:
                 self.is_connected = True
                 return True
-        except: pass
+        except: 
+            pass # 실패 시 시뮬레이션 아님 (접속 실패 처리)
         return False
 
     def execute_ps(self, script):
+        if self.is_simulation:
+            return self.get_mock_data(script)
+            
         if not self.is_connected: return ""
         try:
             rs = self.session.run_ps(script)
             if rs.status_code == 0: return rs.std_out.decode('utf-8', errors='ignore').strip()
         except: pass
+        return ""
+
+    def get_mock_data(self, script):
+        """윈도우 가상 진단 데이터"""
+        s = script.lower()
+        
+        # W-01: Admin Name (취약)
+        if "administrator" in s: return "Name: Administrator, Enabled: True"
+        
+        # W-02: Guest (양호)
+        if "guest" in s: return "" # Guest 활성화 계정 없음
+        
+        # W-03: Telnet (취약)
+        if "tlntsvr" in s: return "Status: Running"
+        
+        # W-04: Lockout (취약)
+        if "net accounts" in s: return "Lockout threshold: Never"
+        
+        # W-08: Share (취약)
+        if "get-smbshare" in s: return "Name: C$, Path: C:\\"
+        
+        # W-11: Simple TCP (양호)
+        if "simptcp" in s: return "Status: Stopped"
+        
+        # W-60: Hotfix (취약)
+        if "get-hotfix" in s: return "Cannot find HotFix"
+        
         return ""
 
     def run_all_checks(self):
@@ -47,24 +83,17 @@ class WindowsInspector:
         for rule in rules:
             code = rule['code']
             cmd = rule['command']
-            
-            # 윈도우 시뮬레이션 처리 (IP가 0.0.0.0 등이면)
-            if self.ip in ["0.0.0.0", "127.0.0.2"]:
-                # Mock 결과
-                if code == "W-01": output = "Administrator" # 취약
-                else: output = ""
-            else:
-                output = self.execute_ps(cmd)
+            output = self.execute_ps(cmd)
 
             status = "SAFE"
-            detail = f"점검 완료: {output[:50]}..."
+            detail = "점검 완료"
 
             if "vulnerable_keyword" in rule:
                 if rule['vulnerable_keyword'] in output:
                     status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {output.strip()}"
+                    detail = f"취약 설정 발견: {output[:30]}..."
             elif "safe_keyword" in rule:
-                if rule['safe_keyword'] not in output:
+                if not output or rule['safe_keyword'] not in output:
                     status = "VULNERABLE"
                     detail = f"안전 설정 미흡"
 

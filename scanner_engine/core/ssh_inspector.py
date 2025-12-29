@@ -19,21 +19,21 @@ class SSHInspector:
         # rules 경로 로드
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.rules_path = os.path.join(base_dir, 'rules', 'linux_rules.json')
-        # 빌드 대응
         if hasattr(sys, '_MEIPASS'):
             self.rules_path = os.path.join(sys._MEIPASS, 'rules', 'linux_rules.json')
 
     def connect(self):
+        # 시뮬레이션 IP 체크
         if self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True
             return True
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=3, banner_timeout=3)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=3)
             return True
         except:
-            self.is_simulation = True # 실패 시 시뮬레이션 전환
+            self.is_simulation = True # 접속 실패 시 시뮬레이션 전환
             return True
 
     def close(self):
@@ -49,41 +49,73 @@ class SSHInspector:
             return self.get_mock_data(command)
 
     def get_mock_data(self, command):
-        # 시뮬레이션 데이터 반환 (테스트용)
-        if "PermitRootLogin" in command: return "PermitRootLogin yes"
-        if "pwquality" in command: return "" # 취약
-        if "pam_tally" in command: return "" # 취약
-        if "shadow" in command: return "-rw-r--r-- root root" # 취약 (644)
+        """가상 진단을 위한 Mock 데이터 반환 (JSON 규칙 대응)"""
+        cmd = command.lower()
+
+        # U-01: Root Login (취약: yes)
+        if "permitrootlogin" in cmd: return "PermitRootLogin yes"
+        
+        # U-02: Password Complexity (취약: minlen 없음)
+        if "pwquality.conf" in cmd: return "retry=3"
+        
+        # U-03: Account Lockout (양호: deny=5 있음)
+        if "pam_tally2" in cmd or "pam_faillock" in cmd: return "auth required pam_tally2.so deny=5 unlock_time=120"
+        
+        # U-04: Shadow File (취약: 권한 644)
+        if "ls -l /etc/shadow" in cmd: return "-rw-r--r-- 1 root root 1234 Jan 01 00:00 /etc/shadow"
+        
+        # U-05: PATH (양호)
+        if "echo $path" in cmd: return "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+        
+        # U-07: Passwd File (양호)
+        if "ls -l /etc/passwd" in cmd: return "-rw-r--r-- 1 root root 2000 Jan 01 00:00 /etc/passwd"
+        
+        # U-19: Finger (취약: 서비스 실행 중)
+        if "grep finger" in cmd: return "root 1234 1 0 00:00 ? 00:00:00 in.fingerd"
+        
+        # U-20: Anonymous FTP (취약: YES)
+        if "anonymous_enable" in cmd: return "anonymous_enable=YES"
+        
+        # U-21: R-command (양호: 결과 없음)
+        if "ls /etc/xinetd.d/r" in cmd: return ""
+        
+        # U-22: Crontab (취약: 소유자 user)
+        if "ls -l /etc/crontab" in cmd: return "-rw-r--r-- 1 user user 500 Jan 01 00:00 /etc/crontab"
+        
+        # U-23: DoS Service (양호)
+        if "inetd.conf" in cmd: return ""
+        
+        # U-54: Timeout (취약: 결과 없음)
+        if "tmout" in cmd: return ""
+        
+        # 기본값: 빈 문자열 (검사 결과 없음 -> 양호/취약 여부는 규칙에 따름)
         return ""
 
     def run_all_checks(self):
         results = {}
-        
-        # 1. JSON 규칙 로드
         rules = []
         if os.path.exists(self.rules_path):
             with open(self.rules_path, 'r', encoding='utf-8') as f:
                 rules = json.load(f)
         
-        # 2. 규칙 순회하며 진단
         for rule in rules:
             code = rule['code']
             cmd = rule['command']
-            
             output = self.execute_command(cmd)
+            
             status = "SAFE"
-            detail = f"점검 완료: {output[:50]}..." if output else "설정 없음"
+            detail = "점검 완료"
 
-            # 판단 로직
+            # 1. 취약 키워드 체크 (키워드가 있으면 취약)
             if "vulnerable_keyword" in rule:
                 if rule['vulnerable_keyword'] in output:
                     status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {output.strip()}"
+                    detail = f"취약 설정 발견: {output[:30]}..."
+            
+            # 2. 안전 키워드 체크 (키워드가 없으면 취약)
             elif "safe_keyword" in rule:
-                if rule['safe_keyword'] not in output:
+                if not output or rule['safe_keyword'] not in output:
                     status = "VULNERABLE"
-                    detail = f"안전 설정 미흡: {output.strip()}"
+                    detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
             
             results[code] = (status, detail)
-            
-        return results
