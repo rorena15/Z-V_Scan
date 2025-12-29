@@ -1,3 +1,5 @@
 .env
 Security_Report.pdf
 zvuln_scan.db
+ico.py
+app_icon_preview.png

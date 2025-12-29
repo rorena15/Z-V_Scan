@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
                                 QTextEdit, QMessageBox, QGroupBox, QProgressBar
                             )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 
 # 정확한 모듈 Import
 from core.advanced_scanner import AdvancedScanner
@@ -29,6 +29,12 @@ from core.ssh_inspector import SSHInspector
 from utils.db_connector import DBConnector
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.windows_inspector import WindowsInspector
+
+def resource_path(relative_path):
+    #PyInstaller 빌드 시 리소스 경로 문제 해결
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 def my_exception_hook(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
@@ -336,6 +342,7 @@ class ScannerApp(QMainWindow):
     def initUI(self):
         self.setWindowTitle('Z-Vuln Security Platform')
         self.setGeometry(100, 100, 800, 600)
+        self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet("background-color: #f0f0f0;")
 
         central_widget = QWidget()
