@@ -431,7 +431,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.1.0 Enterprise')
+        self.setWindowTitle('Z-VulnScan v2.1.0 pro')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
@@ -444,7 +444,7 @@ class ScannerApp(QMainWindow):
 
         # 1. 헤더
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan Security Auditor")
+        title_label = QLabel("🛡️ Z-VulnScan A.D & S.V Tool")
         title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
         ver_label = QLabel("v2.1.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")

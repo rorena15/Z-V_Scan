@@ -44,6 +44,11 @@ Z-VulnScan Professional은 다음 목적에 적합합니다.
 
 ## 🚀 Key Features
 
+## 📸 Screenshots
+| Dashboard | Report Preview |
+|---|---|
+| ![Main GUI](img/dashboard.png) | ![PDF Report](img/report.png) |
+
 ### 1. Network Asset Discovery
 - ICMP Ping 기반 활성 호스트 탐지
 - ARP Scan을 통한 내부 네트워크 자산 식별
@@ -162,6 +167,9 @@ Z-VulnScan Professional은 다음 범주에 속합니다.
 
 ---
 
+> ℹ **참고:** 위 KISA 진단 항목(Compliance)은 대상 자산에 대한 **SSH/WinRM 인증 정보(ID/PW)**가 제공된 경우에만 정밀 진단이 가능합니다. 비인증 시 포트 및 배너 정보만 제공됩니다.
+
+---
 ## 🔮 Future Roadmap (Enterprise)
 - v3.0: Centralized Management (MySQL/MariaDB 연동 지원).
 - Web Dashboard: Java(JSP) 기반의 웹 관제 콘솔 제공 (Optional).
