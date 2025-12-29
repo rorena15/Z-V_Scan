@@ -64,7 +64,7 @@ class ScanWorker(QThread):
         self.asset_ids = {} # 스레드 간 공유 자원 (주의 필요)
         self.lock = threading.Lock() # asset_ids 접근 보호용
 
-    # --- [공통] DB Writer (수정됨: finally 제거) ---
+    # --- [공통] DB Writer ---
     def db_writer(self):
         db = DBConnector()
         while not self.writer_stop:
@@ -126,7 +126,10 @@ class ScanWorker(QThread):
     def process_audit_scan(self, ip):
         """OS 자동 식별 및 진단 모듈 분기 처리 (Smart Branching)"""
         if self.stop_flag: return
-
+        clean_ip = ip.strip().lower()
+        if clean_ip.startswith("127.") or clean_ip == "localhost" or clean_ip == "0.0.0.0":
+            self._run_simulation(clean_ip)
+            return
         # --- [1. OS 식별 로직 (Port Heuristics)] ---
         target_os = "Unknown"
         
@@ -199,6 +202,53 @@ class ScanWorker(QThread):
 
         except Exception as e:
             self.log_signal.emit(f"[Error] {ip} 진단 중 치명적 오류: {str(e)}")
+    def _run_simulation(self, ip):
+        """[시뮬레이션 모드] 네트워크 연결 없이 가상 취약점 데이터 생성"""
+        self.log_signal.emit(f"[*] [Simulation] {ip} 가상 진단 모드 시작...")
+        import time
+        time.sleep(0.5) # 자연스러운 연출을 위한 딜레이
+
+        target_os = "Linux" # 기본값
+        results = {}
+
+        # 1. 입력값에 따른 가상 OS 및 결과 분기
+        # - localhost, 127.0.0.1 -> Linux (취약점 많음)
+        # - 0.0.0.0, 127.0.0.2 -> Windows (취약점 적음)
+        
+        if ip in ["localhost", "127.0.0.1"]:
+            target_os = "Linux"
+            self.log_signal.emit(f"[*] {ip} -> Linux(SSH) 가상 모듈 로드됨")
+            results = {
+                'U-01': ('VULNERABLE', 'root 원격 접속 허용(PermitRootLogin yes) 상태입니다.'),
+                'U-02': ('VULNERABLE', '패스워드 최소 길이가 8자 미만입니다.'),
+                'U-03': ('SAFE', '계정 잠금 정책이 적절히 설정되어 있습니다.'),
+                'U-04': ('VULNERABLE', '/etc/shadow 파일 권한이 취약합니다(644).'),
+                'U-13': ('SAFE', '주요 파일의 SUID 설정이 양호합니다.')
+            }
+        else:
+            # 0.0.0.0 이나 127.0.0.2 등 나머지는 Windows로 처리하여 다양성 확보
+            target_os = "Windows"
+            self.log_signal.emit(f"[*] {ip} -> Windows(WinRM) 가상 모듈 로드됨")
+            results = {
+                'W-01': ('VULNERABLE', 'Administrator 계정 이름이 변경되지 않았습니다.'),
+                'W-02': ('SAFE', 'Guest 계정이 비활성화되어 있습니다.'),
+                'W-03': ('VULNERABLE', 'Telnet 서비스(23)가 실행 중입니다.')
+            }
+
+        # 2. 결과 DB 저장
+        db_local = DBConnector()
+        # 호스트네임을 Demo_Server로 고정하여 실제 자산과 구분
+        asset_id = db_local.save_asset(ip, hostname="Simulation_Target", os_type=target_os)
+        
+        save_count = 0
+        if asset_id:
+            for code, (status, detail) in results.items():
+                if db_local.save_scan_result(asset_id, code, status, detail):
+                    save_count += 1
+                    if status in ["VULNERABLE", "취약", "Fail"]:
+                        self.log_signal.emit(f"    ⚠️ [Sim] {code} 취약 발견!")
+        
+        self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {save_count}개)")
 
     def run(self):
         self.log_signal.emit(f"[*] 스캔 엔진 가동 (Net Threads: {self.max_threads}, Audit Threads: {self.audit_threads})")
