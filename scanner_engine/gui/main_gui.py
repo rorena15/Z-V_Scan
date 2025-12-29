@@ -722,23 +722,48 @@ class ScannerApp(QMainWindow):
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        self.set_ui_busy(False)
+        self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
         
     def set_ui_busy(self, busy):
-        """UI 상태를 '작업 중' 또는 '대기 중'으로 변경"""
-        # 버튼 활성화/비활성화 토글
-        self.btn_scan.setDisabled(busy)
-        self.btn_audit.setDisabled(busy)
-        self.btn_stop.setEnabled(busy)
+        """
+        UI 상태를 제어하여 스캔 중 입력 변경을 방지하고, 
+        스캔이 끝나면 입력을 다시 활성화합니다.
+        """
+        # 1. 버튼 상태 토글
+        self.btn_scan.setDisabled(busy)   # 스캔 중엔 시작 버튼 비활성
+        self.btn_audit.setDisabled(busy)  # 스캔 중엔 진단 버튼 비활성
+        self.btn_stop.setEnabled(busy)    # 스캔 중에만 정지 버튼 활성
         
-        # 포트 입력창도 작업 중엔 잠금
+        # 2. PDF/Excel 버튼 (결과 나오기 전엔 비활성, 끝나면 활성)
+        self.btn_pdf.setDisabled(busy)
+        self.btn_excel.setDisabled(busy)
+
+        # 3. 입력창 상태 제어 (핵심 수정 부분)
+        # busy가 True면 Disabled(잠금), False면 Enabled(해제)
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)
+        self.user_input.setDisabled(busy)
+        self.pw_input.setDisabled(busy)
+
+        # 4. 포트 입력창(Custom) 디테일 처리
         if busy:
+            # 스캔 중에는 무조건 잠금
             self.port_input.setDisabled(True)
         else:
-            # 작업 끝났을 때 커스텀 모드면 다시 활성화
-            if self.port_mode_combo.currentIndex() == 1:
-                self.port_input.setEnabled(True)
+            # 스캔이 끝났을 때: 'Custom Range' 모드일 때만 입력창을 다시 틉니다.
+            is_custom_mode = (self.port_mode_combo.currentIndex() == 1)
+            self.port_input.setEnabled(is_custom_mode)
+
+        # 5. 타이머 및 프로그레스바
+        if busy:
+            self.pbar.setValue(0)
+            self.elapsed_seconds = 0
+            self.time_label.setText("Initializing...")
+            self.timer.start(1000)
+        else:
+            self.timer.stop()
+            self.pbar.setValue(100) # 완료 시 100% 채움
 
         # 타이머 및 프로그레스바 제어
         if busy:
