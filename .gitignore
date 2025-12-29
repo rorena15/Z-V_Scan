@@ -1,8 +1,9 @@
 .env
+.spec
 Security_Report.pdf
 zvuln_scan.db
 ico.py
 app_icon_preview.png
 /build
 /dist
-.spec
+Z-VulnScan_Enterprise_v2.1.0.spec
