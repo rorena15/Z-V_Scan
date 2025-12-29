@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('dist/obf/scanner_engine/core', 'core'), ('dist/obf/scanner_engine/utils', 'utils'), ('app_icon.ico', '.')]
+datas = [('dist/obf/scanner_engine/core', 'core'), ('dist/obf/scanner_engine/utils', 'utils'), ('dist/obf/scanner_engine/output', 'output'), ('app_icon.ico', '.')]
 binaries = []
 hiddenimports = ['PyQt5', 'reportlab', 'reportlab.graphics.charts.piecharts', 'reportlab.pdfbase.ttfonts', 'winrm', 'paramiko', 'sqlite3']
 tmp_ret = collect_all('scapy')

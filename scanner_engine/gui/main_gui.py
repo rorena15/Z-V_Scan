@@ -1,6 +1,7 @@
 # Copyright (c) 2025 rorena15
 # All rights reserved.
 # Proprietary License - No redistribution or modification without permission.
+import multiprocessing
 import sys
 import os
 import queue
@@ -647,6 +648,7 @@ class ScannerApp(QMainWindow):
         self.timer.start()
 
 if __name__ == '__main__':
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     ex = ScannerApp()
     ex.show()
