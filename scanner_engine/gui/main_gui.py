@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QTextEdit, QMessageBox, QGroupBox, QProgressBar,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter
+    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,QComboBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QIcon, QColor, QBrush
@@ -43,7 +43,6 @@ def my_exception_hook(exctype, value, tb):
     """전역 예외 처리"""
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
     print(f"[CRITICAL ERROR] {error_msg}")
-    # 로그 파일에도 기록 (선택사항)
     try:
         with open("error_log.txt", "a", encoding="utf-8") as f:
             f.write(f"\n{'='*50}\n")
@@ -120,7 +119,19 @@ QProgressBar {
     color: white; 
 }
 QProgressBar::chunk { background-color: #007acc; border-radius: 4px; }
+
 QSplitter::handle { background-color: #3e3e3e; }
+
+QComboBox{
+    background-color: #333333;
+}
+QComboBox QAbstractItemView {
+    background-color: #333333;
+    color: #ffffff;
+    selection-background-color: #007acc;
+    selection-color: #ffffff;
+    border: 1px solid #3e3e3e;
+}
 """
 
 # --- [백그라운드 워커 스레드] ---
@@ -131,12 +142,13 @@ class ScanWorker(QThread):
     started_signal = pyqtSignal(int)
     asset_found_signal = pyqtSignal(str, str, str)
 
-    def __init__(self, mode, target_input, user=None, pw=None):
+    def __init__(self, mode, target_input, user=None, pw=None, ports=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
         self.user = user
         self.pw = pw
+        self.ports = ports
         self.stop_flag = False
         self.max_threads = 20
         self.audit_threads = 5
@@ -181,7 +193,7 @@ class ScanWorker(QThread):
                 return
 
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
-            open_ports = scanner.syn_scan(ip)
+            open_ports = scanner.syn_scan(ip, self.ports)
             port_str = "None"
             
             if open_ports:
@@ -415,36 +427,51 @@ class ScannerApp(QMainWindow):
         header_layout = QHBoxLayout()
         title_label = QLabel("🛡️ Z-VulnScan Security Auditor")
         title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
-        ver_label = QLabel("v2.0.1")
-        ver_label.setStyleSheet("color: #666; font-weight: bold; margin-top: 10px;")
+        ver_label = QLabel("v2.1.0")
+        ver_label.setStyleSheet("color: #666; font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(ver_label)
         main_layout.addLayout(header_layout)
 
-        # 2. 입력 패널
-        input_group = QGroupBox("Target Configuration")
-        input_layout = QHBoxLayout()
-        input_layout.setContentsMargins(20, 25, 20, 20)
-        input_layout.setSpacing(15)
+        # 2. 타겟 & 포트 설정 (Grid Layout 대체)
+        input_group = QGroupBox("Configuration")
+        input_layout = QVBoxLayout()
         
+        # Row 1: Target & Creds
+        row1 = QHBoxLayout()
         self.ip_input = QLineEdit()
         self.ip_input.setPlaceholderText("IP Address or CIDR (e.g., 192.168.0.0/24)")
-        self.ip_input.setMinimumWidth(250)
-        
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("SSH/WinRM User")
-        
         self.pw_input = QLineEdit()
         self.pw_input.setPlaceholderText("Password")
         self.pw_input.setEchoMode(QLineEdit.Password)
         
-        input_layout.addWidget(QLabel("Target:"))
-        input_layout.addWidget(self.ip_input)
-        input_layout.addWidget(QLabel("User:"))
-        input_layout.addWidget(self.user_input)
-        input_layout.addWidget(QLabel("PW:"))
-        input_layout.addWidget(self.pw_input)
+        row1.addWidget(QLabel("Target:"))
+        row1.addWidget(self.ip_input)
+        row1.addWidget(QLabel("User:"))
+        row1.addWidget(self.user_input)
+        row1.addWidget(QLabel("PW:"))
+        row1.addWidget(self.pw_input)
+        
+        # Row 2: Port Settings [NEW]
+        row2 = QHBoxLayout()
+        self.port_mode_combo = QComboBox()
+        self.port_mode_combo.addItems(["⚡ Default (Fast)", "📝 Custom Range", "🐢 Full Scan (1-65535)"])
+        self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
+        
+        self.port_input = QLineEdit()
+        self.port_input.setPlaceholderText("Ex: 80,443,8080 or 1-1024")
+        self.port_input.setEnabled(False) # 기본값은 비활성화
+        
+        row2.addWidget(QLabel("Scan Mode:"))
+        row2.addWidget(self.port_mode_combo)
+        row2.addWidget(QLabel("Custom Ports:"))
+        row2.addWidget(self.port_input)
+        
+        input_layout.addLayout(row1)
+        input_layout.addLayout(row2)
         input_group.setLayout(input_layout)
         main_layout.addWidget(input_group)
 
@@ -687,7 +714,8 @@ class ScannerApp(QMainWindow):
             self.log_message("[!!!] Stopping...")
 
     def prepare_scan(self):
-        # self.log_console.clear() # 로그는 남겨두는 게 좋을 수 있음 (수동 Clear 사용)
+        # self.log_console.clear()
+        # # 로그는 남겨두는 게 좋을 수 있음 (수동 Clear 사용)
         self.btn_scan.setEnabled(False)
         self.btn_audit.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -707,6 +735,46 @@ class ScannerApp(QMainWindow):
             self.worker.stop_flag = True
             self.worker.wait(2000)
         event.accept()
+        
+    def toggle_port_input(self, index):
+        # Index 1 = Custom Range 일 때만 입력 가능
+        self.port_input.setEnabled(index == 1)
+        if index == 1: self.port_input.setFocus()
+
+    # [교체] 스캔 시작 로직 (포트 파싱 로직 추가됨)
+    def start_network_scan(self):
+        ip = self.ip_input.text().strip()
+        if not ip:
+            QMessageBox.warning(self, "Error", "IP를 입력하세요.")
+            return
+
+        # 포트 모드 확인 및 파싱
+        mode_idx = self.port_mode_combo.currentIndex()
+        target_ports = None # None이면 Default(Fast)
+
+        if mode_idx == 1: # Custom Range
+            p_str = self.port_input.text().strip()
+            if not p_str:
+                QMessageBox.warning(self, "Error", "포트 범위를 입력하세요.")
+                return
+            # AdvancedScanner.parse_ports는 advanced_scanner.py에 추가된 정적 메서드입니다.
+            target_ports = AdvancedScanner.parse_ports(p_str)
+            if not target_ports:
+                QMessageBox.warning(self, "Error", "유효한 포트 형식이 아닙니다.")
+                return
+        elif mode_idx == 2: # Full Scan
+            reply = QMessageBox.question(self, "Warning", "전체 포트(65535개) 스캔은 시간이 오래 걸립니다.\n계속하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No: return
+            target_ports = list(range(1, 65536))
+
+        # UI 비활성화 및 스캔 시작
+        self.set_ui_busy(True)
+        if "/" in ip: self.asset_table.setRowCount(0)
+        
+        # worker에 ports 파라미터 전달
+        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
+        self.connect_worker()
+        self.worker.start()
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()

@@ -26,6 +26,25 @@ class AdvancedScanner:
         # 주요 포트 리스트
         self.target_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
 
+    @staticmethod
+    def parse_ports(port_str):
+        """포트 문자열 파싱 (예: '80,443' 또는 '1-100')"""
+        ports = set()
+        try:
+            parts = port_str.split(',')
+            for part in parts:
+                part = part.strip()
+                if '-' in part:
+                    start, end = map(int, part.split('-'))
+                    for p in range(start, end + 1):
+                        if 1 <= p <= 65535: ports.add(p)
+                else:
+                    p = int(part)
+                    if 1 <= p <= 65535: ports.add(p)
+        except:
+            pass
+        return sorted(list(ports))
+    
     def estimate_os(self, ttl):
         """TTL 기반 OS 추정"""
         if ttl <= 64: return "Linux/Unix"
@@ -92,20 +111,21 @@ class AdvancedScanner:
 
         return is_alive, detected_os
 
-    def syn_scan(self, ip):
+    def syn_scan(self, ip, ports=None):
         """
-        [고속 모드] Socket Connect Scan (TCP 스캔)
-        Scapy SYN Scan보다 덜 은밀하지만, 압도적으로 빠르고 안정적임
+        Socket Connect Scan (TCP)
+        :param ports: 스캔할 포트 리스트 (None이면 기본 포트 사용)
         """
+        target_ports = ports if ports else self.default_ports
         open_ports = []
         
-        for port in self.target_ports:
+        # 타임아웃 조절 (포트가 많으면 짧게, 적으면 넉넉하게)
+        timeout = 0.1 if len(target_ports) > 1000 else 0.2
+
+        for port in target_ports:
             try:
-                # 표준 소켓 사용 (스레드 안전)
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.2) # 0.3초 타임아웃
-                
-                # connect_ex는 성공 시 0 반환
+                s.settimeout(timeout)
                 result = s.connect_ex((ip, port))
                 if result == 0:
                     open_ports.append(port)
