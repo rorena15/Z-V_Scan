@@ -25,5 +25,50 @@
     "vulnerable_keyword": "Running",
     "description": "Telnet은 평문 통신을 하므로 스니핑 위험이 있습니다.",
     "remediation": "Telnet 서비스 중지 및 사용 안 함 설정"
+  },
+  {
+    "code": "W-04",
+    "name": "계정 잠금 임계값 설정",
+    "category": "Account",
+    "command": "net accounts",
+    "vulnerable_keyword": "Never",
+    "description": "로그인 실패 시 계정 잠금 설정이 없으면 무차별 대입 공격이 가능합니다.",
+    "remediation": "로컬 보안 정책 > 계정 잠금 정책에서 임계값 설정"
+  },
+  {
+    "code": "W-06",
+    "name": "Administrators 그룹 관리",
+    "category": "Account",
+    "command": "net localgroup Administrators",
+    "vulnerable_keyword": "Guest",
+    "description": "관리자 그룹에 불필요한 계정(Guest 등)이 포함되면 안 됩니다.",
+    "remediation": "Administrators 그룹에서 불필요한 계정 제거"
+  },
+  {
+    "code": "W-08",
+    "name": "하드디스크 기본 공유 제거",
+    "category": "Service",
+    "command": "Get-SmbShare",
+    "vulnerable_keyword": "C$",
+    "description": "기본 공유(C$, Admin$)가 활성화되어 있으면 바이러스 전파 경로가 됩니다.",
+    "remediation": "레지스트리 AutoShareServer 값을 0으로 설정"
+  },
+  {
+    "code": "W-11",
+    "name": "Simple TCP/IP 서비스 차단",
+    "category": "Service",
+    "command": "Get-Service -Name SimpTcp -ErrorAction SilentlyContinue | Select-Object Status",
+    "vulnerable_keyword": "Running",
+    "description": "Simple TCP 서비스는 DoS 공격에 취약하므로 제거해야 합니다.",
+    "remediation": "Windows 기능 켜기/끄기에서 '단순 TCPIP 서비스' 제거"
+  },
+  {
+    "code": "W-36",
+    "name": "NetBIOS 바인딩 서비스 제거",
+    "category": "Network",
+    "command": "Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.TcpipNetbiosOptions -eq 0}",
+    "vulnerable_keyword": "True",
+    "description": "NetBIOS가 활성화되어 있으면 불필요한 정보 노출 위험이 있습니다.",
+    "remediation": "네트워크 어댑터 설정에서 NetBIOS over TCP/IP 사용 안 함 설정"
   }
 ]
