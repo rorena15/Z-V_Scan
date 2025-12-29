@@ -1,74 +1,27 @@
 [
-  {
-    "code": "W-01",
-    "name": "Administrator 계정 이름 변경",
-    "category": "Account",
-    "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Administrator' -and $_.Enabled -eq $True}",
-    "vulnerable_keyword": "Administrator",
-    "description": "기본 관리자 계정 이름을 변경하지 않으면 공격 대상이 되기 쉽습니다.",
-    "remediation": "로컬 보안 정책에서 Administrator 계정 이름 변경"
-  },
-  {
-    "code": "W-02",
-    "name": "Guest 계정 비활성화",
-    "category": "Account",
-    "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Guest' -and $_.Enabled -eq $True}",
-    "vulnerable_keyword": "Guest",
-    "description": "Guest 계정 활성화 시 불필요한 접근이 허용될 수 있습니다.",
-    "remediation": "Guest 계정 속성에서 '계정 사용 안 함' 체크"
-  },
-  {
-    "code": "W-03",
-    "name": "불필요한 서비스 제거 (Telnet)",
-    "category": "Service",
-    "command": "Get-Service -Name TlntSvr -ErrorAction SilentlyContinue | Select-Object Status",
-    "vulnerable_keyword": "Running",
-    "description": "Telnet은 평문 통신을 하므로 스니핑 위험이 있습니다.",
-    "remediation": "Telnet 서비스 중지 및 사용 안 함 설정"
-  },
-  {
-    "code": "W-04",
-    "name": "계정 잠금 임계값 설정",
-    "category": "Account",
-    "command": "net accounts",
-    "vulnerable_keyword": "Never",
-    "description": "로그인 실패 시 계정 잠금 설정이 없으면 무차별 대입 공격이 가능합니다.",
-    "remediation": "로컬 보안 정책 > 계정 잠금 정책에서 임계값 설정"
-  },
-  {
-    "code": "W-06",
-    "name": "Administrators 그룹 관리",
-    "category": "Account",
-    "command": "net localgroup Administrators",
-    "vulnerable_keyword": "Guest",
-    "description": "관리자 그룹에 불필요한 계정(Guest 등)이 포함되면 안 됩니다.",
-    "remediation": "Administrators 그룹에서 불필요한 계정 제거"
-  },
-  {
-    "code": "W-08",
-    "name": "하드디스크 기본 공유 제거",
-    "category": "Service",
-    "command": "Get-SmbShare",
-    "vulnerable_keyword": "C$",
-    "description": "기본 공유(C$, Admin$)가 활성화되어 있으면 바이러스 전파 경로가 됩니다.",
-    "remediation": "레지스트리 AutoShareServer 값을 0으로 설정"
-  },
-  {
-    "code": "W-11",
-    "name": "Simple TCP/IP 서비스 차단",
-    "category": "Service",
-    "command": "Get-Service -Name SimpTcp -ErrorAction SilentlyContinue | Select-Object Status",
-    "vulnerable_keyword": "Running",
-    "description": "Simple TCP 서비스는 DoS 공격에 취약하므로 제거해야 합니다.",
-    "remediation": "Windows 기능 켜기/끄기에서 '단순 TCPIP 서비스' 제거"
-  },
-  {
-    "code": "W-36",
-    "name": "NetBIOS 바인딩 서비스 제거",
-    "category": "Network",
-    "command": "Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.TcpipNetbiosOptions -eq 0}",
-    "vulnerable_keyword": "True",
-    "description": "NetBIOS가 활성화되어 있으면 불필요한 정보 노출 위험이 있습니다.",
-    "remediation": "네트워크 어댑터 설정에서 NetBIOS over TCP/IP 사용 안 함 설정"
-  }
+  { "code": "W-01", "name": "Administrator 계정 이름 변경", "category": "Account", "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Administrator' -and $_.Enabled -eq $True}", "vulnerable_keyword": "Administrator", "description": "기본 관리자 계정 이름 사용 시 공격 대상이 됨", "remediation": "계정 이름 변경" },
+  { "code": "W-02", "name": "Guest 계정 비활성화", "category": "Account", "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Guest' -and $_.Enabled -eq $True}", "vulnerable_keyword": "Guest", "description": "Guest 계정은 불필요한 접근 허용", "remediation": "Guest 계정 사용 안 함 설정" },
+  { "code": "W-03", "name": "불필요한 서비스(Telnet) 제거", "category": "Service", "command": "Get-Service -Name TlntSvr -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "Telnet은 평문 통신으로 위험", "remediation": "서비스 중지" },
+  { "code": "W-04", "name": "계정 잠금 임계값 설정", "category": "Account", "command": "net accounts", "vulnerable_keyword": "Never", "description": "로그인 실패 시 잠금 설정 필요", "remediation": "임계값 5회 설정" },
+  { "code": "W-05", "name": "해독 가능한 암호화 저장 안 함", "category": "Account", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa -Name ClearTextPassword", "vulnerable_keyword": "1", "description": "패스워드 평문 저장 금지", "remediation": "ClearTextPassword 0 설정" },
+  { "code": "W-06", "name": "관리자 그룹 멤버 점검", "category": "Account", "command": "net localgroup Administrators", "vulnerable_keyword": "Guest", "description": "관리자 그룹에 불필요 계정 포함 금지", "remediation": "Guest 등 제거" },
+  { "code": "W-07", "name": "Everyone 공유 권한 제거", "category": "Filesystem", "command": "Get-SmbShare | Get-SmbShareAccess | Where-Object AccountName -eq 'Everyone'", "vulnerable_keyword": "Everyone", "description": "Everyone 공유 시 정보 유출 위험", "remediation": "Everyone 권한 제거" },
+  { "code": "W-08", "name": "하드디스크 기본 공유 제거", "category": "Service", "command": "Get-SmbShare", "vulnerable_keyword": "C$", "description": "기본 공유(C$, Admin$) 제거 필요", "remediation": "AutoShareServer 0 설정" },
+  { "code": "W-10", "name": "패스워드 최대 사용 기간", "category": "Account", "command": "net accounts", "safe_keyword": "90", "description": "패스워드 주기적 변경 필요", "remediation": "최대 사용 기간 90일 설정" },
+  { "code": "W-11", "name": "Simple TCP/IP 서비스 차단", "category": "Service", "command": "Get-Service -Name SimpTcp -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "DoS 공격 취약 서비스", "remediation": "서비스 제거" },
+  { "code": "W-12", "name": "FTP 서비스 구동 시 주의", "category": "Service", "command": "Get-Service -Name MSFTPSVC -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "불필요한 FTP 서비스 중지", "remediation": "FTP 서비스 중지" },
+  { "code": "W-15", "name": "IIS 디렉토리 리스팅 제거", "category": "Service", "command": "Get-WebConfigurationProperty -Filter /system.webServer/directoryBrowse -Name enabled", "vulnerable_keyword": "True", "description": "디렉토리 리스팅 시 파일 목록 노출", "remediation": "디렉토리 검색 비활성화" },
+  { "code": "W-18", "name": "Anonymous SID/Name 변환 허용 안 함", "category": "Security", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa -Name TurnOffAnonymousLookup", "safe_keyword": "1", "description": "익명 사용자의 SID 조회 차단 필요", "remediation": "TurnOffAnonymousLookup 1 설정" },
+  { "code": "W-20", "name": "SAM 파일 접근 통제", "category": "Filesystem", "command": "Get-Acl C:\\Windows\\System32\\config\\SAM | Format-List", "vulnerable_keyword": "Everyone", "description": "SAM 파일 권한 관리 필요", "remediation": "Administrator만 접근 허용" },
+  { "code": "W-31", "name": "원격 레지스트리 서비스 차단", "category": "Service", "command": "Get-Service -Name RemoteRegistry -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "원격 레지스트리 접근 차단 필요", "remediation": "서비스 중지" },
+  { "code": "W-33", "name": "DNS Zone Transfer 설정", "category": "Service", "command": "Get-DnsServerZoneTransferPolicy", "vulnerable_keyword": "Any", "description": "Zone Transfer 제한 필요", "remediation": "특정 IP만 허용" },
+  { "code": "W-36", "name": "NetBIOS 바인딩 서비스 제거", "category": "Network", "command": "Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.TcpipNetbiosOptions -eq 0}", "vulnerable_keyword": "True", "description": "NetBIOS 정보 노출 위험", "remediation": "NetBIOS 사용 안 함 설정" },
+  { "code": "W-40", "name": "터미널 서비스 암호화 수준", "category": "Service", "command": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Name MinEncryptionLevel", "safe_keyword": "3", "description": "RDP 암호화 수준 강화 필요", "remediation": "높음(3) 설정" },
+  { "code": "W-50", "name": "관리자 공유(Admin$) 제거", "category": "Service", "command": "Get-SmbShare", "vulnerable_keyword": "Admin$", "description": "Admin$ 공유는 공격 통로", "remediation": "AutoShareWks 0 설정" },
+  { "code": "W-59", "name": "이벤트 로그 정책 설정", "category": "Log", "command": "auditpol /get /category:*", "vulnerable_keyword": "No Auditing", "description": "주요 감사 정책 활성화 필요", "remediation": "성공/실패 감사 설정" },
+  { "code": "W-60", "name": "최신 핫픽스 적용", "category": "System", "command": "Get-HotFix | Select-Object -Last 1", "vulnerable_keyword": "Cannot find", "description": "최신 보안 패치 미적용 위험", "remediation": "Windows Update 수행" },
+  { "code": "W-67", "name": "화면 보호기 설정", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaveActive", "safe_keyword": "1", "description": "자리를 비울 때 화면 보호기 필요", "remediation": "화면 보호기 활성화" },
+  { "code": "W-68", "name": "화면 보호기 암호 사용", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaverIsSecure", "safe_keyword": "1", "description": "화면 보호기 해제 시 암호 요구", "remediation": "암호 사용 설정" },
+  { "code": "W-69", "name": "화면 보호기 대기 시간", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaveTimeOut", "safe_keyword": "600", "description": "대기 시간 10분 이하 권장", "remediation": "600초(10분) 설정" },
+  { "code": "W-70", "name": "자동 로그인 기능 해제", "category": "Account", "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon", "vulnerable_keyword": "1", "description": "자동 로그인 시 물리적 접근에 취약", "remediation": "AutoAdminLogon 0 설정" }
 ]
