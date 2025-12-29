@@ -94,9 +94,18 @@ QPushButton#ClearBtn {
 QPushButton#ClearBtn:hover { background-color: #c0392b; border-color: #e74c3c; }
 QTableWidget { 
     background-color: #252526; 
+    alternate-background-color: #2d2d30;
     border: 1px solid #3e3e3e; 
     gridline-color: #3e3e3e; 
     color: #cccccc; 
+}
+QTableWidget::item {
+    padding: 4px;
+    border-bottom: 0px;
+}
+QTableWidget::item:selected {
+    background-color: #094771;
+    color: white;
 }
 QHeaderView::section { 
     background-color: #333333; 
@@ -422,7 +431,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.0 Enterprise')
+        self.setWindowTitle('Z-VulnScan v2.1.0 Enterprise')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
