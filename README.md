@@ -47,7 +47,13 @@ Z-VulnScan_v2.0/
 │   ├── utils/
 │   │   ├── check_db.py          # DB 점검 스크립트
 │   │   └── db_connector.py      # SQLite 내장 DB 핸들러 (Auto-Init)
+│   ├── report/                  # 생성된 리포트 경로
+│   ├── rules/
+│   │   ├── linux_rules.json     # 리눅스 점검 가이드라인 모듈
+│   │   └── windows_rules.json   # 윈도우 점검 가이드라인 모듈
+│   │
 │   └── output/
+│       ├── excel_report.py      # 엑셀 리포트 생성기 (openpyxl)
 │       └── pdf_report.py        # 리포트 생성기 (ReportLab)
 └── zvuln_scan.db             # [SQLite] 로컬 데이터 저장소 (자동 생성)
 ```
@@ -55,19 +61,9 @@ Z-VulnScan_v2.0/
 ## 💻 Installation & Usage
 
 ### 1. Standalone Execution (권장)
-- 별도의 파이썬 설치 없이, 배포된 실행 파일(`Z-VulnScan.exe`)을 관리자 권한으로 실행하십시오.
+- 별도의 파이썬 설치 없이, 배포된 실행 파일(`Z-VulnScan_v2.1.0_release.exe`)을 관리자 권한으로 실행하십시오.
 - (Windows/Linux 스캔을 위해 네트워크 방화벽 오픈 필요: TCP 22, 5985)
 
-### 2. Run from Source (개발자용)
-#### Prerequisites
-- Python 3.10+
-- `pip install scapy paramiko pyqt5 reportlab pywinrm`
-- (Windows 실행 시 Npcap 설치 권장)
-
-#### 실행 명령어
-```
-python scanner_engine/gui/main_gui.py
-```
 ## ✅ Supported Audit List (KISA)
 
 - 🐧 Linux Server (Unix 계열)
@@ -78,7 +74,7 @@ python scanner_engine/gui/main_gui.py
 | U-02 | 패스워드 복잡성     | pwquality.conf 설정 점검              |
 | U-03 | 계정 잠금 임계값    | pam_tally2/faillock 설정 점검         |
 |  ...  | ...                 | ...                                   |
-|  U-13 | SUID/SGID 설정      | 주요 시스템 파일의 권한 설정 진단     |
+|  U-64 | 로그온 시 경고 메시지      | OS 버전 등 불필요한 정보 노출 점검     |
 
 - 🪟 Windows Server (New!)
 
@@ -87,11 +83,14 @@ python scanner_engine/gui/main_gui.py
 | W-01 | Administrator 계정 | 이름기본 관리자 계정 이름 변경 및 활성화 여부 |
 | W-02 | Guest 계정 상태    | Guest 계정 비활성화 여부 점검                 |
 | W-03 | 불필요한 서비스    | Telnet, FTP 등 취약한 서비스 실행 여부        |
+|  ...  | ...                 | ...                                   |
+|  w-70 | 자동 로그인 기능     | 자동 로그인 시 활성화 여부    |
+
 
 ## 🔮 Future Roadmap (Enterprise)
 - v3.0: Centralized Management (MySQL/MariaDB 연동 지원).
 - Web Dashboard: Java(JSP) 기반의 웹 관제 콘솔 제공 (Optional).
 - CVE Scan: NVD 데이터베이스 연동을 통한 버전 기반 취약점(CVE) 스캔.
-### 📝 License & Warning허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.  
+### 📝 License & Warning 허가받지 않은 네트워크에 대한 스캔은 법적 책임을 질 수 있습니다.  
 #### 본 도구는 인가된 자산에 대해서만 사용하십시오.  
 #### Proprietary License: Copyright (c) 2025 rorena15. All rights reserved.
