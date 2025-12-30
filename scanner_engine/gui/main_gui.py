@@ -466,7 +466,7 @@ class LegalDisclaimerDialog(QDialog):
         self.text_area.setReadOnly(True)
         self.text_area.setHtml("""
         <h3 style='color: #ffaa00;'>[중요] 사용 전 반드시 읽어주십시오</h3>
-        <p>본 소프트웨어 <b>Z-VulnScan</b>은 네트워크 보안 진단 및 관리 목적으로 제작된 도구입니다.</p>
+        <p>본 소프트웨어 <b>Z-Vuln Scan</b>은 네트워크 보안 진단 및 관리 목적으로 제작된 도구입니다.</p>
         
         <p><b>1. 사용 권한 및 책임</b><br>
         사용자는 본 도구를 <u>자신이 소유하거나, 정당한 권한을 위임받은 네트워크/자산</u>에 대해서만 사용해야 합니다.

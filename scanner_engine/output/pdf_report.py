@@ -50,7 +50,7 @@ class PDFGenerator:
 
         # 2. 타이틀 섹션
         c.setFont(font_name, 24)
-        c.drawString(50, height - 50, "Z-VulnScan 보안 진단 리포트")
+        c.drawString(50, height - 50, "Z-Vuln Scan 보안 진단 리포트")
         
         c.setFont(font_name, 10)
         c.drawString(50, height - 70, f"생성 일시: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

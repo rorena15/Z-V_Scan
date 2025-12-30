@@ -19,7 +19,7 @@ class ExcelGenerator:
             os.makedirs(self.output_dir, exist_ok=True)
             
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.filename = os.path.join(self.output_dir, f"ZVulnScan_Enterprise_Report_{timestamp}.xlsx")
+        self.filename = os.path.join(self.output_dir, f"Z-Vuln Scan_Report_{timestamp}.xlsx")
 
         # OS 맞춤 글꼴
         if OSUtils.is_windows():
@@ -89,7 +89,7 @@ class ExcelGenerator:
     def _create_dashboard(self, ws, cursor):
         ws.merge_cells('A1:D1')
         title = ws['A1']
-        title.value = "Z-VulnScan v2.1 pro Audit Summary"
+        title.value = "Z-Vuln Scan v2.1.0 pro Audit Summary"
         title.font = Font(name=self.font_name, size=16, bold=True)
         title.alignment = self.center_align
         
