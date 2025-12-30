@@ -64,16 +64,24 @@ class PDFGenerator:
         c.line(40, height - 80, width - 40, height - 80)
 
         # 3. 데이터 조회
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT asset_id, ip_addr, os_type, hostname FROM TBL_ASSETS ORDER BY last_seen DESC LIMIT 1")
-        asset = cursor.fetchone()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # [수정 포인트] 테이블이 없거나 데이터가 없을 때 발생하는 에러를 잡습니다.
+            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname FROM TBL_ASSETS ORDER BY last_seen DESC LIMIT 1")
+            asset = cursor.fetchone()
+        except sqlite3.OperationalError:
+            # 테이블이 없는 경우 (DB가 아직 생성되지 않음)
+            raise Exception("진단 데이터가 없습니다.\n먼저 [Network Discovery] 또는 [Vulnerability Audit]을 수행해주세요.")
+        except Exception as e:
+            # 기타 DB 에러
+            raise Exception(f"DB 조회 중 오류가 발생했습니다: {str(e)}")
         
         if not asset:
-            c.drawString(40, height - 100, "No Scan Data Found.")
-            c.save()
-            return
+            # 테이블은 있는데 데이터가 없는 경우
+            conn.close() # 연결 닫기 필수
+            raise Exception("리포트를 생성할 데이터가 없습니다.\n먼저 스캔을 수행해주세요.")
 
         asset_id, ip, os_type, hostname = asset
         c.setFont(font_name, 11)

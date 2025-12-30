@@ -61,24 +61,51 @@ class ExcelGenerator:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        wb = openpyxl.Workbook()
+        try:
+            # 테이블이 존재하는지, 데이터가 있는지 확인
+            # 테이블이 없으면 여기서 sqlite3.OperationalError 발생 -> except로 이동
+            cursor.execute("SELECT count(*) FROM TBL_ASSETS")
+            count = cursor.fetchone()[0]
+            
+            # 테이블은 있는데 데이터가 0건인 경우
+            if count == 0:
+                conn.close()
+                raise Exception("리포트를 생성할 데이터가 없습니다.\n먼저 스캔을 수행해주세요.")
+                
+        except sqlite3.OperationalError:
+            # "no such table" 에러를 잡아서 사용자 친화적 메시지로 변환
+            conn.close()
+            raise Exception("진단 데이터가 없습니다.\n먼저 [Network Discovery] 또는 [Vulnerability Audit]을 수행해주세요.")
+        except Exception as e:
+            conn.close()
+            raise e
         
-        # Sheet 1: Dashboard
-        ws_dash = wb.active
-        ws_dash.title = "Dashboard"
-        self._create_dashboard(ws_dash, cursor)
+        try:
+            wb = openpyxl.Workbook()
         
-        # Sheet 2: Asset List
-        ws_asset = wb.create_sheet("Asset List")
-        self._create_asset_list(ws_asset, cursor)
+            # Sheet 1: Dashboard
+            ws_dash = wb.active
+            ws_dash.title = "Dashboard"
+            self._create_dashboard(ws_dash, cursor)
         
-        # Sheet 3: Vulnerability Details
-        ws_vuln = wb.create_sheet("Vulnerability Details")
-        self._create_vuln_detail(ws_vuln, cursor)
+            # Sheet 2: Asset List
+            ws_asset = wb.create_sheet("Asset List")
+            self._create_asset_list(ws_asset, cursor)
+        
+            # Sheet 3: Vulnerability Details
+            ws_vuln = wb.create_sheet("Vulnerability Details")
+            self._create_vuln_detail(ws_vuln, cursor)
+            
+            if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 1:
+                wb.remove(wb["Sheet"])
 
-        conn.close()
-        wb.save(self.filename)
-        return self.filename
+            conn.close()
+            wb.save(self.filename)
+            return self.filename
+        
+        except Exception as e:
+            if conn: conn.close()
+            raise Exception(f"엑셀 생성 중 오류 발생: {str(e)}")
 
     def _apply_header_style(self, ws, headers):
         for col_num, header_title in enumerate(headers, 1):
