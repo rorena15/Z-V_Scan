@@ -1031,19 +1031,16 @@ class ScannerApp(QMainWindow):
 
 
 if __name__ == '__main__':
+    # 1. 윈도우 멀티프로세싱 프리징 지원 (EXE 빌드 시 필수, 가장 먼저 호출)
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
-    # 법적 동의 팝업 먼저 실행
+    # 2. 법적 동의 팝업 실행
     disclaimer = LegalDisclaimerDialog()
+    # 3. 동의(Accepted)한 경우에만 메인 앱 진입
     if disclaimer.exec_() == QDialog.Accepted:
-        # 동의한 경우에만 메인 앱 실행
         scanner = ScannerApp()
         scanner.show()
         sys.exit(app.exec_())
     else:
-        # 동의하지 않거나 창을 닫으면 종료
+        # 동의하지 않거나 창을 닫으면 프로그램 종료
         sys.exit()
-    multiprocessing.freeze_support()
-    app = QApplication(sys.argv)
-    ex = ScannerApp()
-    ex.show()
-    sys.exit(app.exec_())
