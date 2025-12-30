@@ -348,7 +348,7 @@ class ScanWorker(QThread):
             return False, {}
 
     def _run_simulation(self, ip):
-        """시뮬레이션 모드 - 데모용 대량 데이터 생성"""
+        """시뮬레이션 모드 - 내부 설정 및 외부 CVE 가상 데이터 생성"""
         self.log_signal.emit(f"[*] [Simulation] {ip} 가상 진단 모드 진입...")
         import time
         time.sleep(0.5)
@@ -358,32 +358,33 @@ class ScanWorker(QThread):
 
         if target_os == "Linux":
             results = {
+                # --- [내부 설정 진단 Mock] ---
                 'U-01': ('VULNERABLE', 'PermitRootLogin yes 설정됨'),
-                'U-02': ('VULNERABLE', '패스워드 최소 길이 미설정'),
-                'U-03': ('SAFE', '계정 잠금 임계값 설정됨'),
+                'U-02': ('VULNERABLE', '패스워드 최소 길이 미설정 (pwquality.conf)'),
+                'U-03': ('SAFE', '계정 잠금 임계값 설정됨 (5회)'),
                 'U-04': ('VULNERABLE', '/etc/shadow 권한 취약 (644)'),
-                'U-05': ('SAFE', 'PATH 환경변수 양호'),
                 'U-06': ('SAFE', '소유자 없는 파일 없음'),
-                'U-07': ('SAFE', '/etc/passwd 소유자 root 확인'),
-                'U-19': ('VULNERABLE', 'Finger 서비스 실행 중'),
-                'U-20': ('VULNERABLE', 'Anonymous FTP 접속 허용'),
-                'U-21': ('SAFE', 'r-command 서비스 비활성화'),
                 'U-22': ('VULNERABLE', 'Crontab 파일 소유자 취약'),
-                'U-23': ('SAFE', 'DoS 취약 서비스 없음'),
-                'U-54': ('VULNERABLE', 'Session Timeout 미설정')
+                
+                # --- [외부 포트/CVE 진단 Mock] (여기가 추가됨!) ---
+                'U-20': ('VULNERABLE', '[Port 21] FTP Service Detected - CVE-2011-2523 (Backdoor Execution)'),
+                'U-66': ('VULNERABLE', '[Port 23] Telnet Service Detected - CVE-1999-0061 (Plaintext Communication)'),
+                'W-57': ('WARNING', '[Port 80] HTTP Web Server - Version Info Disclosure')
             }
-        else:
+        else: # Windows
             results = {
+                # --- [내부 설정 진단 Mock] ---
                 'W-01': ('VULNERABLE', 'Administrator 계정 이름 미변경'),
                 'W-02': ('SAFE', 'Guest 계정 비활성화됨'),
-                'W-03': ('VULNERABLE', 'Telnet 서비스 실행 중'),
                 'W-04': ('VULNERABLE', '계정 잠금 정책 미설정'),
-                'W-05': ('SAFE', '해독 가능한 암호화 저장 안 함'),
-                'W-06': ('SAFE', 'Administrators 그룹 양호'),
-                'W-08': ('VULNERABLE', '기본 공유(C$) 활성화됨'),
-                'W-11': ('SAFE', 'Simple TCP 서비스 미설치'),
-                'W-36': ('VULNERABLE', 'NetBIOS 바인딩 활성화'),
-                'W-60': ('VULNERABLE', '최신 보안 패치(Hotfix) 미적용')
+                'W-06': ('SAFE', 'Administrators 그룹 멤버 양호'),
+                'W-36': ('VULNERABLE', 'NetBIOS 바인딩 활성화됨'),
+                'W-60': ('VULNERABLE', '최신 보안 패치(Hotfix) 미적용'),
+
+                # --- [외부 포트/CVE 진단 Mock] (여기가 추가됨!) ---
+                'W-08': ('VULNERABLE', '[Port 445] SMB File Sharing - CVE-2017-0144 (EternalBlue/WannaCry)'),
+                'W-18': ('WARNING', '[Port 3389] RDP Detected - CVE-2019-0708 (BlueKeep Mitigation Required)'),
+                'W-58': ('WARNING', '[Port 443] HTTPS Server - Heartbleed Check Required')
             }
 
         self._save_results_to_db(ip, "Simulation_Target", target_os, results)
