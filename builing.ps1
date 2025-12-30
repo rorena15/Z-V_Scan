@@ -16,7 +16,7 @@ Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yel
 
 # [수정] --key 옵션 제거 & paramiko/winrm 의존성 강화
 pyinstaller --noconfirm --onefile --windowed --clean `
-    --name "Z-VulnScan_Enterprise_v2.1.0_Alpha_Potable" `
+    --name "Z-VulnScan_Enterprise_v2.1.2_Alpha_Potable" `
     --icon "app_icon.ico" `
     --paths "." `
     --add-data "scanner_engine/core;core" `
@@ -28,6 +28,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --collect-all "scapy" `
     --collect-all "openpyxl" `
     --collect-all "paramiko" `
+    --collect-all "keyring" `
     --hidden-import "winrm" `
     --hidden-import "wmi" `
     --hidden-import "PyQt5" `
