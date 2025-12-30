@@ -37,9 +37,16 @@ class ExcelGenerator:
         self.thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                                     top=Side(style='thin'), bottom=Side(style='thin'))
         
-        # 상태별 색상
+        # [수정] 상태별 색상 정의 (Red / Yellow / Green)
+        # 1. 취약 (Red)
         self.vuln_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid') 
         self.vuln_font = Font(name=self.font_name, color='9C0006')
+        
+        # 2. 경고 (Yellow) - 추가됨
+        self.warn_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
+        self.warn_font = Font(name=self.font_name, color='9C5700')
+
+        # 3. 양호 (Green)
         self.safe_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') 
         self.safe_font = Font(name=self.font_name, color='006100')
 
@@ -104,18 +111,23 @@ class ExcelGenerator:
         cursor.execute("SELECT COUNT(*) FROM TBL_ASSETS")
         total_assets = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status IN ('VULNERABLE', '취약', 'Fail')")
+        # 취약 개수
+        cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status IN ('VULNERABLE', '취약', 'Fail', 'Critical', 'High')")
         total_vuln = cursor.fetchone()[0]
         
+        # 경고 개수
+        cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status IN ('WARNING', '경고', 'Medium', 'Low')")
+        total_warn = cursor.fetchone()[0]
+
         cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT")
         total_checks = cursor.fetchone()[0]
         
-        safe_rate = 0
-        if total_checks > 0:
-            safe_rate = int(((total_checks - total_vuln) / total_checks) * 100)
+        # 점수 계산 (취약은 크게, 경고는 작게 감점)
+        deduction = (total_vuln * 5) + (total_warn * 2)
+        safe_score = max(0, 100 - deduction) if total_checks > 0 else 0
 
-        headers = ["Total Assets", "Total Checks", "Vulnerabilities", "Security Score"]
-        values = [total_assets, total_checks, total_vuln, f"{safe_rate} / 100"]
+        headers = ["Total Assets", "Total Checks", "Risks (Vuln/Warn)", "Security Score"]
+        values = [total_assets, total_checks, f"{total_vuln} / {total_warn}", f"{safe_score} / 100"]
         
         for i, (h, v) in enumerate(zip(headers, values)):
             cell_h = ws.cell(row=3, column=i+1, value=h)
@@ -129,12 +141,12 @@ class ExcelGenerator:
             cell_v.font = Font(name=self.font_name, bold=True, size=12)
             cell_v.border = self.thin_border
             
-            if h == "Vulnerabilities" and v > 0:
+            if h == "Risks (Vuln/Warn)" and (total_vuln + total_warn) > 0:
                 cell_v.font = Font(name=self.font_name, bold=True, size=12, color='FF0000')
 
         ws.column_dimensions['A'].width = 20
         ws.column_dimensions['B'].width = 20
-        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['C'].width = 25
         ws.column_dimensions['D'].width = 20
 
     def _create_asset_list(self, ws, cursor):
@@ -146,7 +158,7 @@ class ExcelGenerator:
         
         for r_idx, row in enumerate(rows, 2):
             for c_idx, val in enumerate(row, 1):
-                # [수정] _sanitize 적용
+                # _sanitize 적용
                 clean_val = self._sanitize(val)
                 cell = ws.cell(row=r_idx, column=c_idx, value=clean_val)
                 cell.font = Font(name=self.font_name)
@@ -156,7 +168,6 @@ class ExcelGenerator:
         self._auto_filter_and_width(ws)
 
     def _create_vuln_detail(self, ws, cursor):
-        #[수정됨] 취약(VULNERABLE) 상태가 아니면 조치 방안(Remediation)을 숨김 처리
         headers = ["IP Address", "Code", "Item Name", "Status", "Detailed Result", "Remediation"]
         self._apply_header_style(ws, headers)
         
@@ -173,16 +184,21 @@ class ExcelGenerator:
         for r_idx, row in enumerate(rows, 2):
             ip, code, name, status, detail, remediation = row
             
-            # [핵심 로직] 상태가 '취약' 계열이 아니면 조치 방안을 빈칸(-)으로 처리
-            is_vuln = status in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
+            # [수정] 상태 그룹 정의
+            vuln_group = ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
+            warn_group = ['WARNING', '경고', 'Medium', 'Low']
             
-            if not is_vuln:
-                remediation = "-" 
+            is_vuln = status in vuln_group
+            is_warn = status in warn_group
+            
+            # 양호(SAFE)일 때만 조치 방안 숨기기
+            # (WARNING일 때도 조치 방안은 보여주는 게 맞음)
+            if not (is_vuln or is_warn):
+                remediation = "-"
 
             row_vals = [ip, code, name, status, detail, remediation]
             
             for c_idx, val in enumerate(row_vals, 1):
-                # 특수문자 제거 (Sanitize)
                 clean_val = self._sanitize(val)
                 
                 cell = ws.cell(row=r_idx, column=c_idx, value=clean_val)
@@ -190,15 +206,17 @@ class ExcelGenerator:
                 cell.alignment = self.left_align
                 cell.font = Font(name=self.font_name)
                 
-                # 가운데 정렬할 컬럼들 (IP, 코드, 상태)
                 if c_idx in [1, 2, 4]: 
                     cell.alignment = self.center_align
 
-                # 상태별 색상 적용 (Status 컬럼 = 4번째)
-                if c_idx == 4:
+                # [수정] 3색(Red, Yellow, Green) 분기 적용
+                if c_idx == 4: # Status Column
                     if is_vuln:
                         cell.fill = self.vuln_fill
                         cell.font = self.vuln_font
+                    elif is_warn:
+                        cell.fill = self.warn_fill
+                        cell.font = self.warn_font
                     else:
                         cell.fill = self.safe_fill
                         cell.font = self.safe_font
