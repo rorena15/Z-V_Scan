@@ -942,12 +942,14 @@ class ScannerApp(QMainWindow):
         self.btn_stop.setEnabled(False)
         self.set_ui_busy(False)
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
-        target_ip = self.input_ip.text().strip()
+        target_ip = self.ip_input.text().strip()
         user = self.input_user.text().strip()
+        
+        # 보안 저장소에서 자격증명 삭제
         SecureStorage.delete_credential(target_ip, user)
         
         self.log_message("[*] 보안을 위해 자격증명 임시 데이터가 삭제되었습니다.")
-        QMessageBox.information(self, "Done", "진단이 완료되었습니다.")
+        #QMessageBox.information(self, "Done", "진단이 완료되었습니다.")
         
     def set_ui_busy(self, busy):
         """
