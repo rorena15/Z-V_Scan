@@ -511,6 +511,29 @@ class LegalDisclaimerDialog(QDialog):
     def toggle_button(self, state):
         # 체크박스가 체크(2)되면 버튼 활성화
         self.btn_agree.setEnabled(state == 2)
+        
+    def accept(self):
+        #동의 버튼 클릭 시 호출됨
+        try:
+            # 로그 파일에 기록 (시간, 사용자명, PC명)
+            import getpass
+            import platform
+            username = getpass.getuser()
+            pc_name = platform.node()
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            log_msg = f"[{timestamp}] AGREEMENT ACCEPTED | User: {username} | PC: {pc_name} | Version: v2.1.0\n"
+            
+            # 프로젝트 루트에 로그 저장
+            with open("audit_agreement.log", "a", encoding="utf-8") as f:
+                f.write(log_msg)
+                
+        except Exception as e:
+            # 로깅 실패가 프로그램 실행을 막지는 않도록 예외 처리
+            print(f"[Warning] Failed to write agreement log: {e}")
+            
+        # 부모 클래스의 accept 호출 (창 닫기 및 결과 반환)
+        super().accept()
 
 # --- [메인 윈도우 UI] ---
 class ScannerApp(QMainWindow):
