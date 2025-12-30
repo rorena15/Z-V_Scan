@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.windows_inspector import WindowsInspector
 from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
+from utils.os_utils import OSUtils
 
 def resource_path(relative_path):
     """PyInstaller 빌드 환경 대응"""
@@ -989,19 +990,9 @@ class ScannerApp(QMainWindow):
             QMessageBox.warning(self, "Error", f"생성 실패: {str(e)}")
 
     def open_file_platform_safe(self, filepath):
-        """OS에 따라 적절한 방식으로 파일을 엽니다 (Win/Linux/Mac)"""
-        try:
-            if os.name == 'nt':  # Windows
-                os.startfile(filepath)
-            elif sys.platform == 'darwin':  # macOS
-                subprocess.call(['open', filepath])
-            else:  # Linux (xdg-open 사용)
-                subprocess.call(['xdg-open', filepath])
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Error", "파일을 열 수 있는 기본 프로그램이 없습니다.")
-        except Exception as e:
-            self.log_message(f"[Error] Open File Failed: {e}")
-            QMessageBox.warning(self, "Error", f"파일 열기 실패:\n{e}")
+        success = OSUtils.open_file(filepath)
+        if not success:
+            QMessageBox.warning(self, "Error", f"파일을 열 수 없습니다:\n{filepath}\n(파일은 정상적으로 저장되었습니다.)")
 
     def stop_scan(self):
         if self.worker and self.worker.isRunning():

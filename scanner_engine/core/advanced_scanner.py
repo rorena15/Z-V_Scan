@@ -9,9 +9,10 @@ import subprocess
 import threading
 from scapy.all import IP, ICMP, sr1, conf
 
-# 상위 폴더 모듈 참조
+# 상위 폴더 모듈
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
+from utils.os_utils import OSUtils
 
 # Scapy 설정 (OS 탐지용으로만 제한적 사용)
 conf.verb = 0
@@ -61,23 +62,15 @@ class AdvancedScanner:
         detected_os = "Unknown"
 
         try:
-            # 1. 시스템 Ping으로 생존 확인 (-n 1: 1회, -w 200: 타임아웃 200ms)
-            # 윈도우는 'ping', 리눅스는 'ping -c 1'
-            cmd = ['ping', '-n', '1', '-w', '200', ip] if os.name == 'nt' else ['ping', '-c', '1', '-W', '1', ip]
-            startupinfo = None
-            creationflags = 0
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                creationflags = subprocess.CREATE_NO_WINDOW
-                
-            # subprocess를 이용해 백그라운드 실행
+            # [수정] OSUtils를 사용하여 명령어와 옵션을 받아옴
+            cmd, kwargs = OSUtils.get_ping_command(ip)
+            
+            # 받아온 kwargs를 그대로 언패킹(**kwargs)하여 실행
             ret = subprocess.run(
                 cmd, 
                 stdout=subprocess.DEVNULL, 
                 stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,      # 창 숨김
-                creationflags=creationflags   # 창 숨김 (PyInstaller 호환)
+                **kwargs 
             )
             
             if ret.returncode == 0:

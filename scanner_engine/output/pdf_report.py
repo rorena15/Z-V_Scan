@@ -9,6 +9,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 from datetime import datetime
+from utils.os_utils import OSUtils
 
 class PDFGenerator:
     def __init__(self):
@@ -26,6 +27,7 @@ class PDFGenerator:
                 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = os.path.join(output_dir, f"Scan_Report_{timestamp}.pdf")
+        self.font_path = OSUtils.get_font_path("NanumGothic.ttf")
 
     def generate(self):
         c = canvas.Canvas(self.filename, pagesize=A4)
@@ -33,14 +35,18 @@ class PDFGenerator:
 
         # 1. 한글 폰트 등록 (Windows 기준)
         try:
-            font_path = "C:/Windows/Fonts/malgun.ttf"
-            if os.path.exists(font_path):
-                pdfmetrics.registerFont(TTFont("MalgunGothic", font_path))
-                font_name = "MalgunGothic"
+            if os.path.exists(self.font_path):
+                # 확보한 경로의 폰트 등록
+                pdfmetrics.registerFont(TTFont("CustomFont", self.font_path))
+                font_name = "CustomFont"
             else:
-                font_name = "Helvetica" # 한글 폰트 없으면 기본
-        except:
-            font_name = "Helvetica"
+                print(f"[Warning] Font file not found: {self.font_path}")
+                # 윈도우라면 맑은고딕 백업 시도
+                if OSUtils.is_windows() and os.path.exists("C:/Windows/Fonts/malgun.ttf"):
+                    pdfmetrics.registerFont(TTFont("MalgunGothic", "C:/Windows/Fonts/malgun.ttf"))
+                    font_name = "MalgunGothic"
+        except Exception as e:
+            print(f"[Error] Font loading failed: {e}")
 
         # 2. 타이틀 섹션
         c.setFont(font_name, 24)

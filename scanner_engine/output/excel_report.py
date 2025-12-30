@@ -5,6 +5,7 @@ from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from utils.os_utils import OSUtils
 
 class ExcelGenerator:
     def __init__(self):
@@ -20,8 +21,13 @@ class ExcelGenerator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = os.path.join(self.output_dir, f"ZVulnScan_Enterprise_Report_{timestamp}.xlsx")
 
+        # OS 맞춤 글꼴
+        if OSUtils.is_windows():
+            self.font_name = '맑은 고딕'
+        else:
+            self.font_name = 'NanumGothic'  # 리눅스 호환용
         # 스타일 정의
-        self.header_font = Font(name='맑은 고딕', size=11, bold=True, color='FFFFFF')
+        self.header_font = Font(name=self.font_name, size=11, bold=True, color='FFFFFF')
         self.header_fill = PatternFill(start_color='1F497D', end_color='1F497D', fill_type='solid') # Navy
         self.center_align = Alignment(horizontal='center', vertical='center')
         self.left_align = Alignment(horizontal='left', vertical='center')
@@ -83,8 +89,8 @@ class ExcelGenerator:
     def _create_dashboard(self, ws, cursor):
         ws.merge_cells('A1:D1')
         title = ws['A1']
-        title.value = "Z-VulnScan v2.1 Enterprise Audit Summary"
-        title.font = Font(size=16, bold=True)
+        title.value = "Z-VulnScan v2.1 pro Audit Summary"
+        title.font = Font(name=self.font_name, size=16, bold=True)
         title.alignment = self.center_align
         
         # 통계 쿼리
@@ -120,7 +126,7 @@ class ExcelGenerator:
             cell_v.border = self.thin_border
             
             if h == "Vulnerabilities" and v > 0:
-                cell_v.font = Font(bold=True, size=12, color='FF0000')
+                cell_v.font = Font(name=self.font_name,bold=True, size=12, color='FF0000')
 
         ws.column_dimensions['A'].width = 20
         ws.column_dimensions['B'].width = 20
@@ -137,6 +143,7 @@ class ExcelGenerator:
         for r_idx, row in enumerate(rows, 2):
             for c_idx, val in enumerate(row, 1):
                 cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                cell.font = Font(name=self.font_name)
                 cell.alignment = self.center_align
                 cell.border = self.thin_border
         
@@ -166,6 +173,7 @@ class ExcelGenerator:
                 cell = ws.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = self.thin_border
                 cell.alignment = self.left_align
+                cell.font = Font(name=self.font_name)
                 
                 # 가운데 정렬할 컬럼들
                 if c_idx in [1, 2, 4]: 
