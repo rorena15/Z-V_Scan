@@ -649,7 +649,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.1.0 pro')
+        self.setWindowTitle('Z-VulnScan v2.1.0 Enterprise Alpha')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
@@ -662,7 +662,7 @@ class ScannerApp(QMainWindow):
 
         # 1. 헤더
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan A.D & S.V Tool")
+        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Enterprise")
         title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
         ver_label = QLabel("v2.1.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
@@ -943,7 +943,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(False)
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
         target_ip = self.ip_input.text().strip()
-        user = self.input_user.text().strip()
+        user = self.user_input.text().strip()
         
         # 보안 저장소에서 자격증명 삭제
         SecureStorage.delete_credential(target_ip, user)
@@ -1065,34 +1065,39 @@ class ScannerApp(QMainWindow):
         self.worker.start()
 
     def start_audit(self):
-        # 1. IP 유효성 검사 (가장 먼저 실행)
+        # 1. IP 유효성 검사
         ip = self.ip_input.text().strip()
         if not ip:
             QMessageBox.warning(self, "Input Error", "진단할 Target IP 주소를 입력해주세요.")
             self.ip_input.setFocus()
             return
 
-        # 2. CIDR 입력 방지 (Audit은 단일 호스트 대상)
+        # 2. CIDR 입력 방지
         if "/" in ip:
             QMessageBox.warning(self, "Notice", "정밀 진단(Audit)은 단일 IP만 지원합니다.\n네트워크 스캔을 먼저 수행하세요.")
             return
 
-        # 3. 계정 정보 확인 (Audit 필수)
+        # 3. 시뮬레이션 여부 확인
+        is_simulation = ip in ["127.0.0.1", "localhost", "0.0.0.0"]
+
+        # 4. 계정 정보 처리
         user = self.user_input.text().strip()
         pw = self.pw_input.text().strip()
         
-        # 시뮬레이션 IP가 아니면 계정 정보 요구
-        if ip not in ["127.0.0.1", "localhost", "0.0.0.0"] and (not user or not pw):
+        # [수정] 시뮬레이션이 아닌데 계정 정보가 없으면 경고
+        if not is_simulation and (not user or not pw):
             QMessageBox.warning(self, "Auth Error", "원격 진단을 위해 SSH/WinRM 계정 정보(User, PW)가 필요합니다.")
             return
         
-        if not SecureStorage.save_credential(ip, user, pw):
-            QMessageBox.critical(self, "Error", "자격증명을 보안 저장소에 저장하지 못했습니다.")
-            return
+        # [수정] 시뮬레이션이 아닐 때만 보안 저장소에 저장
+        if not is_simulation:
+            if not SecureStorage.save_credential(ip, user, pw):
+                QMessageBox.critical(self, "Error", "자격증명을 보안 저장소에 저장하지 못했습니다.\n(ID/PW가 비어있는지 확인해주세요)")
+                return
 
-        # 4. 모든 검사 통과 후 시작
+        # 5. 스캔 시작
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user) # [중요] pw 인자 제거됨 확인
         self.connect_worker()
         self.worker.start()
 
