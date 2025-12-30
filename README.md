@@ -48,7 +48,7 @@ Z-VulnScan Professional은 다음 목적에 적합합니다.
 | Dashboard | Report Preview |
 |---|---|
 | ![Main GUI](img/dashboard.png) | ![PDF Report](img/report.png) |
-
+| ![Warnning GUI](img/warn.png) | ![EXCEL Report](img/report_excel.png) |
 ### 1. Network Asset Discovery
 - ICMP Ping 기반 활성 호스트 탐지
 - ARP Scan을 통한 내부 네트워크 자산 식별
