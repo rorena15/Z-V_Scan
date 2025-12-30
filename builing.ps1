@@ -18,7 +18,7 @@ Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yel
 pyinstaller --noconfirm --onefile --windowed --clean `
     --name "Z-VulnScan_Enterprise_v2.1.2_Alpha_Potable" `
     --icon "app_icon.ico" `
-    --paths "." `
+    --distpath "Z-VulnScan_Enterprise_v2.1_Alpha" `
     --add-data "scanner_engine/core;core" `
     --add-data "scanner_engine/utils;utils" `
     --add-data "scanner_engine/output;output" `
@@ -33,10 +33,11 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --hidden-import "wmi" `
     --hidden-import "PyQt5" `
     --hidden-import "utils.os_utils" `
+    --hidden-import "utils.secure_storage" `
     scanner_engine/gui/main_gui.py
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "`n✅ Build Success! File located at: dist/Z-VulnScan_Enterprise_v2.1.0_Alpha_Potable.exe" -ForegroundColor Green
+    Write-Host "`n✅ Build Success! File located at: Z-VulnScan_Enterprise_v2.1_Alpha/Z-VulnScan_Enterprise_v2.1.0_Alpha_Potable.exe" -ForegroundColor Green
 } else {
     Write-Host "`n❌ Build Failed!" -ForegroundColor Red
 }

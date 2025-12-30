@@ -1027,9 +1027,27 @@ class ScannerApp(QMainWindow):
         
         # 4. 전체 포트(Full Scan) 처리
         elif mode_idx == 2: 
-            # 사용자 실수 방지를 위한 확인창 (안전 장치)
-            reply = QMessageBox.question(self, "Warning", "전체 포트(65535개) 스캔은 시간이 오래 걸립니다.\n계속하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.No: return
+            # [수정] 깔끔하고 전문적인 경고 알림창
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("⚠️ Full Port Scan Warning")
+            msg.setText("<b>전체 포트(1-65535) 정밀 스캔을 시작하시겠습니까?</b>")
+            msg.setInformativeText(
+                "이 작업은 대상 호스트의 응답 속도에 따라 "
+                "<font color='#ff5555'><b>1시간 이상 소요</b></font>될 수 있습니다.<br><br>"
+                "또한 다량의 패킷 전송으로 인해 "
+                "<font color='#ff5555'><b>네트워크 부하</b></font>가 발생할 수 있으니 "
+                "업무 시간 외 실행을 권장합니다."
+            )
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.No) # 실수 방지를 위해 'No'를 기본값으로 설정
+            
+            reply = msg.exec_()
+            
+            if reply == QMessageBox.No: 
+                self.set_ui_busy(False) # UI 잠금 해제 (필수)
+                return
+                
             target_ports = list(range(1, 65536))
 
         # 5. 스캔 시작 프로세스
@@ -1160,9 +1178,34 @@ class ScannerApp(QMainWindow):
         event.accept()
         
     def toggle_port_input(self, index):
-        # Index 1 = Custom Range 일 때만 입력 가능
-        self.port_input.setEnabled(index == 1)
-        if index == 1: self.port_input.setFocus()
+        # 1. Custom Range (Index 1) 활성화 처리
+        is_custom = (index == 1)
+        self.port_input.setEnabled(is_custom)
+        if is_custom: 
+            self.port_input.setFocus()
+
+        # 2. [추가] Full Scan (Index 2) 선택 시 즉시 경고 팝업
+        if index == 2:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("⚠️ Full Port Scan Warning")
+            msg.setText("<b>전체 포트(1-65535) 정밀 스캔을 선택하셨습니다.</b>")
+            msg.setInformativeText(
+                "이 모드는 대상 호스트의 응답 속도에 따라 "
+                "<font color='#ff5555'><b>1시간 이상 소요</b></font>될 수 있으며, "
+                "네트워크에 <font color='#ff5555'><b>큰 부하</b></font>를 줄 수 있습니다.<br><br>"
+                "정말로 이 옵션을 유지하시겠습니까?"
+            )
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.No) # 'No'를 기본값으로 설정 (안전)
+            
+            reply = msg.exec_()
+            
+            # 사용자가 'No'를 누르면 -> 강제로 'Default' 모드로 되돌림
+            if reply == QMessageBox.No:
+                self.port_mode_combo.blockSignals(True) # 이벤트 재발생 방지 (중요)
+                self.port_mode_combo.setCurrentIndex(0) # Default 모드로 복귀
+                self.port_mode_combo.blockSignals(False)
 
 
 

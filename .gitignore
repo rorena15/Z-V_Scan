@@ -9,3 +9,5 @@ app_icon_preview.png
 Z-VulnScan_Enterprise_v2.1.0.spec
 audit_agreement.log
 /report
+scanner_engine/output/__pycache__/excel_report.cpython-313.pyc
+scanner_engine/output/__pycache__/pdf_report.cpython-313.pyc
