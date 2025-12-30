@@ -7,11 +7,13 @@ import json
 import os
 import sys
 
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from utils.secure_storage import SecureStorage
+
 class WindowsInspector:
-    def __init__(self, ip, username, password):
+    def __init__(self, ip, username):
         self.ip = ip
         self.username = username
-        self.password = password
         self.session = None
         self.is_connected = False
         self.is_simulation = False
@@ -25,11 +27,22 @@ class WindowsInspector:
         if self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
             self.is_simulation = True
             return True
+        
+        #연결 직전 암호 저장소 로드
+        password = SecureStorage.get_credential(self.ip, self.username)
+        if not password:
+            return False
 
         try:
-            self.session = winrm.Session(f'http://{self.ip}:5985/wsman', auth=(self.username, self.password), transport='ntlm', read_timeout_sec=5)
+            self.session = winrm.Session(
+                f'http://{self.ip}:5985/wsman',
+                auth=(self.username, password),
+                transport='ntlm', read_timeout_sec=5
+                )
+
             if self.session.run_cmd('hostname').status_code == 0:
                 self.is_connected = True
+                del password
                 return True
         except: 
             pass # 실패 시 시뮬레이션 아님 (접속 실패 처리)

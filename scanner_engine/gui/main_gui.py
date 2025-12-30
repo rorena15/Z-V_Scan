@@ -35,6 +35,7 @@ from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
 from utils.os_utils import OSUtils
 from core.vuln_matcher import VulnMatcher
+from utils.secure_storage import SecureStorage
 
 def resource_path(relative_path):
     """PyInstaller 빌드 환경 대응"""
@@ -163,12 +164,11 @@ class ScanWorker(QThread):
     started_signal = pyqtSignal(int)
     asset_found_signal = pyqtSignal(str, str, str)
 
-    def __init__(self, mode, target_input, user=None, pw=None, ports=None):
+    def __init__(self, mode, target_input, user=None, ports=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
         self.user = user
-        self.pw = pw
         self.ports = ports
         self.stop_flag = False
         self.max_threads = 20
@@ -331,7 +331,7 @@ class ScanWorker(QThread):
     def _audit_windows(self, ip):
         """Windows 시스템 진단"""
         self.log_signal.emit(f"[*] {ip} -> WinRM 연결 시도...")
-        inspector = WindowsInspector(ip, self.user, self.pw)
+        inspector = WindowsInspector(ip, self.user)
         
         if inspector.connect():
             results = inspector.run_all_checks()
@@ -344,7 +344,7 @@ class ScanWorker(QThread):
     def _audit_linux(self, ip):
         """Linux 시스템 진단"""
         self.log_signal.emit(f"[*] {ip} -> SSH 연결 시도...")
-        inspector = SSHInspector(ip, username=self.user, password=self.pw)
+        inspector = SSHInspector(ip, username=self.user)
         
         if inspector.connect():
             results = inspector.run_all_checks()
@@ -353,15 +353,6 @@ class ScanWorker(QThread):
         else:
             self.log_signal.emit(f"[-] SSH 접속 실패: {ip}")
             return False, {}
-
-    def _run_simulation(self, ip):
-        """시뮬레이션 모드 - 내부 설정 및 외부 CVE 가상 데이터 생성"""
-        self.log_signal.emit(f"[*] [Simulation] {ip} 가상 진단 모드 진입...")
-        import time
-        time.sleep(0.5)
-
-        target_os = "Linux" if ip in ["localhost", "127.0.0.1"] else "Windows"
-        results = {}
 
     def _run_simulation(self, ip):
         #시뮬레이션 데이터 풀 세트 (항목명 + 조치방안 포함)
@@ -439,11 +430,8 @@ class ScanWorker(QThread):
         self._save_results_to_db(ip, "Simulation_Target", target_os, results)
         self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {len(results)}개)")
 
-        self._save_results_to_db(ip, "Simulation_Target", target_os, results)
-        self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {len(results)}개)")
-
     def _save_results_to_db(self, ip, hostname, os_type, results):
-        #[수정됨] 튜플 개수(2개, 3개, 4개)에 상관없이 유연하게 언패킹하여 DB 저장
+        #튜플 개수(2개, 3개, 4개)에 상관없이 유연하게 언패킹하여 DB 저장
         db_local = DBConnector()
         asset_id = db_local.save_asset(ip, hostname=hostname, os_type=os_type)
         
@@ -954,6 +942,12 @@ class ScannerApp(QMainWindow):
         self.btn_stop.setEnabled(False)
         self.set_ui_busy(False)
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
+        target_ip = self.input_ip.text().strip()
+        user = self.input_user.text().strip()
+        SecureStorage.delete_credential(target_ip, user)
+        
+        self.log_message("[*] 보안을 위해 자격증명 임시 데이터가 삭제되었습니다.")
+        QMessageBox.information(self, "Done", "진단이 완료되었습니다.")
         
     def set_ui_busy(self, busy):
         """
@@ -1071,10 +1065,14 @@ class ScannerApp(QMainWindow):
         if ip not in ["127.0.0.1", "localhost", "0.0.0.0"] and (not user or not pw):
             QMessageBox.warning(self, "Auth Error", "원격 진단을 위해 SSH/WinRM 계정 정보(User, PW)가 필요합니다.")
             return
+        
+        if not SecureStorage.save_credential(ip, user, pw):
+            QMessageBox.critical(self, "Error", "자격증명을 보안 저장소에 저장하지 못했습니다.")
+            return
 
         # 4. 모든 검사 통과 후 시작
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, pw)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user)
         self.connect_worker()
         self.worker.start()
 

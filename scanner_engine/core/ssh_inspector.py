@@ -7,11 +7,13 @@ import json
 import os
 import sys
 
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from utils.secure_storage import SecureStorage
+
 class SSHInspector:
-    def __init__(self, ip, username, password, port=22):
+    def __init__(self, ip, username, port=22):
         self.ip = ip
         self.username = username
-        self.password = password
         self.port = port
         self.client = None
         self.is_simulation = False
@@ -27,10 +29,17 @@ class SSHInspector:
         if self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True
             return True
+        
+        #연결 직전에만 비밀번호 로드
+        password = SecureStorage.get_credential(self.ip, self.username)
+        if not password:
+            print(f"[Error] {self.ip}에 대한 자격증명을 찾을 수 없습니다.")
+            return False
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.ip, port=self.port, username=self.username, password=self.password, timeout=3)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=5)
+            del password
             return True
         except:
             self.is_simulation = True # 접속 실패 시 시뮬레이션 전환
