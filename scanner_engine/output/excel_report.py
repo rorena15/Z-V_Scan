@@ -156,6 +156,7 @@ class ExcelGenerator:
         self._auto_filter_and_width(ws)
 
     def _create_vuln_detail(self, ws, cursor):
+        #[수정됨] 취약(VULNERABLE) 상태가 아니면 조치 방안(Remediation)을 숨김 처리
         headers = ["IP Address", "Code", "Item Name", "Status", "Detailed Result", "Remediation"]
         self._apply_header_style(ws, headers)
         
@@ -171,10 +172,17 @@ class ExcelGenerator:
         
         for r_idx, row in enumerate(rows, 2):
             ip, code, name, status, detail, remediation = row
+            
+            # [핵심 로직] 상태가 '취약' 계열이 아니면 조치 방안을 빈칸(-)으로 처리
+            is_vuln = status in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
+            
+            if not is_vuln:
+                remediation = "-" 
+
             row_vals = [ip, code, name, status, detail, remediation]
             
             for c_idx, val in enumerate(row_vals, 1):
-                # [수정] _sanitize 적용 (MySQL 배너 등 특수문자 제거)
+                # 특수문자 제거 (Sanitize)
                 clean_val = self._sanitize(val)
                 
                 cell = ws.cell(row=r_idx, column=c_idx, value=clean_val)
@@ -182,11 +190,13 @@ class ExcelGenerator:
                 cell.alignment = self.left_align
                 cell.font = Font(name=self.font_name)
                 
+                # 가운데 정렬할 컬럼들 (IP, 코드, 상태)
                 if c_idx in [1, 2, 4]: 
                     cell.alignment = self.center_align
 
+                # 상태별 색상 적용 (Status 컬럼 = 4번째)
                 if c_idx == 4:
-                    if val in ['VULNERABLE', '취약', 'Fail']:
+                    if is_vuln:
                         cell.fill = self.vuln_fill
                         cell.font = self.vuln_font
                     else:
