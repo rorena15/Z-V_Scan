@@ -123,8 +123,11 @@ class ExcelGenerator:
         total_checks = cursor.fetchone()[0]
         
         # 점수 계산 (취약은 크게, 경고는 작게 감점)
-        deduction = (total_vuln * 5) + (total_warn * 2)
+        deduction = (total_vuln * 10) + (total_warn * 3)
         safe_score = max(0, 100 - deduction) if total_checks > 0 else 0
+        
+        if total_vuln > 0 and safe_score > 90:
+            safe_score = 90
 
         headers = ["Total Assets", "Total Checks", "Risks (Vuln/Warn)", "Security Score"]
         values = [total_assets, total_checks, f"{total_vuln} / {total_warn}", f"{safe_score} / 100"]
