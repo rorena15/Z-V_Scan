@@ -119,42 +119,47 @@ class DBConnector:
         finally:
             conn.close()
 
-    def _ensure_vuln_def(self, cursor, code):
+    def _ensure_vuln_def(self, cursor, code, vuln_name=None, remediation=None):
         """
-        [핵심 기능] 
-        취약점 정의(TBL_VULN_DEF)에 코드가 없으면 자동으로 등록하여
-        리포트 JOIN 쿼리에서 누락되지 않도록 함.
+        [핵심] 취약점 정의가 이미 있어도, 최신 내용(이름/조치방안)으로 업데이트(UPDATE) 함
         """
         cursor.execute("SELECT vuln_id FROM TBL_VULN_DEF WHERE code = ?", (code,))
         row = cursor.fetchone()
         
+        # 기본값 설정 (호출 쪽에서 None을 보내면 기본값 사용)
+        final_name = vuln_name if vuln_name else f"Detected Item ({code})"
+        final_rem = remediation if remediation else "관리자 매뉴얼 참조 또는 보안 담당자 문의"
+
         if row:
-            return row[0]
+            # [기존 데이터 존재 시] 최신 정보로 덮어쓰기 (UPDATE)
+            vuln_id = row[0]
+            cursor.execute("""
+                UPDATE TBL_VULN_DEF 
+                SET name = ?, remediation = ? 
+                WHERE vuln_id = ?
+            """, (final_name, final_rem, vuln_id))
+            return vuln_id
         else:
-            # 정의가 없으면 'Auto Registered'로 자동 등록
+            # [신규 데이터] 새로 등록 (INSERT)
             cursor.execute("""
                 INSERT INTO TBL_VULN_DEF (code, name, category, remediation)
                 VALUES (?, ?, ?, ?)
-            """, (code, f"Detected Item ({code})", "General", "See detailed result"))
+            """, (code, final_name, "General", final_rem))
             return cursor.lastrowid
 
-    def save_scan_result(self, asset_id, vuln_code, status, detail):
-        """스캔 결과 저장 (자동 정의 등록 기능 포함)"""
+    def save_scan_result(self, asset_id, vuln_code, status, detail, vuln_name=None, remediation=None):
+        """[핵심] remediation 인자까지 받아서 저장"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
-            # 1. 취약점 정의 ID 가져오기 (없으면 자동 생성)
-            vuln_id = self._ensure_vuln_def(cursor, vuln_code)
+            # 조치 방안까지 함께 전달하여 정의 테이블 갱신
+            vuln_id = self._ensure_vuln_def(cursor, vuln_code, vuln_name, remediation)
             
-            # 2. 기존 결과 삭제 (중복 방지)
-            cursor.execute("""
-                DELETE FROM TBL_SCAN_RESULT 
-                WHERE asset_id = ? AND vuln_id = ?
-            """, (asset_id, vuln_id))
+            # 기존 결과 삭제 후 재저장
+            cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_id=?", (asset_id, vuln_id))
             
-            # 3. 결과 저장
             cursor.execute("""
                 INSERT INTO TBL_SCAN_RESULT (asset_id, vuln_id, status, detected_value, scan_date)
                 VALUES (?, ?, ?, ?, ?)

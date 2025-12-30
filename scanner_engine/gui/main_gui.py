@@ -262,9 +262,16 @@ class ScanWorker(QThread):
                     v_info = VulnMatcher.match(port, banner)
                     
                     if v_info['found']:
-                        # KISA 코드 기준으로 결과 수집
                         status = 'VULNERABLE' if v_info['risk'] in ['High', 'Critical'] else 'WARNING'
-                        vuln_results[v_info['kisa']] = (status, f"[Port {v_info['service']}] {v_info['name']} - {v_info['desc']}")
+                        
+                        # [수정 완료] (상태, 상세내용, 항목명, 조치방안) 4개 튜플 구조로 변경
+                        # 아까 VulnMatcher에 추가한 'remediation'을 여기서 DB로 전달해야 리포트에 나옴
+                        vuln_results[v_info['kisa']] = (
+                            status, 
+                            f"[Port {v_info['service']}] {v_info['desc']}", 
+                            v_info['name'],      # 항목명
+                            v_info['remediation'] # <--- [핵심] 조치 방안 추가됨
+                        )
                         
                         self.log_signal.emit(f"    🚨 외부 취약점 발견: {v_info['service']} ({v_info['kisa']})")
 
@@ -356,42 +363,87 @@ class ScanWorker(QThread):
         target_os = "Linux" if ip in ["localhost", "127.0.0.1"] else "Windows"
         results = {}
 
+    def _run_simulation(self, ip):
+        #시뮬레이션 데이터 풀 세트 (항목명 + 조치방안 포함)
+        self.log_signal.emit(f"[*] [Simulation] {ip} 가상 진단 모드 진입...")
+        import time
+        time.sleep(0.5)
+
+        target_os = "Linux" if ip in ["localhost", "127.0.0.1"] else "Windows"
+        results = {}
+
+        # 데이터 구조: '코드': ('상태', '상세내용', '항목명', '조치방안')
         if target_os == "Linux":
             results = {
                 # --- [내부 설정 진단 Mock] ---
-                'U-01': ('VULNERABLE', 'PermitRootLogin yes 설정됨'),
-                'U-02': ('VULNERABLE', '패스워드 최소 길이 미설정 (pwquality.conf)'),
-                'U-03': ('SAFE', '계정 잠금 임계값 설정됨 (5회)'),
-                'U-04': ('VULNERABLE', '/etc/shadow 권한 취약 (644)'),
-                'U-06': ('SAFE', '소유자 없는 파일 없음'),
-                'U-22': ('VULNERABLE', 'Crontab 파일 소유자 취약'),
+                'U-01': ('VULNERABLE', 'PermitRootLogin yes 설정됨', 'Root 계정 원격 접속 제한 미비',
+                        '/etc/ssh/sshd_config 파일에서 PermitRootLogin no 설정 후 서비스 재기동'),
                 
-                # --- [외부 포트/CVE 진단 Mock] (여기가 추가됨!) ---
-                'U-20': ('VULNERABLE', '[Port 21] FTP Service Detected - CVE-2011-2523 (Backdoor Execution)'),
-                'U-66': ('VULNERABLE', '[Port 23] Telnet Service Detected - CVE-1999-0061 (Plaintext Communication)'),
-                'W-57': ('WARNING', '[Port 80] HTTP Web Server - Version Info Disclosure')
+                'U-02': ('VULNERABLE', '패스워드 최소 길이 미설정 (pwquality.conf)', '패스워드 복잡성 설정 미흡',
+                        '/etc/security/pwquality.conf 파일에서 minlen=8, dcredit=-1 등 복잡도 정책 적용'),
+                
+                'U-03': ('SAFE', '계정 잠금 임계값 설정됨 (5회)', '계정 잠금 임계값 설정',
+                        '/etc/pam.d/system-auth 파일에서 deny=5 (5회 실패 시 잠금) 설정 확인'),
+                
+                'U-04': ('VULNERABLE', '/etc/shadow 권한 취약 (644)', '패스워드 파일 보호',
+                        '/etc/shadow 파일 권한을 400(root만 읽기) 또는 000으로 설정 (chmod 400 /etc/shadow)'),
+                
+                'U-06': ('SAFE', '소유자 없는 파일 없음', '파일 및 디렉터리 소유자 설정',
+                        'find / -nouser -o -nogroup 명령으로 소유자 없는 파일 검색 후 삭제 또는 소유자 변경'),
+                
+                'U-22': ('VULNERABLE', 'Crontab 파일 소유자 취약', 'Cron 파일 소유자 및 권한 설정',
+                        '/etc/crontab 파일의 소유자를 root로 변경하고 권한을 640 이하로 설정'),
+                
+                # --- [외부 포트/CVE 진단 Mock] ---
+                'U-20': ('VULNERABLE', '[Port 21] FTP Service Detected - CVE-2011-2523', '익명 FTP 접속 허용',
+                        'vsftpd.conf 파일에서 anonymous_enable=NO 설정 및 최신 버전 패치 적용'),
+                
+                'U-66': ('VULNERABLE', '[Port 23] Telnet Service Detected', 'Telnet 서비스 비활성화',
+                        '보안에 취약한 Telnet 서비스를 중지하고 SSH 프로토콜 사용 권장 (systemctl stop telnet)'),
+                
+                'W-57': ('WARNING', '[Port 80] HTTP Web Server Info Disclosure', '웹 서비스 정보 노출',
+                        '웹 서버 설정(httpd.conf)에서 ServerTokens Prod 및 ServerSignature Off 설정')
             }
         else: # Windows
             results = {
                 # --- [내부 설정 진단 Mock] ---
-                'W-01': ('VULNERABLE', 'Administrator 계정 이름 미변경'),
-                'W-02': ('SAFE', 'Guest 계정 비활성화됨'),
-                'W-04': ('VULNERABLE', '계정 잠금 정책 미설정'),
-                'W-06': ('SAFE', 'Administrators 그룹 멤버 양호'),
-                'W-36': ('VULNERABLE', 'NetBIOS 바인딩 활성화됨'),
-                'W-60': ('VULNERABLE', '최신 보안 패치(Hotfix) 미적용'),
+                'W-01': ('VULNERABLE', 'Administrator 계정 이름 미변경', '관리자 계정 이름 변경',
+                        '제어판 > 관리 도구 > 로컬 보안 정책 > 보안 옵션에서 Administrator 계정 이름을 유추하기 어려운 이름으로 변경'),
+                
+                'W-02': ('SAFE', 'Guest 계정 비활성화됨', 'Guest 계정 비활성화',
+                        '제어판 > 사용자 계정 > Guest 계정 끄기 설정 확인'),
+                
+                'W-04': ('VULNERABLE', '계정 잠금 정책 미설정', '계정 잠금 임계값 설정',
+                        '로컬 보안 정책 > 계정 잠금 정책에서 계정 잠금 임계값을 5회 이하로 설정'),
+                
+                'W-06': ('SAFE', 'Administrators 그룹 멤버 양호', '관리자 그룹 멤버 관리',
+                        'Administrators 그룹에 불필요한 사용자 계정이 존재하지 않도록 주기적 점검 및 제거'),
+                
+                'W-36': ('VULNERABLE', 'NetBIOS 바인딩 활성화됨', 'NetBIOS 바인딩 제거',
+                        '네트워크 어댑터 속성 > TCP/IP 고급 설정 > WINS 탭에서 "NetBIOS over TCP/IP 사용 안 함" 체크'),
+                
+                'W-60': ('VULNERABLE', '최신 보안 패치(Hotfix) 미적용', 'Windows 보안 업데이트 적용',
+                        'Windows Update를 실행하여 최신 보안 패치 및 롤업 업데이트 적용'),
 
-                # --- [외부 포트/CVE 진단 Mock] (여기가 추가됨!) ---
-                'W-08': ('VULNERABLE', '[Port 445] SMB File Sharing - CVE-2017-0144 (EternalBlue/WannaCry)'),
-                'W-18': ('WARNING', '[Port 3389] RDP Detected - CVE-2019-0708 (BlueKeep Mitigation Required)'),
-                'W-58': ('WARNING', '[Port 443] HTTPS Server - Heartbleed Check Required')
+                # --- [외부 포트/CVE 진단 Mock] ---
+                'W-08': ('VULNERABLE', '[Port 445] SMB File Sharing - CVE-2017-0144', '하드디스크 기본 공유 제거',
+                        '레지스트리 LanmanServer\\Parameters에서 AutoShareServer 값을 0으로 설정하여 C$ 공유 제거'),
+                
+                'W-18': ('WARNING', '[Port 3389] RDP Detected - CVE-2019-0708', '원격 터미널 접속 보안',
+                        '시스템 속성 > 원격 탭에서 "네트워크 수준 인증(NLA)을 사용하는 컴퓨터에서만 연결 허용" 체크'),
+                
+                'W-58': ('WARNING', '[Port 443] HTTPS Server - Heartbleed Check', '웹 보안 설정(SSL/TLS)',
+                        '웹 서버의 SSL/TLS 라이브러리를 최신 버전으로 업데이트하고 취약한 Cipher Suite 비활성화')
             }
 
         self._save_results_to_db(ip, "Simulation_Target", target_os, results)
         self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {len(results)}개)")
 
+        self._save_results_to_db(ip, "Simulation_Target", target_os, results)
+        self.log_signal.emit(f"    -> {ip} ({target_os}) 시뮬레이션 완료. (항목: {len(results)}개)")
+
     def _save_results_to_db(self, ip, hostname, os_type, results):
-        """DB 저장 및 로그 출력 공통 함수"""
+        #[수정됨] 튜플 개수(2개, 3개, 4개)에 상관없이 유연하게 언패킹하여 DB 저장
         db_local = DBConnector()
         asset_id = db_local.save_asset(ip, hostname=hostname, os_type=os_type)
         
@@ -399,15 +451,34 @@ class ScanWorker(QThread):
         safe_cnt = 0
         
         if asset_id:
-            for code, (status, detail) in results.items():
-                if db_local.save_scan_result(asset_id, code, status, detail):
+            for code, data in results.items():
+                name = None
+                remediation = None
+                
+                # 데이터 개수에 따른 유연한 처리 (Crash 방지 핵심 로직)
+                if len(data) == 4:
+                    # (상태, 상세, 이름, 조치방안) - 최신 버전
+                    status, detail, name, remediation = data
+                elif len(data) == 3:
+                    # (상태, 상세, 이름) - 이전 버전 호환
+                    status, detail, name = data
+                else:
+                    # (상태, 상세) - 초기 버전 호환
+                    status, detail = data
+                
+                # DB 저장 시 name과 remediation 전달
+                if db_local.save_scan_result(asset_id, code, status, detail, vuln_name=name, remediation=remediation):
                     if status in ["VULNERABLE", "취약", "Fail"]:
                         vuln_cnt += 1
-                        self.log_signal.emit(f"    ❌ [{code}] 취약: {detail}")
+                        # 로그에 이름이 있으면 이름 출력, 없으면 'Detected'
+                        display_name = name if name else "Detected Item"
+                        self.log_signal.emit(f"    ❌ [{code}] 취약: {display_name}")
                     else:
                         safe_cnt += 1
+                        # 양호 항목은 로그가 너무 길어지지 않게 심플하게 출력
                         self.log_signal.emit(f"    ✅ [{code}] 양호")
         
+        # 최종 요약 출력
         self.log_signal.emit(f"    📊 결과 요약: 취약 {vuln_cnt}건 / 양호 {safe_cnt}건")
 
     def run(self):
