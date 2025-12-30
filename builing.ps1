@@ -16,7 +16,7 @@ Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yel
 
 # [수정] --key 옵션 제거 & paramiko/winrm 의존성 강화
 pyinstaller --noconfirm --onefile --windowed --clean `
-    --name "Z-VulnScan_Enterprise_v2.1" `
+    --name "Z-VulnScan_Enterprise_v2.1.0_Alpha_Potable" `
     --icon "app_icon.ico" `
     --paths "." `
     --add-data "scanner_engine/core;core" `
@@ -35,7 +35,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     scanner_engine/gui/main_gui.py
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "`n✅ Build Success! File located at: dist/Z-VulnScan_Enterprise_v2.1.exe" -ForegroundColor Green
+    Write-Host "`n✅ Build Success! File located at: dist/Z-VulnScan_Enterprise_v2.1.0_Alpha_Potable.exe" -ForegroundColor Green
 } else {
     Write-Host "`n❌ Build Failed!" -ForegroundColor Red
 }
