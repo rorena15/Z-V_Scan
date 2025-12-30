@@ -34,6 +34,7 @@ from core.windows_inspector import WindowsInspector
 from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
 from utils.os_utils import OSUtils
+from core.vuln_matcher import VulnMatcher
 
 def resource_path(relative_path):
     """PyInstaller 빌드 환경 대응"""
@@ -231,37 +232,79 @@ class ScanWorker(QThread):
             self.log_signal.emit(f"[!] {ip} 스캔 오류: {str(e)}")
 
     def process_audit_scan(self, ip):
-        """취약점 진단 프로세스"""
-        if self.stop_flag:
-            return
+        """
+        [취약점 정밀 진단]
+        - 목적: KISA 규정 준수 여부 및 CVE 취약점 분석
+        - 포함: 
+        1) 외부 포트 기반 취약점 (VulnMatcher)
+        2) 내부 설정 기반 취약점 (SSH/WinRM Inspector)
+        """
+        if self.stop_flag: return
         
-        # 시뮬레이션 모드 체크
+        self.log_signal.emit(f"[*] {ip} 정밀 진단 시작...")
+
+        # ----------------------------------------------------
+        # [Step 1] 외부 포트 취약점 진단 (VulnMatcher)
+        # ----------------------------------------------------
+        try:
+            # 주요 포트(위험 포트) 위주로 빠르게 재스캔하여 취약점 매칭
+            scanner = AdvancedScanner()
+            # KISA 진단에 중요한 포트들
+            audit_ports = [21, 22, 23, 80, 443, 445, 3306, 3389, 8080] 
+            
+            open_ports = scanner.syn_scan(ip, audit_ports)
+            vuln_results = {} # VulnMatcher 결과 저장용
+
+            if open_ports:
+                for port in open_ports:
+                    banner = scanner.grab_banner(ip, port)
+                    # VulnMatcher 호출
+                    v_info = VulnMatcher.match(port, banner)
+                    
+                    if v_info['found']:
+                        # KISA 코드 기준으로 결과 수집
+                        status = 'VULNERABLE' if v_info['risk'] in ['High', 'Critical'] else 'WARNING'
+                        vuln_results[v_info['kisa']] = (status, f"[Port {v_info['service']}] {v_info['name']} - {v_info['desc']}")
+                        
+                        self.log_signal.emit(f"    🚨 외부 취약점 발견: {v_info['service']} ({v_info['kisa']})")
+
+            # 외부 진단 결과가 있으면 먼저 DB 저장
+            if vuln_results:
+                self._save_results_to_db(ip, "Audit_Target", "Unknown", vuln_results)
+
+        except Exception as e:
+            self.log_signal.emit(f"[Warn] 포트 진단 중 오류: {e}")
+
+        # ----------------------------------------------------
+        # [Step 2] 내부 시스템 설정 진단 (Login Required)
+        # ----------------------------------------------------
+        # 시뮬레이션 모드 (localhost 등)
         clean_ip = ip.strip().lower()
-        if clean_ip in ["localhost", "127.0.0.1", "0.0.0.0", "127.0.0.2"]:
+        if clean_ip in ["localhost", "127.0.0.1", "0.0.0.0"]:
             self._run_simulation(clean_ip)
             return
 
-        # 실제 진단 로직
         target_os = self._detect_target_os(ip)
-        
         if target_os == "Unknown":
-            self.log_signal.emit(f"[-] {ip} 진단 불가 (Port 22/5985 닫힘)")
+            self.log_signal.emit(f"[-] {ip} 내부 진단 불가 (SSH/WinRM 포트 닫힘)")
             return
 
         conn_success = False
-        results = {}
+        internal_results = {}
         
         try:
             if target_os == "Windows":
-                conn_success, results = self._audit_windows(ip)
+                conn_success, internal_results = self._audit_windows(ip)
             elif target_os == "Linux":
-                conn_success, results = self._audit_linux(ip)
+                conn_success, internal_results = self._audit_linux(ip)
 
-            if conn_success and results:
-                self._save_results_to_db(ip, "Audit_Target", target_os, results)
+            if conn_success and internal_results:
+                self._save_results_to_db(ip, "Audit_Target", target_os, internal_results)
+            
+            self.log_signal.emit(f"✅ {ip} 진단 완료.")
 
         except Exception as e:
-            self.log_signal.emit(f"[Error] {ip} 진단 중 오류: {str(e)}")
+            self.log_signal.emit(f"[Error] {ip} 내부 진단 중 오류: {str(e)}")
 
     def _detect_target_os(self, ip):
         """대상 OS 탐지"""
