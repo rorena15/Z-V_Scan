@@ -19,8 +19,6 @@ if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
 Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yellow
 
 # PyInstaller 실행
-# --noupx: 백신 오탐 방지를 위해 압축 해제 (중요)
-# --collect-all "scapy": 제거됨 (더 이상 안 씀)
 pyinstaller --noconfirm --onefile --windowed --clean `
     --noupx `
     --name $APP_NAME `
