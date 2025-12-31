@@ -46,12 +46,12 @@ pyinstaller --noconfirm --onefile --windowed --clean `
 # 3. 결과 확인
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n=======================================================" -ForegroundColor Green
-    Write-Host " ✅ Build Success!" -ForegroundColor Green
-    Write-Host " 📂 Location: $DIST_DIR\$APP_NAME.exe" -ForegroundColor White
+    Write-Host "  Build Success!" -ForegroundColor Green
+    Write-Host "  Location: $DIST_DIR\$APP_NAME.exe" -ForegroundColor White
     Write-Host "=======================================================" -ForegroundColor Green
     
     # 폴더 열기
     Invoke-Item $DIST_DIR
 } else {
-    Write-Host "`n❌ Build Failed! Check the error messages above." -ForegroundColor Red
+    Write-Host "`n Build Failed! Check the error messages above." -ForegroundColor Red
 }
