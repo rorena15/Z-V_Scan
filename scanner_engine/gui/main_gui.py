@@ -664,7 +664,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.2.0 Professional Edition_Alpha')
+        self.setWindowTitle('Z-VulnScan v2.2.0 Professional Edition')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
