@@ -1,0 +1,31 @@
+[Z-VulnScan Professional Edition - Release Notes]
+
+버전: Professional Edition_V2.1.0
+배포일: 2025-12-31
+
+[핵심 변경 사항: 보안 강화 (Security Hardening)]
+1. 자격증명 암호화 저장소 (Secure Storage) 도입
+   - 기존의 메모리 내 평문 저장 방식을 제거했습니다.
+   - OS 기본 보안 저장소(Windows Credential Manager)를 사용하여 ID/PW를 암호화 보관합니다.
+   - 스캔 연결 시점(Just-In-Time)에만 호출하고 즉시 파기하여 메모리 덤프 공격을 방어합니다.
+
+2. 사용자 실수 방지 시스템 (Fail-Safe)
+   - Full Port Scan(1-65535) 시도 시, 네트워크 부하 경고 팝업이 발생합니다.
+   - 스캔 진행 중 설정 변경을 방지하는 UI 잠금(Locking) 기능이 추가되었습니다.
+
+[새로운 기능 (New Features)]
+1. 운영 편의성 강화 (Context Menu)
+   - 자산 리스트 우클릭 시 [RDP 연결], [SSH 접속], [Ping Test] 메뉴를 지원합니다.
+   - IP 주소 복사 및 즉시 접속이 가능해졌습니다.
+
+2. 진단 엔진 확장 (Extended Rules)
+   - KISA 주요정보통신기반시설 기술적 취약점 분석 항목 대폭 확장
+   - Windows (80개 항목) / Linux (70개 항목) 정밀 진단 지원
+
+3. 리포트 고도화 (Remediation)
+   - PDF/Excel 리포트에 취약점별 '구체적인 조치 방안(Remediation)'이 포함됩니다.
+   - 진단 실패 시 사용자 친화적인 에러 메시지로 안내합니다.
+
+[Known Issues (알려진 문제)]
+- 네트워크 지연이 심한 환경에서는 일부 항목이 Timeout으로 처리될 수 있습니다.
+- [cite_start]한글 윈도우가 아닌 환경에서는 일부 결과의 인코딩이 깨질 수 있으나, 자동 보정 로직이 적용되어 있습니다.
