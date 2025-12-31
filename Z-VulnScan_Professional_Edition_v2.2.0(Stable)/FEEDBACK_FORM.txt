@@ -1,0 +1,27 @@
+[Z-VulnScan Professional Edition_V2.1.0 - QA Feedback Form]
+
+본 양식은 소프트웨어 품질 향상을 위한 기술 피드백 수집용입니다.
+오류 발생 시 'error_log.txt' 파일과 함께 보내주시면 신속한 분석이 가능합니다.
+
+■ 1. 테스트 환경 (Environment)
+   - OS 버전 (예: Windows 11 Pro 22H2): 
+   - 하드웨어 사양 (CPU/RAM): 
+   - 테스트 대상 네트워크 (예: 사내망, VM 내부망): 
+
+■ 2. 기능 검증 (Validation Checklist)
+   (O/X로 체크해 주세요)
+   - [ ] 법적 고지(Disclaimer) 팝업이 정상적으로 표시됩니까?
+   - [ ] [Full Port Scan] 선택 시 경고 메시지가 출력됩니까?
+   - [ ] 자산 리스트 우클릭 시 컨텍스트 메뉴(RDP/SSH)가 동작합니까?
+   - [ ] PDF/Excel 리포트에 '조치 방안(Remediation)' 내용이 포함되어 있습니까?
+
+■ 3. 버그 리포트 (Bug Report)
+   - 발생 시점 (어떤 버튼을 눌렀을 때?):
+   - 현상 (프로그램 종료, 무응답, 에러 메시지 등):
+   - (선택) 재현 방법:
+
+■ 4. 개선 의견 (Suggestion)
+   - 사용성(UX) 측면에서 불편한 점:
+   - 추가가 필요한 진단 항목이나 기능:
+
+[제출처] rorena1586@google.com
