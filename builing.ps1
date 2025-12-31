@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 # 버전 정보 변수 설정 (유지보수 용이성)
 $APP_NAME = "Z-VulnScan_Professional_Edition_v2.2.0"
-$DIST_DIR = "Z-VulnScan_Dist_v2.2.0"
+$DIST_DIR = "Z-VulnScan_Professional_Edition_v2.2.0(Stable)"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " 🚀 Build Started: $APP_NAME" -ForegroundColor Cyan
@@ -14,7 +14,6 @@ Write-Host "`n[1/2] Cleaning previous build files..." -ForegroundColor Yellow
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
-if (Test-Path $DIST_DIR) { Remove-Item -Recurse -Force $DIST_DIR }
 
 # 2. EXE 패키징
 Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yellow
