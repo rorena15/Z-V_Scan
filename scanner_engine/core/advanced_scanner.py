@@ -15,6 +15,7 @@ import re
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector # [유지] 기존 의존성 유지
 from utils.os_utils import OSUtils
+from utils.logger import AppLogger
 
 class AdvancedScanner:
     def __init__(self):
@@ -37,9 +38,8 @@ class AdvancedScanner:
                     p = int(part)
                     if 1 <= p <= 65535: ports.add(p)
         except Exception as e:
-        # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
-        # 추후 로그 레벨 조정을 위해 구조를 잡아둠
-        # logging.debug(f"Scan failed for {ip}: {e}") 
+            # [수정] 파싱 에러 기록
+            AppLogger.log_error(f"Port Parse Error: {port_str}", e)
             pass
         return sorted(list(ports))
 
@@ -94,14 +94,13 @@ class AdvancedScanner:
         except subprocess.TimeoutExpired:
             is_alive = False
         except Exception as e:
-            print(f"[Error] {ip} Host Discovery Failed: {e}")
+            # [수정] print 대신 AppLogger 사용
+            AppLogger.log_error(f"{ip} Host Discovery Failed", e)
 
         return is_alive, detected_os
 
     def syn_scan(self, ip, ports=None):
-        """
-        TCP Connect Scan (안전한 소켓 관리 적용)
-        """
+        #TCP Connect Scan (안전한 소켓 관리 적용)
         target_ports = ports if ports else self.default_ports
         open_ports = []
         
@@ -109,7 +108,6 @@ class AdvancedScanner:
         timeout = 0.2
 
         for port in target_ports:
-            # [수정] with 구문을 사용하여 예외 발생 시에도 반드시 소켓 close 보장
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(timeout)
@@ -117,9 +115,9 @@ class AdvancedScanner:
                     if result == 0:
                         open_ports.append(port)
             except Exception as e:
-                # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
-                # 추후 로그 레벨 조정을 위해 구조를 잡아둠
-                # logging.debug(f"Scan failed for {ip}: {e}") 
+                # [수정] 타임아웃이 아닌 실제 에러만 로그 기록 (로그 폭주 방지)
+                if not isinstance(e, socket.timeout):
+                    AppLogger.log_error(f"Scan Error {ip}:{port}", e)
                 pass
                 
         return open_ports
@@ -128,7 +126,6 @@ class AdvancedScanner:
         """서비스 배너 수집 (안전한 소켓 관리 적용)"""
         banner = "Unknown Service"
         try:
-            # [수정] with 구문 적용 및 타임아웃 2초로 증가 (배너는 늦게 뜨는 경우 많음)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(2.0) 
                 s.connect((ip, port))
@@ -139,9 +136,9 @@ class AdvancedScanner:
                 # 데이터 수신
                 banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
         except Exception as e:
-            # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
-            # 추후 로그 레벨 조정을 위해 구조를 잡아둠
-            # logging.debug(f"Scan failed for {ip}: {e}") 
+            # [수정] 주석 해제하여 에러 기록 (필요시 활성화)
+            # 배너 수집 실패는 빈번하므로 디버그 용도로만 남김
+            # AppLogger.log_error(f"Banner grab failed {ip}:{port}", e)
             pass
             
         return banner if banner else "Unknown Service"

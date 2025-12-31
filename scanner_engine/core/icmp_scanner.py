@@ -15,12 +15,13 @@ import os
 # 상위 폴더 모듈 참조 (필요 시)
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.os_utils import OSUtils
+from utils.logger import AppLogger
 
 class ICMPScanner:
     def __init__(self):
         logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
         self.logger = logging.getLogger("ICMP_Scanner")
-        self.max_threads = 50  # [튜닝] 일반 사무용 PC 기준 적절한 스레드 수
+        self.max_threads = 50
 
     def _ping_host(self, ip):
         """개별 호스트 Ping 수행 (좀비 프로세스 방지 적용)"""
@@ -42,19 +43,18 @@ class ICMPScanner:
                 return ip_str
                 
         except subprocess.TimeoutExpired:
-            return None # 타임아웃은 실패로 처리
+            # 타임아웃은 흔한 일이므로 디버그 레벨로만 기록하거나 생략
+            # AppLogger.log_info(f"Ping Timeout: {ip_str}")
+            return None
         except Exception as e:
-            # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
-            # 추후 로그 레벨 조정을 위해 구조를 잡아둠
-            # logging.debug(f"Scan failed for {ip}: {e}") 
-            pass
+            # [수정] Silent Failure 제거 -> 에러 기록
+            AppLogger.log_error(f"Ping Failed for {ip_str}", e)
+            pass # 프로그램은 계속 진행
             
         return None
 
     def scan_network(self, network_cidr):
-        """
-        네이티브 Ping을 이용한 고속 병렬 스캔
-        """
+        #네이티브 Ping을 이용한 고속 병렬 스캔
         live_hosts = []
         try:
             network = ipaddress.ip_network(network_cidr, strict=False)

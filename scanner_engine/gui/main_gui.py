@@ -41,6 +41,7 @@ from output.excel_report import ExcelGenerator
 from utils.os_utils import OSUtils
 from core.vuln_matcher import VulnMatcher
 from utils.secure_storage import SecureStorage
+from utils.logger import AppLogger
 
 def resource_path(relative_path):
     """PyInstaller 빌드 환경 대응"""
@@ -1278,6 +1279,7 @@ class ScannerApp(QMainWindow):
 
 
 if __name__ == '__main__':
+    AppLogger.setup()
     # 1. 윈도우 멀티프로세싱 프리징 지원 (EXE 빌드 시 필수, 가장 먼저 호출)
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
