@@ -1,7 +1,7 @@
-# Z-VulnScan Enterprise Edition v2.1  
+# Z-VulnScan Professional Edition v2.1  
 ### Network Asset Discovery & Security Visibility Tool
 
-**Z-VulnScan Enterprise**은  
+**Z-VulnScan Professional**은  
 인가된 네트워크 환경에서 **자산 가시화, 포트 노출 현황 파악, 서비스 배너 수집**을 통해  
 보안 담당자가 **사전 위험 요소를 식별하고 점검 결과를 문서화**할 수 있도록 지원하는  
 **보안 가시화(Security Visibility) 및 사전 점검 도구**입니다.
@@ -49,6 +49,7 @@ Z-VulnScan Professional은 다음 목적에 적합합니다.
 |---|---|
 | ![Main GUI](img/dashboard.png) | ![PDF Report](img/report.png) |
 | ![Warnning GUI](img/Warnning.png) | ![EXCEL Report](img/report_excel.png) |
+
 ### 1. Network Asset Discovery
 - ICMP Ping 기반 활성 호스트 탐지
 - ARP Scan을 통한 내부 네트워크 자산 식별
