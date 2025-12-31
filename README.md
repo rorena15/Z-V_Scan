@@ -136,9 +136,9 @@ Z-VulnScan Professional은 다음 범주에 속합니다.
 - [x] 자산 탐지 및 포트 스캔
 - [x] GUI 기반 스캔 제어
 - [x] PDF / Excel 리포트
-- [ ] 실행 전 법적 동의 팝업
-- [ ] OS별 스캔 모드 분리 (Windows/Linux)
-- [ ] CVE 연관 정보 *Reference View* 제공
+- [x] 실행 전 법적 동의 팝업
+- [x] OS별 스캔 모드 분리 (Windows/Linux)
+- [x] CVE 연관 정보 *Reference View* 제공
 - [ ] 정책 기반 스캔 프로파일
 
 ---
