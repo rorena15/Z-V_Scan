@@ -9,6 +9,7 @@ import traceback
 import ipaddress
 import threading
 import socket
+import subprocess
 from datetime import datetime
 
 # 경로 설정
@@ -19,8 +20,8 @@ sys.path.append(parent_dir)
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QProgressBar, QComboBox, QMessageBox, QFileDialog, 
-    QGroupBox, QSplitter, QFrame, QDialog, QTextEdit, QCheckBox
+    QHeaderView, QProgressBar, QComboBox, QMessageBox, QGroupBox,
+    QSplitter, QDialog, QTextEdit, QCheckBox,QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QIcon, QColor, QBrush
@@ -798,6 +799,8 @@ class ScannerApp(QMainWindow):
         self.asset_table.setShowGrid(False)
         self.asset_table.setAlternatingRowColors(True)
         self.asset_table.doubleClicked.connect(self.on_asset_double_click)
+        self.asset_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.asset_table.customContextMenuRequested.connect(self.show_context_menu)
         
         left_layout.addWidget(self.asset_table)
         left_widget.setLayout(left_layout)
@@ -1221,6 +1224,51 @@ class ScannerApp(QMainWindow):
                 self.port_mode_combo.blockSignals(True) # 이벤트 재발생 방지 (중요)
                 self.port_mode_combo.setCurrentIndex(0) # Default 모드로 복귀
                 self.port_mode_combo.blockSignals(False)
+                
+    def show_context_menu(self, pos):
+        #자산 리스트 우클릭 메뉴: 운영 편의 기능 제공
+        # 선택된 행이 없으면 메뉴 안 띄움
+        indexes = self.asset_table.selectionModel().selection().indexes()
+        if not indexes:
+            return
+
+        # 선택된 행의 데이터 가져오기
+        row = self.asset_table.currentRow()
+        ip = self.asset_table.item(row, 0).text()
+        os_type = self.asset_table.item(row, 1).text()
+        
+        menu = QMenu()
+        
+        # 1. Ping 테스트 (살아있나 확인)
+        ping_action = QAction(f"📡 Ping Check ({ip})", self)
+        # Windows는 -t (계속), Linux는 기본 동작
+        cmd = f"start cmd /k ping {ip} -t" if OSUtils.is_windows() else f"gnome-terminal -- ping {ip}"
+        ping_action.triggered.connect(lambda: subprocess.Popen(cmd, shell=True))
+        menu.addAction(ping_action)
+        
+        menu.addSeparator() # 구분선
+
+        # 2. OS 맞춤형 원격 접속 (이게 핵심!)
+        if "Windows" in os_type:
+            # 원격 데스크톱(MSTSC) 바로 실행
+            rdp_action = QAction("🖥️ Open Remote Desktop (RDP)", self)
+            rdp_action.triggered.connect(lambda: subprocess.Popen(f"mstsc /v:{ip}", shell=True))
+            menu.addAction(rdp_action)
+            
+        elif "Linux" in os_type:
+            # SSH 접속 창 바로 열기 (CMD 창 이용)
+            ssh_action = QAction("🐧 Open SSH Connection", self)
+            # SSH 접속 시도 (ID는 root로 가정하거나 입력받음)
+            ssh_action.triggered.connect(lambda: subprocess.Popen(f"start cmd /k ssh root@{ip}", shell=True))
+            menu.addAction(ssh_action)
+
+        # 3. 클립보드 복사 (엑셀 등에 붙여넣기 용)
+        copy_action = QAction("📄 Copy IP Address", self)
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(ip))
+        menu.addAction(copy_action)
+
+        # 메뉴 실행 (마우스 위치에)
+        menu.exec_(self.asset_table.viewport().mapToGlobal(pos))
 
 
 
