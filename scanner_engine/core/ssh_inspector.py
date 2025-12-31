@@ -38,7 +38,7 @@ class SSHInspector:
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=5)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=20)
             del password
             return True
         except:
@@ -127,4 +127,5 @@ class SSHInspector:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
             
-            results[code] = (status, detail)
+            results[code] = (status, detail, rule.get('name', code), rule.get('remediation', ''))
+        return results

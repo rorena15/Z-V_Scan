@@ -37,7 +37,9 @@ class WindowsInspector:
             self.session = winrm.Session(
                 f'http://{self.ip}:5985/wsman',
                 auth=(self.username, password),
-                transport='ntlm', read_timeout_sec=5
+                transport='ntlm',
+                read_timeout_sec=30,     # 타임아웃 5초 -> 30초로 증가
+                operation_timeout_sec=25 # 타임아웃 추가
                 )
 
             if self.session.run_cmd('hostname').status_code == 0:
@@ -52,10 +54,16 @@ class WindowsInspector:
         if self.is_simulation:
             return self.get_mock_data(script)
             
-        if not self.is_connected: return ""
+        if not self.is_connected:
+            return ""
         try:
             rs = self.session.run_ps(script)
-            if rs.status_code == 0: return rs.std_out.decode('utf-8', errors='ignore').strip()
+            if rs.status_code == 0:
+                # 한글(CP949) 깨짐 방지 디코딩 로직
+                try:
+                    return rs.std_out.decode('utf-8').strip()
+                except UnicodeDecodeError:
+                    return rs.std_out.decode('cp949', errors='ignore').strip()
         except: pass
         return ""
 
@@ -110,6 +118,6 @@ class WindowsInspector:
                     status = "VULNERABLE"
                     detail = f"안전 설정 미흡"
 
-            results[code] = (status, detail)
+            results[code] = (status, detail, rule.get('name', code), rule.get('remediation', ''))
             
         return results
