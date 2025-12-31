@@ -1,6 +1,10 @@
-# Copyright (c) 2025 rorena15
-# All rights reserved.
-# Proprietary License - No redistribution or modification without permission.
+# --------------------------------------------------------------------------
+# Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+# 
+# This software is proprietary and confidential. 
+# Unauthorized copying, modification, distribution, or reverse engineering 
+# of this file, via any medium, is strictly prohibited.
+# --------------------------------------------------------------------------
 import multiprocessing
 import sys
 import os
