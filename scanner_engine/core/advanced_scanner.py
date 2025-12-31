@@ -6,34 +6,24 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 import socket
-import time
 import sys
 import os
 import subprocess
-import threading
-from scapy.all import IP, ICMP, sr1, conf
+import re
 
 # 상위 폴더 모듈
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-from utils.db_connector import DBConnector
+from utils.db_connector import DBConnector # [유지] 기존 의존성 유지
 from utils.os_utils import OSUtils
-
-# Scapy 설정 (OS 탐지용으로만 제한적 사용)
-conf.verb = 0
-if os.name == 'nt':
-    conf.use_pcap = True
-
-# Scapy 충돌 방지용 락
-scapy_lock = threading.Lock()
 
 class AdvancedScanner:
     def __init__(self):
-        # 주요 포트 리스트
+        # 주요 점검 포트
         self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
 
     @staticmethod
     def parse_ports(port_str):
-        """포트 문자열 파싱 (예: '80,443' 또는 '1-100')"""
+        """포트 문자열 파싱"""
         ports = set()
         try:
             parts = port_str.split(',')
@@ -49,107 +39,90 @@ class AdvancedScanner:
         except:
             pass
         return sorted(list(ports))
-    
-    def estimate_os(self, ttl):
-        """TTL 기반 OS 추정"""
-        if ttl <= 64: return "Linux/Unix"
-        elif ttl <= 128: return "Windows"
-        elif ttl > 128: return "Network Device"
-        else: return "Unknown"
+
+    def estimate_os_from_ttl(self, ttl):
+        #TTL 값을 기반으로 OS 추정 (Scapy 대체 로직)
+        try:
+            ttl = int(ttl)
+            # 일반적인 초기 TTL 값: Windows(128), Linux(64), Network Device(255)
+            # 라우팅 경로에 따라 1~2 정도 감소할 수 있음을 감안하여 범위 설정
+            if ttl <= 64: return "Linux/Unix"
+            elif ttl <= 128: return "Windows"
+            elif ttl > 128: return "Network Device"
+            else: return "Unknown"
+        except:
+            return "Unknown"
 
     def host_discovery(self, ip):
-        """
-        [고속 모드] Windows 시스템 Ping 명령어 사용
-        Scapy보다 10배 빠르고, 스레드 충돌이 없음
-        """
+        #Native Ping을 이용한 생존 확인 및 OS 탐지 (터미널 팝업 없음)
         is_alive = False
         detected_os = "Unknown"
-
+        
         try:
-            # [수정] OSUtils를 사용하여 명령어와 옵션을 받아옴
+            # OSUtils에서 명령어와 Hidden Window 옵션을 받아옴
             cmd, kwargs = OSUtils.get_ping_command(ip)
             
-            # 받아온 kwargs를 그대로 언패킹(**kwargs)하여 실행
-            ret = subprocess.run(
-                cmd, 
-                stdout=subprocess.DEVNULL, 
-                stderr=subprocess.DEVNULL,
-                **kwargs 
-            )
+            # capture_output=True로 설정하여 결과 텍스트를 받아옴
+            # kwargs에 hidden window 설정이 포함되어 있음
+            proc = subprocess.run(cmd, capture_output=True, timeout=2, **kwargs)
             
-            if ret.returncode == 0:
+            if proc.returncode == 0:
                 is_alive = True
                 
-                # 2. 살아있다면 OS 탐지를 위해 딱 한 번만 Scapy 사용 (락 적용)
-                # 여기가 병목이 되지 않도록 타임아웃을 짧게 설정
+                # 출력 결과 디코딩 (Windows 한글 CP949 대응)
                 try:
-                    with scapy_lock:
-                        # sr1 호출 전 아주 짧은 대기 (OS 파일 핸들 정리 시간 확보)
-                        time.sleep(0.01)
-                        ans = sr1(IP(dst=ip)/ICMP(), timeout=0.5, verbose=0)
-                    
-                    if ans and IP in ans:
-                        detected_os = self.estimate_os(ans[IP].ttl)
-                    else:
-                        detected_os = "Unknown (Firewall)"
-                except OSError:
-                    # [Errno 22] Invalid argument 발생 시 무시하고 넘어감
-                    detected_os = "Unknown (Error)"
-                except Exception:
-                    detected_os = "Unknown"
-        except OSError as e:
-                    # 소켓 오류는 흔하므로 경고 레벨
-            print(f"[Warn] {ip} 스캔 중 소켓 오류: {e}")
+                    output = proc.stdout.decode('cp949') 
+                except:
+                    output = proc.stdout.decode('utf-8', errors='ignore')
+                
+                # 정규식으로 TTL 값 추출 (대소문자 무시)
+                # Windows: "TTL=128", Linux: "ttl=64"
+                ttl_match = re.search(r'ttl[=< ]?(\d+)', output, re.IGNORECASE)
+                
+                if ttl_match:
+                    ttl_value = int(ttl_match.group(1))
+                    detected_os = self.estimate_os_from_ttl(ttl_value)
+                else:
+                    detected_os = "Unknown (No TTL)"
+            else:
+                is_alive = False
+
+        except subprocess.TimeoutExpired:
+            is_alive = False
         except Exception as e:
-            # 그 외 오류는 상세 기록
-            import traceback
-            print(f"[Error] {ip} 스캔 중 예상치 못한 오류: {e}")
-            traceback.print_exc()
+            print(f"[Error] {ip} Host Discovery Failed: {e}")
 
         return is_alive, detected_os
 
     def syn_scan(self, ip, ports=None):
-        """
-        Socket Connect Scan (TCP)
-        :param ports: 스캔할 포트 리스트 (None이면 기본 포트 사용)
-        """
+        #TCP Connect Scan (이름은 호환성을 위해 syn_scan 유지)
+        #Scapy 제거 -> 순수 소켓 연결 방식으로 변경 (관리자 권한 불필요)
         target_ports = ports if ports else self.default_ports
         open_ports = []
         
-        # 타임아웃 조절 (포트가 많으면 짧게, 적으면 넉넉하게)
-        timeout = 0.1 if len(target_ports) > 1000 else 0.2
+        # 타임아웃: 로컬망이면 0.1~0.2초 충분, 외부망이면 0.5초 권장
+        timeout = 0.2 
 
         for port in target_ports:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(timeout)
+                # connect_ex는 성공 시 0 반환
                 result = s.connect_ex((ip, port))
                 if result == 0:
                     open_ports.append(port)
                 s.close()
-            except OSError:
-                # [Errno 22] Invalid argument 발생 시 무시하고 넘어감
-                detected_os = "Unknown (Error)"
-            except Exception:
-                detected_os = "Unknown"
-            except OSError as e:
-                # 소켓 오류는 흔하므로 경고 레벨
-                print(f"[Warn] {ip} 스캔 중 소켓 오류: {e}")
-            except Exception as e:
-                # 그 외 오류는 상세 기록
-                import traceback
-                print(f"[Error] {ip} 스캔 중 예상치 못한 오류: {e}")
-                traceback.print_exc()
+            except:
+                pass
         return open_ports
 
     def grab_banner(self, ip, port):
-        """서비스 배너 수집"""
+        """서비스 배너 수집 (기존 로직 유지, 터미널과 무관)"""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.5)
+            s.settimeout(1)
             s.connect((ip, port))
             
-            # HTTP/HTTPS 등은 요청을 보내야 응답함
             if port in [80, 8080, 443]:
                 s.send(b'HEAD / HTTP/1.0\r\n\r\n')
             

@@ -6,68 +6,67 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 import ipaddress
-from scapy.all import IP, ICMP, sr1, conf
 import logging
+import subprocess
+import concurrent.futures
+import sys
+import os
 
-# Scapy의 불필요한 콘솔 출력 끄기
-conf.verb = 0
+# 상위 폴더 모듈 참조 (필요 시)
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from utils.os_utils import OSUtils
 
 class ICMPScanner:
     def __init__(self):
-        # 로깅 설정
         logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
         self.logger = logging.getLogger("ICMP_Scanner")
+        self.max_threads = 50  # [튜닝] 일반 사무용 PC 기준 적절한 스레드 수
+
+    def _ping_host(self, ip):
+        """개별 호스트 Ping 수행 (Native Command + Hidden Window)"""
+        ip_str = str(ip)
+        try:
+            # OSUtils에서 명령어와 Hidden Window 옵션을 받아옴 (팝업 방지 핵심)
+            cmd, kwargs = OSUtils.get_ping_command(ip_str)
+            
+            # subprocess 실행 (stdout 무시)
+            ret = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs)
+            
+            if ret == 0: # 0이면 성공(Alive)
+                return ip_str
+        except Exception:
+            pass
+        return None
 
     def scan_network(self, network_cidr):
         """
-        지정된 네트워크 대역(CIDR)에 대해 ICMP Ping Sweep을 수행합니다.
-        :param network_cidr: 스캔할 네트워크 대역 (예: '192.168.0.0/24')
-        :return: 활성 호스트 IP 리스트
+        네이티브 Ping을 이용한 고속 병렬 스캔
         """
         live_hosts = []
-        
-        # 1. ipaddress 모듈을 사용해 CIDR을 개별 IP로 변환
         try:
             network = ipaddress.ip_network(network_cidr, strict=False)
         except ValueError:
             self.logger.error(f"유효하지 않은 네트워크 대역입니다: {network_cidr}")
             return []
 
-        self.logger.info(f"Start ICMP Sweep on: {network_cidr} (Total: {network.num_addresses} hosts)")
-
-        # 2. 모든 IP에 대해 패킷 전송 (브로드캐스트 주소, 네트워크 주소 제외 가능)
-        for ip in network.hosts():
-            ip_str = str(ip)
+        self.logger.info(f"Start Native Ping Sweep on: {network_cidr} (Threads: {self.max_threads})")
+        
+        # ThreadPoolExecutor를 사용하여 병렬 처리
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            # Future 객체 리스트 생성
+            futures = {executor.submit(self._ping_host, ip): ip for ip in network.hosts()}
             
-            # [핵심 로직] Scapy를 이용한 패킷 수동 조립
-            # IP Header(목적지) + ICMP Header(Echo Request, Type 8)
-            packet = IP(dst=ip_str)/ICMP()
-            
-            # 패킷 전송 및 응답 대기 (timeout=1초)
-            resp = sr1(packet, timeout=1, verbose=0)
-
-            # 3. 응답 분석 (Type 0 == Echo Reply 인지 확인)
-            if resp:
-                # 응답 패킷이 ICMP 계층을 가지고 있는지 확인
-                if resp.haslayer(ICMP):
-                    # ICMP 타입이 0 (Echo Reply)이면 살아있는 호스트
-                    if resp.getlayer(ICMP).type == 0:
-                        self.logger.info(f"[+] Live Host Found: {ip_str}")
-                        live_hosts.append(ip_str)
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    self.logger.info(f"[+] Live Host Found: {result}")
+                    live_hosts.append(result)
         
         self.logger.info(f"Scan Completed. Found {len(live_hosts)} live hosts.")
         return live_hosts
 
-# --- 테스트 실행 코드 (메인) ---
+# 테스트 코드
 if __name__ == "__main__":
     scanner = ICMPScanner()
-    
-    # 테스트할 네트워크 대역
-    target_network = "172.30.0.0/16" 
-    
-    print(f"[*] Scanning {target_network}...")
-    active_hosts = scanner.scan_network(target_network)
-    
-    print("\n[최종 결과 - 활성 호스트 목록]")
-    for host in active_hosts:
-        print(f" - {host}")
+    # 로컬 테스트 (주의: 스캔 대역이 너무 크면 오래 걸림)
+    print(scanner.scan_network("192.168.0.0/24"))
