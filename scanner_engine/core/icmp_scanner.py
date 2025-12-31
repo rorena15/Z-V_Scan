@@ -23,19 +23,32 @@ class ICMPScanner:
         self.max_threads = 50  # [튜닝] 일반 사무용 PC 기준 적절한 스레드 수
 
     def _ping_host(self, ip):
-        """개별 호스트 Ping 수행 (Native Command + Hidden Window)"""
+        """개별 호스트 Ping 수행 (좀비 프로세스 방지 적용)"""
         ip_str = str(ip)
         try:
-            # OSUtils에서 명령어와 Hidden Window 옵션을 받아옴 (팝업 방지 핵심)
             cmd, kwargs = OSUtils.get_ping_command(ip_str)
             
-            # subprocess 실행 (stdout 무시)
-            ret = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs)
+            # [수정] subprocess.run 사용 + timeout 명시
+            # timeout을 주어 무한 대기 방지 (OSUtils 설정보다 약간 넉넉하게 2초)
+            proc = subprocess.run(
+                cmd, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL, 
+                timeout=2, 
+                **kwargs
+            )
             
-            if ret == 0: # 0이면 성공(Alive)
+            if proc.returncode == 0:
                 return ip_str
-        except Exception:
+                
+        except subprocess.TimeoutExpired:
+            return None # 타임아웃은 실패로 처리
+        except Exception as e:
+            # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
+            # 추후 로그 레벨 조정을 위해 구조를 잡아둠
+            # logging.debug(f"Scan failed for {ip}: {e}") 
             pass
+            
         return None
 
     def scan_network(self, network_cidr):

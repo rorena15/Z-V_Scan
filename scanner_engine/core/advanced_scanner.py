@@ -36,7 +36,10 @@ class AdvancedScanner:
                 else:
                     p = int(part)
                     if 1 <= p <= 65535: ports.add(p)
-        except:
+        except Exception as e:
+        # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
+        # 추후 로그 레벨 조정을 위해 구조를 잡아둠
+        # logging.debug(f"Scan failed for {ip}: {e}") 
             pass
         return sorted(list(ports))
 
@@ -75,15 +78,16 @@ class AdvancedScanner:
                 except:
                     output = proc.stdout.decode('utf-8', errors='ignore')
                 
-                # 정규식으로 TTL 값 추출 (대소문자 무시)
-                # Windows: "TTL=128", Linux: "ttl=64"
-                ttl_match = re.search(r'ttl[=< ]?(\d+)', output, re.IGNORECASE)
-                
-                if ttl_match:
-                    ttl_value = int(ttl_match.group(1))
-                    detected_os = self.estimate_os_from_ttl(ttl_value)
-                else:
-                    detected_os = "Unknown (No TTL)"
+                try:
+                    # TTL, ttl, Ttl 모두 대응
+                    ttl_match = re.search(r'ttl[=< ]?(\d+)', output, re.IGNORECASE)
+                    if ttl_match:
+                        ttl_value = int(ttl_match.group(1))
+                        detected_os = self.estimate_os_from_ttl(ttl_value)
+                    else:
+                        detected_os = "Unknown (No TTL)"
+                except Exception:
+                    detected_os = "Unknown (Parse Error)"
             else:
                 is_alive = False
 
@@ -95,39 +99,49 @@ class AdvancedScanner:
         return is_alive, detected_os
 
     def syn_scan(self, ip, ports=None):
-        #TCP Connect Scan (이름은 호환성을 위해 syn_scan 유지)
-        #Scapy 제거 -> 순수 소켓 연결 방식으로 변경 (관리자 권한 불필요)
+        """
+        TCP Connect Scan (안전한 소켓 관리 적용)
+        """
         target_ports = ports if ports else self.default_ports
         open_ports = []
         
-        # 타임아웃: 로컬망이면 0.1~0.2초 충분, 외부망이면 0.5초 권장
-        timeout = 0.2 
+        # 타임아웃: 로컬망 0.1~0.2, 외부망 0.5 (설정값)
+        timeout = 0.2
 
         for port in target_ports:
+            # [수정] with 구문을 사용하여 예외 발생 시에도 반드시 소켓 close 보장
             try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(timeout)
-                # connect_ex는 성공 시 0 반환
-                result = s.connect_ex((ip, port))
-                if result == 0:
-                    open_ports.append(port)
-                s.close()
-            except:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(timeout)
+                    result = s.connect_ex((ip, port))
+                    if result == 0:
+                        open_ports.append(port)
+            except Exception as e:
+                # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
+                # 추후 로그 레벨 조정을 위해 구조를 잡아둠
+                # logging.debug(f"Scan failed for {ip}: {e}") 
                 pass
+                
         return open_ports
 
     def grab_banner(self, ip, port):
-        """서비스 배너 수집 (기존 로직 유지, 터미널과 무관)"""
+        """서비스 배너 수집 (안전한 소켓 관리 적용)"""
+        banner = "Unknown Service"
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1)
-            s.connect((ip, port))
+            # [수정] with 구문 적용 및 타임아웃 2초로 증가 (배너는 늦게 뜨는 경우 많음)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(2.0) 
+                s.connect((ip, port))
+                
+                if port in [80, 8080, 443]:
+                    s.send(b'HEAD / HTTP/1.0\r\n\r\n')
+                
+                # 데이터 수신
+                banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
+        except Exception as e:
+            # 평소엔 조용하지만, 개발자가 원하면 볼 수 있게 주석이라도 남기거나 
+            # 추후 로그 레벨 조정을 위해 구조를 잡아둠
+            # logging.debug(f"Scan failed for {ip}: {e}") 
+            pass
             
-            if port in [80, 8080, 443]:
-                s.send(b'HEAD / HTTP/1.0\r\n\r\n')
-            
-            banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
-            s.close()
-            return banner if banner else "Unknown Service"
-        except:
-            return "Unknown Service"
+        return banner if banner else "Unknown Service"
