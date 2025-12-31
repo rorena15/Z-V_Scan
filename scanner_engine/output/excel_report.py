@@ -6,7 +6,7 @@ from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE # <--- [추가] 엑셀 금지 문자 패턴
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE #엑셀 금지 문자 패턴
 from utils.os_utils import OSUtils
 
 class ExcelGenerator:
@@ -51,7 +51,7 @@ class ExcelGenerator:
         self.safe_font = Font(name=self.font_name, color='006100')
 
     def _sanitize(self, value):
-        """[핵심] 엑셀에서 허용하지 않는 문자 제거"""
+        # 엑셀에서 허용하지 않는 문자 제거
         if isinstance(value, str):
             # openpyxl 제공 정규식으로 불법 문자 제거
             return ILLEGAL_CHARACTERS_RE.sub("", value)

@@ -649,7 +649,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.1.0 Enterprise Alpha')
+        self.setWindowTitle('Z-VulnScan v2.1.0 Pro Alpha')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
@@ -662,7 +662,7 @@ class ScannerApp(QMainWindow):
 
         # 1. 헤더
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Enterprise")
+        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Pro")
         title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
         ver_label = QLabel("v2.1.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
@@ -729,7 +729,7 @@ class ScannerApp(QMainWindow):
         self.btn_audit.clicked.connect(self.start_audit)
         
         self.btn_pdf = QPushButton("📄 PDF Report")
-        self.btn_pdf.setToolTip("PDF 리포트 생성")
+        self.btn_pdf.setToolTip("Pro: PDF 리포트 생성")
         self.btn_pdf.setStyleSheet(
             "QPushButton { border-color: #28a745; } "
             "QPushButton:hover { border-color: #4cd964; background-color: #1e3a20; }"
@@ -737,7 +737,7 @@ class ScannerApp(QMainWindow):
         self.btn_pdf.clicked.connect(self.generate_pdf)
         
         self.btn_excel = QPushButton("📊 Excel Export")
-        self.btn_excel.setToolTip("Enterprise: 상세 진단 결과 엑셀 저장")
+        self.btn_excel.setToolTip("Pro: 상세 진단 결과 엑셀 저장")
         self.btn_excel.setStyleSheet(
             "QPushButton { border-color: #1e7145; color: #ffffff; }"
             "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"

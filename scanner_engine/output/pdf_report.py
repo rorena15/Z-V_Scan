@@ -30,7 +30,7 @@ class PDFGenerator:
         self.font_path = OSUtils.get_font_path("NanumGothic.ttf")
 
     def _truncate(self, text, limit):
-        """[핵심] 텍스트가 길면 자르고 ...을 붙임 (오버플로우 방지)"""
+        #텍스트가 길면 자르고 ...을 붙임 (오버플로우 방지)
         if not text: return "-"
         text = str(text)
         if len(text) > limit:

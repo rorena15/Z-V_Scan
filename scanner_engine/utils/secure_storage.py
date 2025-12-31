@@ -2,7 +2,7 @@
 import keyring
 import sys
 
-SERVICE_NAME = "Z-VulnScan_Enterprise"
+SERVICE_NAME = "Z-VulnScan_Pro"
 
 class SecureStorage:
     @staticmethod
