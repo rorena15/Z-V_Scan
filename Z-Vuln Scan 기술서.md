@@ -50,14 +50,13 @@
 
 ### 1. 📡 Network Asset Discovery
 - **ICMP Ping:** 활성 호스트의 신속한 생존 여부 탐지
-- **ARP Scan:** 내부 네트워크 대역(L2)의 정밀한 자산 식별
-- 인가된 로컬 네트워크 환경에 최적화된 스캔 엔진
+- **TCP Connect Scan:** 안정적인 자산 식별을 위해 3-way Handshake 방식을 사용합니다. (Non-stealth)
 
 ### 2. 🔍 Port Exposure Scanning
 - **Fast Scan:** 주요 Well-known 포트(Top 100) 빠른 점검
 - **Full Scan:** 전체 포트(1-65535) 대상 정밀 노출 현황 분석
 - **Custom Scan:** 사용자 정의 포트 범위 지정 가능
-- **Scan Mode:** TCP Connect / TCP SYN Scan 모드 지원 (*관리자 권한 필요*)
+- **Scan Mode:** TCP Connect 모드 지원
 
 ### 3. 🏷️ Service Banner Collection
 - 서비스 데몬의 배너 정보 수집 및 분석
@@ -78,9 +77,9 @@
 ### 📥 Download & Installation
 본 소프트웨어는 상용(Proprietary) 라이선스를 따르며, GitHub Releases 페이지를 통해 배포됩니다.
 
-* **최신 버전:** V2.1.0 (Professional Edition)
-* **시스템 요구사항:** Windows 10/11/Server (64-bit), 관리자 권한 필수
-* **[다운로드 링크]** https://github.com/rorena15/Z-VulnScan_Release/releases/tag/V2.1.0_Alpha
+* **최신 버전:** V2.2.0 (Professional Edition)
+* **시스템 요구사항:** Windows 10/11/Server (64-bit), 관리자 권한(선택)
+* **[다운로드 링크]** https://github.com/rorena15/Z-VulnScan_Release/releases/tag/V2.2.0_Alpha(Stable)
 
 ---
 
@@ -118,11 +117,11 @@
 
 ## 🛠 Technology Stack
 
-- **Language:** Python 3.13+
-- **GUI Framework:** PyQt5 (Qt Designer)
-- **Network Engine:** Scapy, Python Native Socket
-- **Reporting Engine:** ReportLab (PDF), OpenPyXL (Excel)
-- **Security:** `keyring` (Secure Storage), PyInstaller (Build)
+- **Language**: Python 3.13+
+- **GUI Framework**: PySide6 (Modern LGPL Framework)
+- **Network Engine**: Python Native Socket & OS Command (Dependency Free)
+- **Reporting Engine**: ReportLab (PDF), OpenPyXL (Excel)
+- **Security**: keyring (Secure Storage), PyInstaller (Build)
 
 ---
 
@@ -146,6 +145,7 @@
 
 **Proprietary License**
 
-Copyright © 2025 **Z-VulnScan Team**. All Rights Reserved.
+Copyright © 2025 **Z-VulnScan Team**. All Rights Reserved.   
 
-본 소프트웨어는 **상용/비공개 소프트웨어**입니다. 저작권자의 사전 서면 허가 없이 본 소프트웨어의 전부 또는 일부를 무단으로 복제, 배포, 수정, 역공학(Reverse Engineering)하는 행위는 엄격히 금지됩니다.
+본 소프트웨어는 **상용/비공개 소프트웨어**입니다. 저작권자의 사전 서면 허가 없이 본 소프트웨어의 전부 또는 일부를 무단으로 복제, 배포, 수정, 역공학(Reverse Engineering)하는 행위는 엄격히 금지됩니다.   
+*Built with open-source components: PySide6 (LGPL), Paramiko (LGPL), OpenPyXL (MIT).*

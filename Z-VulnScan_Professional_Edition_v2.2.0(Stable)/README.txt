@@ -1,4 +1,4 @@
-[Z-VulnScan Professional Edition_V2.1.0 - User Manual]
+[Z-VulnScan Professional Edition_V2.2.0 - User Manual]
 
 1. 제품 개요 (Product Overview)
    Z-VulnScan Professional Edition은 기업 내부망의 자산 식별 및 보안 취약점을
@@ -17,7 +17,7 @@
    - [오용 방지] 비인가 대역 스캔 및 과부하 유발 행위에 대한 경고 시스템이 탑재되어 있습니다.
 
 4. 실행 및 사용 방법
-   (1) 'Z-VulnScan_Professional_Edition_V2.1.0.exe'를 우클릭하여 [관리자 권한으로 실행]합니다.
+   (1) 'Z-VulnScan_Professional_Edition_V2.2.0.exe'를 우클릭하여 [관리자 권한으로 실행]합니다.
    (2) 최초 실행 시 표시되는 [Legal Disclaimer] 내용을 숙지 후 동의합니다.
    (3) [Configuration] 패널에서 진단 대상 IP 및 인증 정보를 입력합니다.
        * 팁: 자산 리스트 우클릭 시 RDP/SSH 바로 접속 메뉴를 사용할 수 있습니다.

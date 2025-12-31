@@ -1,4 +1,4 @@
-[Z-VulnScan Professional Edition_V2.1.0 - QA Feedback Form]
+[Z-VulnScan Professional Edition_V2.2.0 - QA Feedback Form]
 
 본 양식은 소프트웨어 품질 향상을 위한 기술 피드백 수집용입니다.
 오류 발생 시 'error_log.txt' 파일과 함께 보내주시면 신속한 분석이 가능합니다.

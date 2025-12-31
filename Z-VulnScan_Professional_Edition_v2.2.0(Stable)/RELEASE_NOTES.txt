@@ -1,6 +1,6 @@
 [Z-VulnScan Professional Edition - Release Notes]
 
-■ 버전: Professional Edition_V2.1.0
+■ 버전: Professional Edition_V2.2.0
 ■ 배포일: 2025-12-31
 
 [1] 보안성 강화 (Security Hardening)
