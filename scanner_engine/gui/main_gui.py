@@ -21,14 +21,14 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
     QHeaderView, QProgressBar, QComboBox, QMessageBox, QGroupBox,
-    QSplitter, QDialog, QTextEdit, QCheckBox,QMenu, QAction
+    QSplitter, QDialog, QTextEdit, QCheckBox,QMenu
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QIcon, QColor, QBrush
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, Slot
+from PySide6.QtGui import QFont, QIcon, QColor, QBrush, QAction
 
 # 모듈 Import
 from core.advanced_scanner import AdvancedScanner
@@ -64,7 +64,7 @@ sys.excepthook = my_exception_hook
 # --- [스타일시트: 다크 모드 & 모던 UI] ---
 STYLESHEET = """
 QMainWindow { background-color: #1e1e1e; }
-QWidget { color: #e0e0e0; font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+QWidget { color: #e0e0e0; font-family: 'Segoe UI', sans-serif; font-size: 11pt; }
 QGroupBox { 
     border: 1px solid #3e3e3e; 
     border-radius: 8px; 
@@ -95,7 +95,7 @@ QPushButton:pressed { background-color: #2a2a2a; }
 QPushButton:disabled { background-color: #252526; color: #666666; border-color: #333333; }
 QPushButton#ClearBtn { 
     padding: 4px 10px; 
-    font-size: 12px; 
+    font-size: 9pt; 
     background-color: #444; 
     border: 1px solid #666; 
 }
@@ -127,7 +127,7 @@ QTextEdit {
     border: 1px solid #3e3e3e; 
     color: #00ff00; 
     font-family: 'Consolas', monospace; 
-    font-size: 12px; 
+    font-size: 9pt; 
 }
 QProgressBar { 
     border: 1px solid #3e3e3e; 
@@ -163,11 +163,11 @@ QMessageBox QLabel {
 
 # --- [백그라운드 워커 스레드] ---
 class ScanWorker(QThread):
-    log_signal = pyqtSignal(str)
-    finish_signal = pyqtSignal(str)
-    progress_signal = pyqtSignal(int)
-    started_signal = pyqtSignal(int)
-    asset_found_signal = pyqtSignal(str, str, str)
+    log_signal = Signal(str)
+    finish_signal = Signal(str)
+    progress_signal = Signal(int)
+    started_signal = Signal(int)
+    asset_found_signal = Signal(str, str, str)
 
     def __init__(self, mode, target_input, user=None, ports=None):
         super().__init__()
@@ -540,7 +540,7 @@ class LegalDisclaimerDialog(QDialog):
         # 스타일 적용 (다크 모드 톤)
         self.setStyleSheet("""
             QDialog { background-color: #1e1e1e; color: #ffffff; }
-            QLabel { color: #cccccc; font-size: 14px; }
+            QLabel { color: #cccccc; font-size: 11pt; }
             QTextEdit { 
                 background-color: #252526; 
                 color: #d4d4d4; 
@@ -566,7 +566,7 @@ class LegalDisclaimerDialog(QDialog):
         # 1. 경고 아이콘 및 제목
         title_layout = QHBoxLayout()
         title_label = QLabel("⚠️ Security Tool Usage Warning")
-        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #ff5555;")
+        title_label.setStyleSheet("font-size: 18pt; font-weight: bold; color: #ff5555;")
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         layout.addLayout(title_layout)
@@ -677,7 +677,7 @@ class ScannerApp(QMainWindow):
         # 1. 헤더
         header_layout = QHBoxLayout()
         title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Professional Edition")
-        title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
+        title_label.setStyleSheet("color: #ffffff; font-size: 16pt; font-weight: bold;")
         ver_label = QLabel("v2.1.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
         header_layout.addWidget(title_label)
@@ -1060,7 +1060,7 @@ class ScannerApp(QMainWindow):
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg.setDefaultButton(QMessageBox.No) # 실수 방지를 위해 'No'를 기본값으로 설정
             
-            reply = msg.exec_()
+            reply = msg.exec()
             
             if reply == QMessageBox.No: 
                 self.set_ui_busy(False) # UI 잠금 해제 (필수)
@@ -1222,7 +1222,7 @@ class ScannerApp(QMainWindow):
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg.setDefaultButton(QMessageBox.No) # 'No'를 기본값으로 설정 (안전)
             
-            reply = msg.exec_()
+            reply = msg.exec()
             
             # 사용자가 'No'를 누르면 -> 강제로 'Default' 모드로 되돌림
             if reply == QMessageBox.No:
@@ -1273,7 +1273,7 @@ class ScannerApp(QMainWindow):
         menu.addAction(copy_action)
 
         # 메뉴 실행 (마우스 위치에)
-        menu.exec_(self.asset_table.viewport().mapToGlobal(pos))
+        menu.exec(self.asset_table.viewport().mapToGlobal(pos))
 
 
 
@@ -1284,10 +1284,10 @@ if __name__ == '__main__':
     # 2. 법적 동의 팝업 실행
     disclaimer = LegalDisclaimerDialog()
     # 3. 동의(Accepted)한 경우에만 메인 앱 진입
-    if disclaimer.exec_() == QDialog.Accepted:
+    if disclaimer.exec() == QDialog.Accepted:
         scanner = ScannerApp()
         scanner.show()
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
     else:
         # 동의하지 않거나 창을 닫으면 프로그램 종료
         sys.exit()
