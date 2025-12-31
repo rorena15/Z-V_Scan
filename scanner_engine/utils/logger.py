@@ -15,10 +15,9 @@ class AppLogger:
 
     @staticmethod
     def setup():
-        """애플리케이션 전역 로거 설정 (최초 1회 실행)"""
         if AppLogger._initialized: return
-
-        # 로그 파일은 실행 파일(exe) 옆에 생성
+        
+        # 1. 로그 파일 경로 설정
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
         else:
@@ -26,36 +25,45 @@ class AppLogger:
             
         log_file = os.path.join(base_dir, "scan_debug.log")
 
-        # 로거 설정 (DEBUG 레벨까지 모두 기록)
-        logging.basicConfig(
-            filename=log_file,
-            level=logging.DEBUG,
-            format='[%(asctime)s] [%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S',
-            encoding='utf-8',
-            filemode='w' # 실행할 때마다 새로 작성 (a로 하면 계속 누적)
-        )
-
-        # 콘솔에도 에러는 출력 (개발용)
-        console = logging.StreamHandler()
-        console.setLevel(logging.ERROR)
-        logging.getLogger('').addHandler(console)
-
-        AppLogger._initialized = True
-        logging.info("=== Z-VulnScan Professional v2.2.1 Logger Started ===")
+        # 2. [Claude Fix] 로그 파일 생성 시도 및 실패 시 Fallback(대체) 처리
+        try:
+            logging.basicConfig(
+                filename=log_file, level=logging.DEBUG,
+                format='[%(asctime)s] [%(levelname)s] %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S', encoding='utf-8', filemode='w'
+            )
+            # 성공 시 콘솔 핸들러 추가
+            console = logging.StreamHandler()
+            console.setLevel(logging.ERROR)
+            logging.getLogger('').addHandler(console)
+            
+            AppLogger._initialized = True
+            logging.info("=== Z-VulnScan Professional v2.2.0 Logger Started ===")
+            
+        except PermissionError:
+            # [Fix] 파일 쓰기 권한이 없으면 콘솔 전용 모드로 작동 (프로그램 크래시 방지)
+            logging.basicConfig(
+                level=logging.ERROR, 
+                handlers=[logging.StreamHandler()] # 파일 없이 콘솔만
+            )
+            AppLogger._initialized = True
+            logging.error("[System] Cannot create log file (Permission Denied). Running in Console-Only mode.")
+            
+        except Exception as e:
+            # 기타 에러 시 안전 모드
+            print(f"[CRITICAL] Logger Init Failed: {e}", file=sys.stderr)
+            # 최소한의 초기화
+            AppLogger._initialized = True
 
     @staticmethod
     def log_info(message):
-        if AppLogger._initialized:
-            logging.info(message)
+        if not AppLogger._initialized: AppLogger.setup()
+        logging.info(message)
 
     @staticmethod
     def log_error(message, exception=None):
-        """에러 발생 시 로그 기록 (예외 정보 포함)"""
-        if AppLogger._initialized:
-            if exception:
-                logging.error(f"{message} | Details: {str(exception)}")
-                # 필요시 스택 트레이스까지 남기려면 아래 주석 해제
-                # logging.exception(message) 
-            else:
-                logging.error(message)
+        if not AppLogger._initialized: AppLogger.setup()
+        if exception:
+            logging.error(f"{message} | Details: {str(exception)}")
+        else:
+            logging.error(message)

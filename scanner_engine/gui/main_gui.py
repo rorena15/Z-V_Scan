@@ -209,7 +209,7 @@ class ScanWorker(QThread):
                 self.log_signal.emit(f"[DB Error] {str(e)}")
 
     def process_network_scan(self, ip):
-        """네트워크 스캔 프로세스"""
+        #네트워크 스캔 프로세스
         if self.stop_flag:
             return
         
@@ -220,7 +220,14 @@ class ScanWorker(QThread):
                 return
 
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
-            open_ports = scanner.tcp_scan(ip, self.ports)
+            try:
+                open_ports = scanner.tcp_scan(ip, self.ports)
+            except Exception as e:
+                # 화면에 빨간색으로 에러 표시
+                self.log_signal.emit(f"[!] {ip} 포트 스캔 실패: {str(e)}") 
+                # 파일 로그에 상세 기록
+                AppLogger.log_error(f"Port Scan Error on {ip}", e) 
+                open_ports = []
             port_str = "None"
             
             if open_ports:
@@ -236,6 +243,7 @@ class ScanWorker(QThread):
 
         except Exception as e:
             self.log_signal.emit(f"[!] {ip} 스캔 오류: {str(e)}")
+            AppLogger.log_error(f"Worker Error on {ip}", e)
 
     def process_audit_scan(self, ip):
         """

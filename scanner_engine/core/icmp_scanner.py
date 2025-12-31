@@ -43,13 +43,22 @@ class ICMPScanner:
                 return ip_str
                 
         except subprocess.TimeoutExpired:
-            # 타임아웃은 흔한 일이므로 디버그 레벨로만 기록하거나 생략
-            # AppLogger.log_info(f"Ping Timeout: {ip_str}")
             return None
+            
+        except PermissionError:
+            # 권한 문제 명시적 기록
+            AppLogger.log_error(f"Permission Denied pinging {ip_str}. (Try Run as Admin)")
+            return None
+            
+        except FileNotFoundError:
+            # ping 명령어 없음 기록
+            AppLogger.log_error(f"Ping command not found. Check OS PATH.")
+            return None
+            
         except Exception as e:
-            # [수정] Silent Failure 제거 -> 에러 기록
+            # 기타 에러
             AppLogger.log_error(f"Ping Failed for {ip_str}", e)
-            pass # 프로그램은 계속 진행
+            pass
             
         return None
 
