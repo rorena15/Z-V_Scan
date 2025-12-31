@@ -639,7 +639,7 @@ class LegalDisclaimerDialog(QDialog):
             pc_name = platform.node()
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            log_msg = f"[{timestamp}] AGREEMENT ACCEPTED | User: {username} | PC: {pc_name} | Version: v2.1.0\n"
+            log_msg = f"[{timestamp}] AGREEMENT ACCEPTED | User: {username} | PC: {pc_name} | Version: v2.2.0\n"
             
             # 프로젝트 루트에 로그 저장
             with open("audit_agreement.log", "a", encoding="utf-8") as f:
@@ -663,7 +663,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.1.0 Professional Edition_Alpha')
+        self.setWindowTitle('Z-VulnScan v2.2.0 Professional Edition_Alpha')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
@@ -676,9 +676,9 @@ class ScannerApp(QMainWindow):
 
         # 1. 헤더
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Professional Edition")
+        title_label = QLabel("🛡️ Z-VulnScan V2.2.0 Professional Edition")
         title_label.setStyleSheet("color: #ffffff; font-size: 16pt; font-weight: bold;")
-        ver_label = QLabel("v2.1.0")
+        ver_label = QLabel("v2.2.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
