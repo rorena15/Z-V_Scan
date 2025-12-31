@@ -527,8 +527,9 @@ class LegalDisclaimerDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Legal Disclaimer & Agreement")
-        self.setFixedSize(600, 450)
+        self.setFixedSize(700, 500)
         self.setWindowIcon(QIcon("app_icon.ico"))  # 아이콘 경로 확인
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         
         # 스타일 적용 (다크 모드 톤)
         self.setStyleSheet("""
@@ -559,7 +560,7 @@ class LegalDisclaimerDialog(QDialog):
         # 1. 경고 아이콘 및 제목
         title_layout = QHBoxLayout()
         title_label = QLabel("⚠️ Security Tool Usage Warning")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #ff5555;")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #ff5555;")
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         layout.addLayout(title_layout)
@@ -572,22 +573,29 @@ class LegalDisclaimerDialog(QDialog):
         <p>본 소프트웨어 <b>Z-Vuln Scan</b>은 네트워크 보안 진단 및 관리 목적으로 제작된 도구입니다.</p>
         
         <p><b>1. 사용 권한 및 책임</b><br>
-        사용자는 본 도구를 <u>자신이 소유하거나, 정당한 권한을 위임받은 네트워크/자산</u>에 대해서만 사용해야 합니다.
+        사용자는 본 도구를 <u>자신이 소유하거나, 정당한 권한을 위임받은 네트워크/자산</u>에 대해서만 사용해야 합니다.<br>
         사전 승인되지 않은 타인의 시스템을 스캔하는 행위는 <b>정보통신망법 등 관련 법령에 의거하여 민/형사상 처벌</b>을 받을 수 있습니다.</p>
         
         <p><b>2. 면책 조항</b><br>
-        개발자는 본 도구의 사용으로 인해 발생하는 시스템 장애, 데이터 손실, 법적 분쟁 등 어떠한 결과에 대해서도 책임을 지지 않습니다.
+        개발자는 본 도구의 사용으로 인해 발생하는 시스템 장애, 데이터 손실, 법적 분쟁 등 어떠한 결과에 대해서도 책임을 지지 않습니다.<br>
         모든 사용 결과에 대한 책임은 전적으로 사용자 본인에게 있습니다.</p>
         
         <p><b>3. 사용 목적 제한</b><br>
-        본 도구는 보안 취약점 점검, 교육, 연구 목적으로만 사용되어야 하며, 악의적인 공격이나 불법적인 침투 목적으로 사용할 수 없습니다.</p>
+        본 도구는 보안 취약점 점검, 교육, 연구 목적으로만 사용되어야 하며,<br>
+        악의적인 공격이나 불법적인 침투 목적으로 사용할 수 없습니다.</p>
+        
+        <p><b>4. 시스템 요구사항 및 환경</b><br>
+        본 도구는 패킷 제어를 위해 <b>[관리자 권한]</b>으로 실행되어야 하며, 결과 저장을 위해 <b>[파일 쓰기 권한]</b>이 필수적입니다. <br>
+        권한이 제한된 환경(예: 압축 파일 내부 실행, 쓰기 금지된 저장소)에서는 프로그램이 정상 작동하지 않거나 종료될 수 있습니다.</p>
+        <br>
+        
         <br>
         <p style='color: #cccccc;'>위 내용을 충분히 숙지하였으며, 이에 동의하는 경우에만 프로그램을 시작하십시오.</p>
         """)
         layout.addWidget(self.text_area)
 
         # 3. 동의 체크박스
-        self.check_box = QCheckBox("위 법적 고지 내용을 모두 읽었으며, 이에 동의합니다.")
+        self.check_box = QCheckBox("위 법적 고지 내용을 모두 읽었으며, 이에 동의합니다. 미동의시 도구 사용이 불가능합니다")
         self.check_box.stateChanged.connect(self.toggle_button)
         layout.addWidget(self.check_box)
 
@@ -649,7 +657,7 @@ class ScannerApp(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v2.1.0 Pro Alpha')
+        self.setWindowTitle('Z-VulnScan v2.1.0 Professional Edition_Alpha')
         self.setGeometry(100, 100, 1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         self.setStyleSheet(STYLESHEET)
@@ -662,7 +670,7 @@ class ScannerApp(QMainWindow):
 
         # 1. 헤더
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Pro")
+        title_label = QLabel("🛡️ Z-VulnScan V2.1.0 Professional Edition")
         title_label.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold;")
         ver_label = QLabel("v2.1.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
