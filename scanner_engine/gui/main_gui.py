@@ -220,7 +220,7 @@ class ScanWorker(QThread):
                 return
 
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
-            open_ports = scanner.syn_scan(ip, self.ports)
+            open_ports = scanner.tcp_scan(ip, self.ports)
             port_str = "None"
             
             if open_ports:
@@ -258,7 +258,7 @@ class ScanWorker(QThread):
             # KISA 진단에 중요한 포트들
             audit_ports = [21, 22, 23, 80, 443, 445, 3306, 3389, 8080] 
             
-            open_ports = scanner.syn_scan(ip, audit_ports)
+            open_ports = scanner.tcp_scan(ip, audit_ports)
             vuln_results = {} # VulnMatcher 결과 저장용
 
             if open_ports:

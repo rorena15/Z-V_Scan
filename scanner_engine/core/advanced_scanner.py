@@ -99,7 +99,7 @@ class AdvancedScanner:
 
         return is_alive, detected_os
 
-    def syn_scan(self, ip, ports=None):
+    def tcp_scan(self, ip, ports=None):
         #TCP Connect Scan (안전한 소켓 관리 적용)
         target_ports = ports if ports else self.default_ports
         open_ports = []

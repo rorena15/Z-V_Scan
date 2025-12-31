@@ -1,0 +1,8 @@
+[2026-01-01 01:21:55] [INFO] === Z-VulnScan Professional v2.2.1 Logger Started ===
+[2026-01-01 01:22:09] [DEBUG] Loading KWallet
+[2026-01-01 01:22:09] [DEBUG] Loading SecretService
+[2026-01-01 01:22:09] [DEBUG] Loading Windows
+[2026-01-01 01:22:09] [DEBUG] Loaded cffi backend
+[2026-01-01 01:22:09] [DEBUG] Loading chainer
+[2026-01-01 01:22:09] [DEBUG] Loading libsecret
+[2026-01-01 01:22:09] [DEBUG] Loading macOS
