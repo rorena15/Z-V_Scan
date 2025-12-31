@@ -101,6 +101,7 @@ class VulnMatcher:
 
     @staticmethod
     def match(port, banner=""):
+        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         """
         포트 번호와 배너 정보를 받아 취약점 상세 정보를 반환
         """

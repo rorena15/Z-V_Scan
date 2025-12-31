@@ -34,6 +34,7 @@ class SecureStorage:
         저장된 비밀번호를 불러옴 (메모리에 오래 상주시키지 말 것)
         """
         key = f"{target}:{username}"
+        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         try:
             return keyring.get_password(SERVICE_NAME, key)
         except Exception as e:

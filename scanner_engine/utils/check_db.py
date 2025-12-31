@@ -36,6 +36,7 @@ def check_data():
     print(f"3. 저장된 진단 결과 수: {result_cnt}건")
 
     if result_cnt > 0:
+        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         print("\n[상세 데이터 샘플 (최근 5건)]")
         cursor.execute("""
             SELECT A.ip_addr, V.code, R.status 

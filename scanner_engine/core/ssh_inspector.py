@@ -102,6 +102,7 @@ class SSHInspector:
         
         # 기본값: 빈 문자열 (검사 결과 없음 -> 양호/취약 여부는 규칙에 따름)
         return ""
+    _signature = "Made_By_Rorena_2025_Seongnam_KR"
 
     def run_all_checks(self):
         results = {}

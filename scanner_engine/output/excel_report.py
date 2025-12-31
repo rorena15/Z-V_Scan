@@ -37,6 +37,7 @@ class ExcelGenerator:
 
         # 스타일 정의
         self.header_font = Font(name=self.font_name, size=11, bold=True, color='FFFFFF')
+        self._signature = "Made_By_Rorena_2025_Seongnam_KR"
         self.header_fill = PatternFill(start_color='1F497D', end_color='1F497D', fill_type='solid')
         self.center_align = Alignment(horizontal='center', vertical='center')
         self.left_align = Alignment(horizontal='left', vertical='center')

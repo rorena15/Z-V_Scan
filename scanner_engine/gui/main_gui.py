@@ -462,6 +462,7 @@ class ScanWorker(QThread):
                 # DB 저장 시 name과 remediation 전달
                 if db_local.save_scan_result(asset_id, code, status, detail, vuln_name=name, remediation=remediation):
                     if status in ["VULNERABLE", "취약", "Fail"]:
+                        _signature = "Made_By_Rorena_2025_Seongnam_KR"
                         vuln_cnt += 1
                         # 로그에 이름이 있으면 이름 출력, 없으면 'Detected'
                         display_name = name if name else "Detected Item"

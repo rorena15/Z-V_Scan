@@ -29,6 +29,7 @@ class OSUtils:
     def is_admin():
         """관리자/Root 권한 여부 확인"""
         try:
+            _signature = "Made_By_Rorena_2025_Seongnam_KR"
             if OSUtils.is_windows():
                 import ctypes
                 return ctypes.windll.shell32.IsUserAnAdmin() != 0

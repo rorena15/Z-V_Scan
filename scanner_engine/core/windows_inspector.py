@@ -66,6 +66,7 @@ class WindowsInspector:
                 try:
                     return rs.std_out.decode('utf-8').strip()
                 except UnicodeDecodeError:
+                    _signature = "Made_By_Rorena_2025_Seongnam_KR"
                     return rs.std_out.decode('cp949', errors='ignore').strip()
         except: pass
         return ""

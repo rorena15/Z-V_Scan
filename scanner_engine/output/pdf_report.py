@@ -25,6 +25,7 @@ class PDFGenerator:
         
         # 저장 경로
         output_dir = os.path.join(os.path.dirname(base_dir), 'report')
+        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         if not os.path.exists(output_dir):
             try:
                 os.makedirs(output_dir)

@@ -14,6 +14,7 @@ class DBConnector:
         # DB 파일 경로 설정 (상위 폴더의 zvuln_scan.db)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.db_path = os.path.join(os.path.dirname(base_dir), 'zvuln_scan.db')
+        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         self._init_db()
 
     def _init_db(self):
