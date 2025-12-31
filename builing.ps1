@@ -18,7 +18,7 @@ Write-Host "`n[2/2] Packaging into EXE with PyInstaller..." -ForegroundColor Yel
 # PyInstaller 실행
 # --collect-all: 라이브러리의 모든 데이터/바이너리를 강제로 포함 (에러 방지용)
 pyinstaller --noconfirm --onefile --windowed --clean `
-    --name "Z-VulnScan_Professional_Edition_v2.1.0_Alpha_" `
+    --name "Z-VulnScan_Professional_Edition_v2.1.0_Alpha" `
     --icon "app_icon.ico" `
     --distpath "Z-VulnScan_Professional_Edition_v2.1_Alpha" `
     --add-data "scanner_engine/core;core" `
