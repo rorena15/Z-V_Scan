@@ -7,13 +7,15 @@
 # --------------------------------------------------------------------------
 import os
 import sqlite3
-import re  # <--- [추가] 정규식 모듈
+import re
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE #엑셀 금지 문자 패턴
 from utils.os_utils import OSUtils
+from utils.logger import AppLogger # 로깅 연동
+from utils.oui_lookup import OUILookup # 벤더 조회를 위해 추가
 
 class ExcelGenerator:
     def __init__(self):
