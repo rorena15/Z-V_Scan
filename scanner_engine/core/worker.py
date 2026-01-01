@@ -50,16 +50,15 @@ class ScanWorker(QThread):
         self.lock = threading.Lock()
 
     def db_writer(self):
-        # DB 쓰기 전담 소비자 스레드
+        # [Fix] DB 쓰기 전담 소비자 스레드 (안전 버전)
         db = DBConnector()
         while True:
             try:
-                # 1. 큐에서 데이터 가져오기 (1초 대기)
+                # 1. 큐에서 데이터 가져오기 (타임아웃 설정으로 무한 대기 방지)
                 try:
                     item = self.db_queue.get(timeout=1)
                 except queue.Empty:
-                    # 데이터가 없으면 루프 처음으로 돌아감 (task_done 호출 안 함!)
-                    continue
+                    continue # 데이터 없으면 루프 재시작
 
                 # 2. 종료 신호 확인
                 if item is None:
@@ -71,6 +70,7 @@ class ScanWorker(QThread):
                 
                 try:
                     if msg_type == "ASSET":
+                        # [중요] 데이터 언패킹 (mac_addr 포함 확인)
                         ip, host, os_type, mac = data
                         asset_id = db.save_asset(ip, hostname=host, os_type=os_type, mac_addr=mac)
                         if asset_id: self.asset_ids[ip] = asset_id
@@ -92,11 +92,10 @@ class ScanWorker(QThread):
                             db.save_scan_result(self.asset_ids[ip], code, status, detail, name, remediation)
                 
                 except Exception as inner_e:
-                    # 데이터 처리 중 에러가 나도 task_done은 해야 함
                     AppLogger.log_error(f"DB Processing Error ({msg_type})", inner_e)
 
                 finally:
-                    # 데이터를 성공적으로 꺼냈을 때만 완료 처리
+                    # [핵심] 데이터를 성공적으로 꺼냈을 때만 완료 처리 (위치 이동됨)
                     self.db_queue.task_done()
 
             except Exception as e:

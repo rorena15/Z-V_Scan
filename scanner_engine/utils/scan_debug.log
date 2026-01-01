@@ -1,1 +1,35 @@
-[2026-01-02 03:34:55] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
+[2026-01-02 03:40:11] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
+[2026-01-02 03:40:26] [ERROR] 192.168.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:26] [ERROR] 192.168.0.5 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:26] [ERROR] 192.168.0.1 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:26] [ERROR] 192.168.0.13 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:26] [ERROR] 192.168.0.11 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:26] [INFO] [DB] Upgrading schema: Adding 'mac_addr' column...
+[2026-01-02 03:40:26] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:26] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:26] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:26] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:26] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:27] [ERROR] 192.168.0.38 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:27] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:27] [ERROR] 192.168.0.42 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 03:40:27] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:28] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:29] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:30] [ERROR] Banner grab failed 192.168.0.3:135 | Details: timed out
+[2026-01-02 03:40:30] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:32] [ERROR] Banner grab failed 192.168.0.3:139 | Details: timed out
+[2026-01-02 03:40:32] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:32] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:34] [ERROR] Banner grab failed 192.168.0.3:445 | Details: timed out
+[2026-01-02 03:40:34] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:34] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:34] [ERROR] DB Writer Fatal Error | Details: too many values to unpack (expected 2)
+[2026-01-02 03:40:35] [DEBUG] Loading KWallet
+[2026-01-02 03:40:35] [DEBUG] Loading SecretService
+[2026-01-02 03:40:35] [DEBUG] Loading Windows
+[2026-01-02 03:40:35] [DEBUG] Loaded cffi backend
+[2026-01-02 03:40:35] [DEBUG] Loading chainer
+[2026-01-02 03:40:35] [DEBUG] Loading libsecret
+[2026-01-02 03:40:35] [DEBUG] Loading macOS
+[2026-01-02 03:40:35] [ERROR] [SecureStorage] No Need Delete Credential | Details: Z-VulnScan_Pro
