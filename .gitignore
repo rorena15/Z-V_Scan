@@ -25,3 +25,7 @@ Z-VulnScan_Professional_Edition_v2.2.0(Stable).zip
 Z-VulnScan_Professional_Edition_v2.2.0.spec
 Z-VulnScan_Professional_Edition_v2.2.0(Stable)/Z-VulnScan_Professional_Edition_v2.2.0.exe
 \[별첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
+Z-VulnScan_Professional_Edition_v3.0.0.spec
+scanner_engine/gui/__pycache__/main_window.cpython-313.pyc
+scanner_engine/utils/scan_debug.log
+scanner_engine/utils/__pycache__/logger.cpython-313.pyc

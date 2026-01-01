@@ -2,8 +2,9 @@
 $ErrorActionPreference = "Stop"
 
 # 버전 정보 변수 설정 (유지보수 용이성)
-$APP_NAME = "Z-VulnScan_Professional_Edition_v2.2.0"
-$DIST_DIR = "Z-VulnScan_Professional_Edition_v2.2.0(Stable)"
+$VERSION = "v3.0.0"
+$APP_NAME = "Z-VulnScan_Professional_Edition_$VERSION"
+$DIST_DIR = "Z-VulnScan_Professional_Edition_$VERSION(01-02-newest)"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " 🚀 Build Started: $APP_NAME" -ForegroundColor Cyan
@@ -27,18 +28,24 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --add-data "scanner_engine/core;core" `
     --add-data "scanner_engine/utils;utils" `
     --add-data "scanner_engine/output;output" `
+    --add-data "scanner_engine/gui;gui" `
     --add-data "rules;rules" `
     --add-data "app_icon.ico;." `
     --collect-all "reportlab" `
     --collect-all "openpyxl" `
+    --collect-all "networkx" `
+    --collect-all "matplotlib" `
     --collect-all "paramiko" `
     --collect-all "keyring" `
     --hidden-import "winrm" `
     --hidden-import "wmi" `
-    --hidden-import "PySide6" `
+    --hidden-import "PySide6.QtCore" `
+    --hidden-import "PySide6.QtGui" `
+    --hidden-import "PySide6.QtWidgets" `
     --hidden-import "utils.os_utils" `
     --hidden-import "utils.secure_storage" `
-    scanner_engine/gui/main_gui.py
+    --hidden-import "gui.topology_dialog" `
+    scanner_engine/main.py
 
 # 3. 결과 확인
 if ($LASTEXITCODE -eq 0) {
