@@ -112,7 +112,7 @@ class AdvancedScanner:
                 
                 # 출력 결과 디코딩 (Windows 한글 CP949 대응)
                 try:
-                    output = proc.stdout.decode('cp949') 
+                    output = proc.stdout.decode('cp949', errors='ignore') 
                 except:
                     output = proc.stdout.decode('utf-8', errors='ignore')
                 

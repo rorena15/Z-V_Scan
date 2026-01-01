@@ -54,7 +54,7 @@ class ScanWorker(QThread):
         db = DBConnector()
         while True:
             try:
-                item = self.db_queue.get()
+                item = self.db_queue.get(timeout=1)
                 if item is None: break # 종료 신호
                 
                 msg_type, data = item
@@ -91,7 +91,9 @@ class ScanWorker(QThread):
                         db.save_scan_result(
                             self.asset_ids[ip], code, status, detail, name, remediation
                         )
-
+                        
+            except queue.Empty:
+                continue
             except Exception as e:
                 # DB 쓰기 실패는 치명적이므로 파일 로그에 기록
                 AppLogger.log_error("DB Writer Error", e)
@@ -402,36 +404,61 @@ class ScanWorker(QThread):
             self.finish_signal.emit("입력 오류")
             return
 
-        self.started_signal.emit(total_count)
-        self.asset_ids = {}
-        
-        # DB Writer 스레드 시작
-        self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
-        self.writer_thread.start()
-
-        processed_count = 0
-        work_func = self.process_network_scan if self.mode == "NETWORK_SCAN" else self.process_audit_scan
-        cur_threads = self.max_threads if self.mode == "NETWORK_SCAN" else self.audit_threads
-
-        with ThreadPoolExecutor(max_workers=cur_threads) as executor:
-            futures = {executor.submit(work_func, str(ip)): str(ip) for ip in target_gen}
+        try:
+            self.started_signal.emit(total_count)
+            self.asset_ids = {}
             
-            for future in as_completed(futures):
-                if self.stop_flag:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
-                
-                processed_count += 1
-                if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
-                    progress = int((processed_count / total_count) * 100)
-                    self.progress_signal.emit(progress)
+            # DB Writer 스레드 시작
+            self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
+            self.writer_thread.start()
 
-        if not self.stop_flag:
-            self.progress_signal.emit(100)
+            processed_count = 0
+            work_func = self.process_network_scan if self.mode == "NETWORK_SCAN" else self.process_audit_scan
+            cur_threads = self.max_threads if self.mode == "NETWORK_SCAN" else self.audit_threads
+
+            # 스레드 풀 실행
+            with ThreadPoolExecutor(max_workers=cur_threads) as executor:
+                # [메모리 최적화] 제너레이터를 리스트로 즉시 변환하지 않고 사용
+                # 단, progress 표시를 위해 futures 딕셔너리는 필요함
+                futures = {executor.submit(work_func, str(ip)): str(ip) for ip in target_gen}
+                
+                for future in as_completed(futures):
+                    ip = futures[future]
+                    
+                    if self.stop_flag:
+                        # [Fix] 중단 시 잔여 작업 취소 시도
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        self.log_signal.emit("[!] 사용자 요청에 의해 스캔 중단됨.")
+                        break
+                    try:
+                        future.result()
+                    except Exception as e:
+                    # 에러가 발생했다면 로그에 기록 
+                        error_msg = f"[Thread Error] {ip} 처리 중 오류 발생: {e}"
+                        AppLogger.log_error(error_msg)
+                    processed_count += 1
+                    # 진행률 업데이트 (부하를 줄이기 위해 1% 단위 또는 5건 단위로 갱신)
+                    if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
+                        progress = int((processed_count / total_count) * 100)
+                        self.progress_signal.emit(progress)
+
+            if not self.stop_flag:
+                self.progress_signal.emit(100)
         
-        # DB Writer 정리
-        self.writer_stop = True
-        if self.writer_thread:
-            self.writer_thread.join(timeout=3)
+        except Exception as e:
+            # 예상치 못한 엔진 에러 캡처
+            critical_msg = f"[Critical] 엔진 실행 중 오류 발생: {str(e)}"
+            self.log_signal.emit(critical_msg)
+            AppLogger.log_critical(critical_msg)
         
-        self.finish_signal.emit("작업 완료")
+        finally:
+            # [Fix] DB Writer 안전 종료 (Sentinel 패턴)
+            # 큐에 None을 넣어야 db_writer의 get()이 깨어나서 루프를 종료함
+            self.db_queue.put(None)
+            
+            if self.writer_thread:
+                self.writer_thread.join(timeout=3)
+                if self.writer_thread.is_alive():
+                    AppLogger.log_error("DB Writer thread did not terminate cleanly.")
+            
+            self.finish_signal.emit("작업 완료")

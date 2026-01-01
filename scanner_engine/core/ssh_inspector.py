@@ -49,7 +49,12 @@ class SSHInspector:
             return True
 
     def close(self):
-        if self.client: self.client.close()
+        if self.client:
+            try:
+                self.client.close()
+            except:
+                pass
+            self.client = None
 
     def execute_command(self, command):
         if self.client and not self.is_simulation:
