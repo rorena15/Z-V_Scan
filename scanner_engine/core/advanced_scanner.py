@@ -25,6 +25,10 @@ class AdvancedScanner:
     @staticmethod
     def parse_ports(port_str):
         #포트 문자열 파싱
+        if not re.match(r'^[\d,-]+$', port_str):
+            AppLogger.log_error(f"Invalid port format: {port_str}")
+            return []
+        
         ports = set()
         try:
             parts = port_str.split(',')
@@ -45,6 +49,7 @@ class AdvancedScanner:
 
     def estimate_os_from_ttl(self, ttl):
         #TTL 값을 기반으로 OS 추정 (Scapy 대체 로직)
+        if ttl is None: return "Unknown"
         try:
             ttl = int(ttl)
             # 일반적인 초기 TTL 값: Windows(128), Linux(64), Network Device(255)
