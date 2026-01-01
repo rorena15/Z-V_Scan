@@ -645,8 +645,13 @@ class ScannerApp(QMainWindow):
         assets = db.get_all_assets() # [(ip, os, memo), ...]
         
         self.asset_table.setRowCount(0)
-        for ip, os_type, memo in assets:
-            self.add_asset_to_table(ip, os_type, "Scanned History", memo_text=memo)
+        for ip, os_type, memo, mac_addr in assets:
+            # 화면에 OS만 보여주는 대신 MAC 주소도 같이 보여주면 더 좋습니다.
+            display_os = os_type
+            if mac_addr:
+                display_os = f"{os_type} | {mac_addr}"
+            
+            self.add_asset_to_table(ip, display_os, "Scanned History", memo_text=memo)
         
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")

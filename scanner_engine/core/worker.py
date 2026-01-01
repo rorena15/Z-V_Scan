@@ -54,51 +54,53 @@ class ScanWorker(QThread):
         db = DBConnector()
         while True:
             try:
-                item = self.db_queue.get(timeout=1)
-                if item is None: break # 종료 신호
+                # 1. 큐에서 데이터 가져오기 (1초 대기)
+                try:
+                    item = self.db_queue.get(timeout=1)
+                except queue.Empty:
+                    # 데이터가 없으면 루프 처음으로 돌아감 (task_done 호출 안 함!)
+                    continue
+
+                # 2. 종료 신호 확인
+                if item is None:
+                    self.db_queue.task_done()
+                    break 
                 
+                # 3. 데이터 처리
                 msg_type, data = item
                 
-                if msg_type == "ASSET":
-                    # [Fix] 데이터 언패킹 (mac 추가됨)
-                    ip, host, os_type, mac = data
-                    # DBConnector.save_asset 호출 (mac_addr 인자 전달)
-                    asset_id = db.save_asset(ip, hostname=host, os_type=os_type, mac_addr=mac)
-                    if asset_id:
-                        self.asset_ids[ip] = asset_id
+                try:
+                    if msg_type == "ASSET":
+                        ip, host, os_type, mac = data
+                        asset_id = db.save_asset(ip, hostname=host, os_type=os_type, mac_addr=mac)
+                        if asset_id: self.asset_ids[ip] = asset_id
 
-                elif msg_type == "PORT":
-                    ip, port, banner = data
-                    if ip in self.asset_ids:
-                        db.save_open_port(self.asset_ids[ip], port, banner)
+                    elif msg_type == "PORT":
+                        ip, port, banner = data
+                        if ip in self.asset_ids: db.save_open_port(self.asset_ids[ip], port, banner)
 
-                elif msg_type == "VULN":
-                    ip, v_info = data
-                    if ip in self.asset_ids:
-                        db.save_scan_result(
-                            self.asset_ids[ip], 
-                            v_info['kisa'], # code
-                            "WARNING" if v_info['risk'] in ['Medium', 'Low'] else "VULNERABLE",
-                            v_info['desc'], # detail
-                            v_info['name'], # vuln_name
-                            v_info.get('remediation', '-') # remediation
-                        )
-                        
-                elif msg_type == "RESULT":
-                    # Audit 결과 저장
-                    ip, code, status, detail, name, remediation = data
-                    if ip in self.asset_ids:
-                        db.save_scan_result(
-                            self.asset_ids[ip], code, status, detail, name, remediation
-                        )
-                        
-            except queue.Empty:
-                continue
+                    elif msg_type == "VULN":
+                        ip, v_info = data
+                        if ip in self.asset_ids:
+                            db.save_scan_result(self.asset_ids[ip], v_info['kisa'], 
+                                "WARNING" if v_info['risk'] in ['Medium', 'Low'] else "VULNERABLE",
+                                v_info['desc'], v_info['name'], v_info.get('remediation', '-'))
+
+                    elif msg_type == "RESULT":
+                        ip, code, status, detail, name, remediation = data
+                        if ip in self.asset_ids:
+                            db.save_scan_result(self.asset_ids[ip], code, status, detail, name, remediation)
+                
+                except Exception as inner_e:
+                    # 데이터 처리 중 에러가 나도 task_done은 해야 함
+                    AppLogger.log_error(f"DB Processing Error ({msg_type})", inner_e)
+
+                finally:
+                    # 데이터를 성공적으로 꺼냈을 때만 완료 처리
+                    self.db_queue.task_done()
+
             except Exception as e:
-                # DB 쓰기 실패는 치명적이므로 파일 로그에 기록
-                AppLogger.log_error("DB Writer Error", e)
-            finally:
-                self.db_queue.task_done()
+                AppLogger.log_error("DB Writer Fatal Error", e)
 
     def process_network_scan(self, ip):
         #네트워크 스캔 프로세스
