@@ -50,37 +50,62 @@ class ScanWorker(QThread):
         self.lock = threading.Lock()
 
     def db_writer(self):
-        # 비동기 DB 작성 스레드
+        # DB 쓰기 전담 소비자 스레드
         db = DBConnector()
-        while not self.writer_stop:
+        while True:
             try:
-                item = self.db_queue.get(timeout=1)
-                if item[0] == 'save_asset':
-                    _, ip, hostname, os_type = item
-                    asset_id = db.save_asset(ip, hostname=hostname, os_type=os_type)
-                    with self.lock:
-                        self.asset_ids[ip] = asset_id
-                elif item[0] == 'save_open_port':
-                    _, ip, port, banner = item
-                    asset_id = None
-                    with self.lock:
-                        asset_id = self.asset_ids.get(ip)
+                item = self.db_queue.get()
+                if item is None: break # 종료 신호
+                
+                msg_type, data = item
+                
+                if msg_type == "ASSET":
+                    # [Fix] 데이터 언패킹 (mac 추가됨)
+                    ip, host, os_type, mac = data
+                    # DBConnector.save_asset 호출 (mac_addr 인자 전달)
+                    asset_id = db.save_asset(ip, hostname=host, os_type=os_type, mac_addr=mac)
                     if asset_id:
-                        db.save_open_port(asset_id, port, banner)
-            except queue.Empty:
-                continue
+                        self.asset_ids[ip] = asset_id
+
+                elif msg_type == "PORT":
+                    ip, port, banner = data
+                    if ip in self.asset_ids:
+                        db.save_open_port(self.asset_ids[ip], port, banner)
+
+                elif msg_type == "VULN":
+                    ip, v_info = data
+                    if ip in self.asset_ids:
+                        db.save_scan_result(
+                            self.asset_ids[ip], 
+                            v_info['kisa'], # code
+                            "WARNING" if v_info['risk'] in ['Medium', 'Low'] else "VULNERABLE",
+                            v_info['desc'], # detail
+                            v_info['name'], # vuln_name
+                            v_info.get('remediation', '-') # remediation
+                        )
+                        
+                elif msg_type == "RESULT":
+                    # Audit 결과 저장
+                    ip, code, status, detail, name, remediation = data
+                    if ip in self.asset_ids:
+                        db.save_scan_result(
+                            self.asset_ids[ip], code, status, detail, name, remediation
+                        )
+
             except Exception as e:
-                self.log_signal.emit(f"[DB Error] {str(e)}")
-                AppLogger.log_error(f"[DB Error]", e) 
+                # DB 쓰기 실패는 치명적이므로 파일 로그에 기록
+                AppLogger.log_error("DB Writer Error", e)
+            finally:
+                self.db_queue.task_done()
 
     def process_network_scan(self, ip):
         #네트워크 스캔 프로세스
         if self.stop_flag:
             return
         
-        scanner = AdvancedScanner()
         try:
-            is_alive, os_type,mac_addr, vendor = scanner.host_discovery(ip)
+            scanner = AdvancedScanner()
+            is_alive, os_type, mac, vendor = scanner.host_discovery(ip)
             
             if not is_alive:
                 return
@@ -106,7 +131,7 @@ class ScanWorker(QThread):
             else:
                 self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: None")
 
-            full_info_os = f"{os_type} | {mac_addr} ({vendor})"
+            full_info_os = f"{os_type} | {mac} ({vendor})"
             self.asset_found_signal.emit(ip, full_info_os, port_str)
 
         except Exception as e:
