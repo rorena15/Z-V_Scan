@@ -38,7 +38,7 @@ class AppLogger:
             logging.getLogger('').addHandler(console)
             
             AppLogger._initialized = True
-            logging.info("=== Z-VulnScan Professional v2.2.0 Logger Started ===")
+            logging.info("=== Z-VulnScan Professional v3.0.0 Logger Started ===")
             
         except PermissionError:
             # [Fix] 파일 쓰기 권한이 없으면 콘솔 전용 모드로 작동 (프로그램 크래시 방지)
