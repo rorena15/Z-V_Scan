@@ -1,1 +1,23 @@
-[2026-01-02 00:31:55] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
+[2026-01-02 01:10:50] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
+[2026-01-02 01:11:02] [ERROR] 192.168.0.1 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:02] [ERROR] 192.168.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:06] [ERROR] Banner grab failed 192.168.0.3:135 | Details: timed out
+[2026-01-02 01:11:08] [ERROR] Banner grab failed 192.168.0.3:139 | Details: timed out
+[2026-01-02 01:11:10] [ERROR] Banner grab failed 192.168.0.3:445 | Details: timed out
+[2026-01-02 01:11:11] [DEBUG] Loading KWallet
+[2026-01-02 01:11:11] [DEBUG] Loading SecretService
+[2026-01-02 01:11:11] [DEBUG] Loading Windows
+[2026-01-02 01:11:11] [DEBUG] Loaded cffi backend
+[2026-01-02 01:11:11] [DEBUG] Loading chainer
+[2026-01-02 01:11:11] [DEBUG] Loading libsecret
+[2026-01-02 01:11:11] [DEBUG] Loading macOS
+[2026-01-02 01:11:24] [ERROR] 192.168.0.1 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:24] [ERROR] 192.168.0.5 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:24] [ERROR] 192.168.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:25] [ERROR] 192.168.0.11 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:25] [ERROR] 192.168.0.13 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:26] [ERROR] 192.168.0.38 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:26] [ERROR] 192.168.0.42 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:11:28] [ERROR] Banner grab failed 192.168.0.3:135 | Details: timed out
+[2026-01-02 01:11:30] [ERROR] Banner grab failed 192.168.0.3:139 | Details: timed out
+[2026-01-02 01:11:32] [ERROR] Banner grab failed 192.168.0.3:445 | Details: timed out

@@ -79,11 +79,13 @@ class ScanWorker(QThread):
         
         scanner = AdvancedScanner()
         try:
-            is_alive, os_type = scanner.host_discovery(ip)
+            is_alive, os_type,mac_addr, vendor = scanner.host_discovery(ip)
+            
             if not is_alive:
                 return
 
             self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
+
             try:
                 open_ports = scanner.tcp_scan(ip, self.ports)
             except Exception as e:
@@ -96,14 +98,15 @@ class ScanWorker(QThread):
             
             if open_ports:
                 port_str = ", ".join(map(str, open_ports))
-                self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: {port_str}")
+                self.log_signal.emit(f"[+] 발견: {ip} ({vendor}) ({os_type}) | Ports: {port_str}")
                 for port in open_ports:
                     banner = scanner.grab_banner(ip, port)
                     self.db_queue.put(('save_open_port', ip, port, banner))
             else:
                 self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: None")
 
-            self.asset_found_signal.emit(ip, os_type, port_str)
+            full_info_os = f"{os_type} | {mac_addr} ({vendor})"
+            self.asset_found_signal.emit(ip, full_info_os, port_str)
 
         except Exception as e:
             self.log_signal.emit(f"[!] {ip} 스캔 오류: {str(e)}")

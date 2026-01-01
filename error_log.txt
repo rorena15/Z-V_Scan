@@ -1,8 +1,0 @@
-
-==================================================
-[2025-12-31 02:02:27.086318]
-Traceback (most recent call last):
-  File "e:\Z-V_Scan\scanner_engine\gui\main_gui.py", line 945, in scan_finished
-    target_ip = self.input_ip.text().strip()
-                ^^^^^^^^^^^^^
-AttributeError: 'ScannerApp' object has no attribute 'input_ip'
