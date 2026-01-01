@@ -9,6 +9,7 @@ import sys
 import os
 import platform
 import subprocess
+from utils.logger import AppLogger
 
 class OSUtils:
     @staticmethod
@@ -99,7 +100,7 @@ class OSUtils:
                 subprocess.call(['xdg-open', filepath])
             return True
         except Exception as e:
-            print(f"[Error] Failed to open file: {e}")
+            AppLogger.log_error(f"[Utills] Open File Fail", e)
             return False
         
     @staticmethod
@@ -113,7 +114,7 @@ class OSUtils:
                 # gnome-terminal 사용 (환경에 따라 xterm 등으로 변경 가능)
                 subprocess.Popen(f"gnome-terminal -- ping {target_ip}", shell=True)
         except Exception as e:
-            print(f"[Error] Failed to open ping console: {e}")
+            AppLogger.log_error(f"[Utills] Fail to open ping test", e)
             
     
     @staticmethod
@@ -123,9 +124,9 @@ class OSUtils:
             try:
                 subprocess.Popen(f"mstsc /v:{target_ip}", shell=True)
             except Exception as e:
-                print(f"[Error] Failed to open RDP: {e}")
+                AppLogger.log_error(f"[Utills] Failed to open RDP:", e)
         else:
-            print("[Warning] RDP shortcut is primarily for Windows hosts.")
+            AppLogger.log_error(f"[Utills] [Warning] RDP shortcut is primarily for Windows hosts.", e)
 
     @staticmethod
     def open_ssh(target_ip, user="root"):
@@ -137,4 +138,4 @@ class OSUtils:
             elif OSUtils.is_linux():
                 subprocess.Popen(f"gnome-terminal -- ssh {user}@{target_ip}", shell=True)
         except Exception as e:
-            print(f"[Error] Failed to open SSH console: {e}")
+            AppLogger.log_error(f"[Utills] Failed to open SSH console:", e)
