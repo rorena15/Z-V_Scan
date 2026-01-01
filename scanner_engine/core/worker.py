@@ -50,7 +50,7 @@ class ScanWorker(QThread):
         self.lock = threading.Lock()
 
     def db_writer(self):
-        """비동기 DB 작성 스레드"""
+        # 비동기 DB 작성 스레드
         db = DBConnector()
         while not self.writer_stop:
             try:
@@ -71,6 +71,7 @@ class ScanWorker(QThread):
                 continue
             except Exception as e:
                 self.log_signal.emit(f"[DB Error] {str(e)}")
+                AppLogger.log_error(f"[DB Error]", e) 
 
     def process_network_scan(self, ip):
         #네트워크 스캔 프로세스
@@ -162,6 +163,8 @@ class ScanWorker(QThread):
 
         except Exception as e:
             self.log_signal.emit(f"[Warn] 포트 진단 중 오류: {e}")
+            AppLogger.log_error(f"fail to port", e)
+            
 
         # ----------------------------------------------------
         # [Step 2] 내부 시스템 설정 진단 (Login Required)
@@ -175,6 +178,7 @@ class ScanWorker(QThread):
         target_os = self._detect_target_os(ip)
         if target_os == "Unknown":
             self.log_signal.emit(f"[-] {ip} 내부 진단 불가 (SSH/WinRM 포트 닫힘)")
+            AppLogger.log_error(f"Close SSH/WinRm", target_os)
             return
 
         conn_success = False
@@ -193,14 +197,16 @@ class ScanWorker(QThread):
 
         except Exception as e:
             self.log_signal.emit(f"[Error] {ip} 내부 진단 중 오류: {str(e)}")
+            AppLogger.log_error(f"fail to inner scan ", e)
 
     def _detect_target_os(self, ip):
-        """대상 OS 탐지"""
+        #대상 OS 탐지
         def check_port(target_ip, port):
             try:
                 with socket.create_connection((target_ip, port), timeout=2):
                     return True
             except:
+                AppLogger.log_error(f"fail to scan os", ip)
                 return False
 
         if check_port(ip, 5985):
@@ -210,7 +216,7 @@ class ScanWorker(QThread):
         return "Unknown"
 
     def _audit_windows(self, ip):
-        """Windows 시스템 진단"""
+        #Windows 시스템 진단
         self.log_signal.emit(f"[*] {ip} -> WinRM 연결 시도...")
         inspector = WindowsInspector(ip, self.user)
         
@@ -352,7 +358,7 @@ class ScanWorker(QThread):
         self.log_signal.emit(f"    📊 결과 요약: 취약 {vuln_cnt}건 / 양호 {safe_cnt}건")
 
     def run(self):
-        """메인 실행 루프"""
+        #메인 실행 루프
         self.log_signal.emit(f"[*] 엔진 가동 (Threads: {self.max_threads})")
         
         target_gen = None
