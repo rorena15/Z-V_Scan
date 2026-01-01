@@ -16,8 +16,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 from datetime import datetime
 from utils.os_utils import OSUtils
-from utils.logger import AppLogger # 로깅 연동
-from utils.oui_lookup import OUILookup # 벤더 조회를 위해 추가
+from utils.oui_lookup import OUILookup
 
 class PDFGenerator:
     def __init__(self):
@@ -39,7 +38,6 @@ class PDFGenerator:
         self.font_path = OSUtils.get_font_path("NanumGothic.ttf")
 
     def _truncate(self, text, limit):
-        #텍스트가 길면 자르고 ...을 붙임 (오버플로우 방지)
         if not text: return "-"
         text = str(text)
         if len(text) > limit:
@@ -48,7 +46,7 @@ class PDFGenerator:
 
     def generate(self):
         c = canvas.Canvas(self.filename, pagesize=A4)
-        width, height = A4 # A4 = 595.27 x 841.89 points
+        width, height = A4 
 
         # 1. 폰트 등록
         font_name = "Helvetica"
@@ -77,24 +75,27 @@ class PDFGenerator:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # [수정 포인트] 테이블이 없거나 데이터가 없을 때 발생하는 에러를 잡습니다.
-            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname FROM TBL_ASSETS ORDER BY last_seen DESC LIMIT 1")
+            # [수정] mac_addr, memo 추가 조회
+            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, memo FROM TBL_ASSETS ORDER BY last_seen DESC LIMIT 1")
             asset = cursor.fetchone()
         except sqlite3.OperationalError:
-            # 테이블이 없는 경우 (DB가 아직 생성되지 않음)
             raise Exception("진단 데이터가 없습니다.\n먼저 [Network Discovery] 또는 [Vulnerability Audit]을 수행해주세요.")
         except Exception as e:
-            # 기타 DB 에러
             raise Exception(f"DB 조회 중 오류가 발생했습니다: {str(e)}")
         
         if not asset:
-            # 테이블은 있는데 데이터가 없는 경우
-            conn.close() # 연결 닫기 필수
+            conn.close() 
             raise Exception("리포트를 생성할 데이터가 없습니다.\n먼저 스캔을 수행해주세요.")
 
-        asset_id, ip, os_type, hostname = asset
+        asset_id, ip, os_type, hostname, mac_addr, memo = asset
+        
+        # [New] Vendor 조회 및 정보 표시
+        vendor = OUILookup.lookup(mac_addr)
+        if not memo: memo = "-"
+        
         c.setFont(font_name, 11)
         c.drawString(40, height - 100, f"Target: {ip} ({os_type})  |  Host: {hostname}")
+        c.drawString(40, height - 120, f"Vendor: {vendor}  |  Memo: {memo}") # [추가된 정보]
 
         # 조치 방안 포함 조회
         sql = """
@@ -113,18 +114,16 @@ class PDFGenerator:
         warn_cnt = sum(1 for r in rows if r[2] in ['WARNING', '경고', 'Medium', 'Low'])
         safe_cnt = len(rows) - (vuln_cnt + warn_cnt)
         
-        #점수 산정 기준 강화
         deduction = (vuln_cnt * 10) + (warn_cnt * 3)
         score = max(0, 100 - deduction)
         
-        # 취약점이 있으면 A등급(90점 이상) 불가
         if vuln_cnt > 0 and score > 90:
             score = 90
 
         # 스코어 박스
         c.setStrokeColor(colors.grey)
         c.setFillColor(colors.whitesmoke)
-        c.roundRect(width - 200, height - 140, 160, 50, 5, fill=1) # 둥근 사각형
+        c.roundRect(width - 200, height - 140, 160, 50, 5, fill=1) 
         
         c.setFillColor(colors.black)
         c.setFont(font_name, 14)
@@ -139,22 +138,16 @@ class PDFGenerator:
         c.drawString(width - 90, height - 125, f"Safe: {safe_cnt}")
 
         # 5. 테이블 데이터 구성
-        # 헤더: Code, Item, Status, Detail(요약), Action(요약)
         data = [['Code', 'Item Name', 'Status', 'Issue Summary', 'Action Plan']]
-        
-        # [중요] 컬럼 너비 조정 (합계 약 515pt)
-        # Code(40) + Item(100) + Status(45) + Issue(165) + Action(165) = 515
         col_widths = [40, 100, 45, 165, 165] 
 
         for r in rows:
             code = r[0]
-            # [오버플로우 방지] 글자 수 제한 적용
-            name = self._truncate(r[1], 12)       # 항목명 12자 제한
+            name = self._truncate(r[1], 12)
             status_raw = r[2]
-            detail = self._truncate(r[3], 25)     # 상세내용 25자 제한
-            remediation = self._truncate(r[4], 25)# 조치방안 25자 제한
+            detail = self._truncate(r[3], 25)
+            remediation = self._truncate(r[4], 25)
 
-            # 상태 판정
             is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
             is_warn = status_raw in ['WARNING', '경고', 'Medium', 'Low']
             
@@ -162,7 +155,7 @@ class PDFGenerator:
             elif is_warn: display_status = "Warn"
             else: 
                 display_status = "Safe"
-                remediation = "-" # 양호하면 조치방안 끔
+                remediation = "-"
 
             data.append([code, name, display_status, detail, remediation])
 
@@ -175,15 +168,14 @@ class PDFGenerator:
             ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'), # Code 가운데
-            ('ALIGN', (2,0), (2,-1), 'CENTER'), # Status 가운데
+            ('ALIGN', (0,0), (0,-1), 'CENTER'), 
+            ('ALIGN', (2,0), (2,-1), 'CENTER'), 
             ('FONTNAME', (0,0), (-1,-1), font_name),
-            ('FONTSIZE', (0,0), (-1,-1), 8),    # 폰트 크기 8 (작게)
+            ('FONTSIZE', (0,0), (-1,-1), 8),    
             ('BOTTOMPADDING', (0,0), (-1,0), 6),
             ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
         ])
 
-        # 상태별 색상 적용
         for i, row in enumerate(data[1:], start=1):
             if row[2] == "Vuln":
                 style.add('TEXTCOLOR', (2, i), (2, i), colors.red)
@@ -194,7 +186,6 @@ class PDFGenerator:
 
         table.setStyle(style)
         
-        # 테이블 그리기
         table.wrapOn(c, width, height)
         table.drawOn(c, 40, height - 160 - (len(data) * 16))
 

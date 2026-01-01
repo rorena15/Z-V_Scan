@@ -12,10 +12,9 @@ from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE #엑셀 금지 문자 패턴
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from utils.os_utils import OSUtils
-from utils.logger import AppLogger # 로깅 연동
-from utils.oui_lookup import OUILookup # 벤더 조회를 위해 추가
+from utils.oui_lookup import OUILookup  # [New] 벤더 조회를 위해 추가
 
 class ExcelGenerator:
     def __init__(self):
@@ -46,23 +45,18 @@ class ExcelGenerator:
         self.thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                                     top=Side(style='thin'), bottom=Side(style='thin'))
         
-        # [수정] 상태별 색상 정의 (Red / Yellow / Green)
-        # 1. 취약 (Red)
+        # 상태별 색상 정의
         self.vuln_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid') 
         self.vuln_font = Font(name=self.font_name, color='9C0006')
         
-        # 2. 경고 (Yellow) - 추가됨
         self.warn_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
         self.warn_font = Font(name=self.font_name, color='9C5700')
 
-        # 3. 양호 (Green)
         self.safe_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') 
         self.safe_font = Font(name=self.font_name, color='006100')
 
     def _sanitize(self, value):
-        # 엑셀에서 허용하지 않는 문자 제거
         if isinstance(value, str):
-            # openpyxl 제공 정규식으로 불법 문자 제거
             return ILLEGAL_CHARACTERS_RE.sub("", value)
         return value
 
@@ -71,18 +65,12 @@ class ExcelGenerator:
         cursor = conn.cursor()
         
         try:
-            # 테이블이 존재하는지, 데이터가 있는지 확인
-            # 테이블이 없으면 여기서 sqlite3.OperationalError 발생 -> except로 이동
             cursor.execute("SELECT count(*) FROM TBL_ASSETS")
             count = cursor.fetchone()[0]
-            
-            # 테이블은 있는데 데이터가 0건인 경우
             if count == 0:
                 conn.close()
                 raise Exception("리포트를 생성할 데이터가 없습니다.\n먼저 스캔을 수행해주세요.")
-                
         except sqlite3.OperationalError:
-            # "no such table" 에러를 잡아서 사용자 친화적 메시지로 변환
             conn.close()
             raise Exception("진단 데이터가 없습니다.\n먼저 [Network Discovery] 또는 [Vulnerability Audit]을 수행해주세요.")
         except Exception as e:
@@ -147,23 +135,18 @@ class ExcelGenerator:
         cursor.execute("SELECT COUNT(*) FROM TBL_ASSETS")
         total_assets = cursor.fetchone()[0]
         
-        # 취약 개수
         cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status IN ('VULNERABLE', '취약', 'Fail', 'Critical', 'High')")
         total_vuln = cursor.fetchone()[0]
         
-        # 경고 개수
         cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status IN ('WARNING', '경고', 'Medium', 'Low')")
         total_warn = cursor.fetchone()[0]
 
         cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT")
         total_checks = cursor.fetchone()[0]
         
-        # 점수 계산 (취약은 크게, 경고는 작게 감점)
         deduction = (total_vuln * 10) + (total_warn * 3)
         safe_score = max(0, 100 - deduction) if total_checks > 0 else 0
-        
-        if total_vuln > 0 and safe_score > 90:
-            safe_score = 90
+        if total_vuln > 0 and safe_score > 90: safe_score = 90
 
         headers = ["Total Assets", "Total Checks", "Risks (Vuln/Warn)", "Security Score"]
         values = [total_assets, total_checks, f"{total_vuln} / {total_warn}", f"{safe_score} / 100"]
@@ -189,15 +172,24 @@ class ExcelGenerator:
         ws.column_dimensions['D'].width = 20
 
     def _create_asset_list(self, ws, cursor):
-        headers = ["Asset ID", "IP Address", "Hostname", "OS Type", "Last Seen"]
+        # [수정] 벤더, 메모, MAC 주소 컬럼 추가
+        headers = ["Asset ID", "IP Address", "Hostname", "OS Type", "MAC Address", "Vendor", "Memo", "Last Seen"]
         self._apply_header_style(ws, headers)
         
-        cursor.execute("SELECT asset_id, ip_addr, hostname, os_type, last_seen FROM TBL_ASSETS")
+        # [수정] mac_addr, memo 추가 조회
+        cursor.execute("SELECT asset_id, ip_addr, hostname, os_type, mac_addr, memo, last_seen FROM TBL_ASSETS")
         rows = cursor.fetchall()
         
         for r_idx, row in enumerate(rows, 2):
-            for c_idx, val in enumerate(row, 1):
-                # _sanitize 적용
+            # row: (id, ip, host, os, mac, memo, date)
+            mac_addr = row[4]
+            # OUI Lookup을 통해 벤더 식별
+            vendor = OUILookup.lookup(mac_addr)
+            
+            # 엑셀에 쓸 데이터 리스트 재구성
+            row_data = [row[0], row[1], row[2], row[3], mac_addr, vendor, row[5], row[6]]
+            
+            for c_idx, val in enumerate(row_data, 1):
                 clean_val = self._sanitize(val)
                 cell = ws.cell(row=r_idx, column=c_idx, value=clean_val)
                 cell.font = Font(name=self.font_name)
@@ -223,15 +215,12 @@ class ExcelGenerator:
         for r_idx, row in enumerate(rows, 2):
             ip, code, name, status, detail, remediation = row
             
-            # [수정] 상태 그룹 정의
             vuln_group = ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
             warn_group = ['WARNING', '경고', 'Medium', 'Low']
             
             is_vuln = status in vuln_group
             is_warn = status in warn_group
             
-            # 양호(SAFE)일 때만 조치 방안 숨기기
-            # (WARNING일 때도 조치 방안은 보여주는 게 맞음)
             if not (is_vuln or is_warn):
                 remediation = "-"
 
@@ -239,7 +228,6 @@ class ExcelGenerator:
             
             for c_idx, val in enumerate(row_vals, 1):
                 clean_val = self._sanitize(val)
-                
                 cell = ws.cell(row=r_idx, column=c_idx, value=clean_val)
                 cell.border = self.thin_border
                 cell.alignment = self.left_align
@@ -248,8 +236,7 @@ class ExcelGenerator:
                 if c_idx in [1, 2, 4]: 
                     cell.alignment = self.center_align
 
-                # [수정] 3색(Red, Yellow, Green) 분기 적용
-                if c_idx == 4: # Status Column
+                if c_idx == 4: # Status
                     if is_vuln:
                         cell.fill = self.vuln_fill
                         cell.font = self.vuln_font
