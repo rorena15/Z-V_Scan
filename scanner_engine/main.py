@@ -28,7 +28,7 @@ def my_exception_hook(exctype, value, tb):
     # 3. 로그 파일(scan_debug.log)에 영구 기록
     #    별도의 error_log.txt를 만들지 않고 통합 관리합니다.
     try:
-        AppLogger.log_critical(f"🔥 PROGRAM CRASHED 🔥\n{error_msg}")
+        AppLogger.log_critical(f" PROGRAM CRASHED \n{error_msg}")
     except:
         # 로거조차 실패했을 때를 대비한 최소한의 방어
         print("[!] Failed to write to AppLogger inside exception hook.")

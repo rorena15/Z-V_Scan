@@ -465,9 +465,10 @@ class ScanWorker(QThread):
                     if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
                         progress = int((processed_count / total_count) * 100)
                         self.progress_signal.emit(progress, processed_count)
-
+                    self.msleep(10)
             if not self.stop_flag:
                 self.progress_signal.emit(100, total_count)
+            
         
         except Exception as e:
             # 예상치 못한 엔진 에러 캡처
