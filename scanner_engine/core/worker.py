@@ -30,7 +30,7 @@ from utils.logger import AppLogger
 class ScanWorker(QThread):
     log_signal = Signal(str)
     finish_signal = Signal(str)
-    progress_signal = Signal(int)
+    progress_signal = Signal(int, int)
     started_signal = Signal(int)
     asset_found_signal = Signal(str, str, str)
 
@@ -460,10 +460,11 @@ class ScanWorker(QThread):
                         error_msg = f"[Thread Error] {ip} 처리 중 오류 발생: {e}"
                         AppLogger.log_error(error_msg)
                     processed_count += 1
+                    
                     # 진행률 업데이트 (부하를 줄이기 위해 1% 단위 또는 5건 단위로 갱신)
                     if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
                         progress = int((processed_count / total_count) * 100)
-                        self.progress_signal.emit(progress)
+                        self.progress_signal.emit(progress, processed_count)
 
             if not self.stop_flag:
                 self.progress_signal.emit(100)

@@ -90,7 +90,7 @@ class ScannerApp(QMainWindow):
         row1.addWidget(QLabel("PW:"))
         row1.addWidget(self.pw_input)
         
-        # Row 2: Port Settings [NEW]
+        # Row 2: Port Settings
         row2 = QHBoxLayout()
         self.port_mode_combo = QComboBox()
         self.port_mode_combo.addItems(["⚡ Default (Fast)", "📝 Custom Range", "🐢 Full Scan (1-65535)"])
@@ -300,8 +300,6 @@ class ScannerApp(QMainWindow):
                 QMessageBox.information(self, "Cleared", "모든 데이터가 초기화되었습니다.")
             else:
                 QMessageBox.critical(self, "Error", "DB 초기화 실패. 로그를 확인하세요.")
-        self.asset_table.setRowCount(0)
-        self.log_message("[UI] Asset list cleared.")
 
     # 로그 콘솔 초기화
     def clear_logs(self):
@@ -327,47 +325,38 @@ class ScannerApp(QMainWindow):
     def update_timer(self):
         self.elapsed_seconds += 1
         
-        # [Helper] 시간 포맷팅 함수 (시:분:초 지원)
         def format_time(seconds):
             m, s = divmod(seconds, 60)
             h, m = divmod(m, 60)
-            if h > 0:
-                return f"{h:02d}:{m:02d}:{s:02d}"
+            if h > 0: return f"{h:02d}:{m:02d}:{s:02d}"
             return f"{m:02d}:{s:02d}"
 
         elapsed_str = format_time(self.elapsed_seconds)
+        eta_str = "Calculating..." # 초기 상태
+
+        # [ETA Logic] 개수 기반의 정밀 남은 시간 계산
+        # 공식: (경과시간 / 처리된 개수) * 남은 개수
+        if self.current_scan_count > 0 and self.total_scan_count > 0:
+            
+            avg_time_per_host = self.elapsed_seconds / self.current_scan_count
+            remaining_hosts = self.total_scan_count - self.current_scan_count
+            remaining_seconds = int(avg_time_per_host * remaining_hosts)
+            
+            if remaining_seconds > 86400: # 24시간 초과 시
+                eta_str = "> 24h"
+            else:
+                eta_str = format_time(remaining_seconds)
         
-        # ETA (남은 시간) 계산 로직
-        current_progress = self.pbar.value()
-        eta_str = "--:--"
-        
-        # 진행률이 0보다 크고 100 미만일 때만 계산
-        if current_progress > 0 and current_progress < 100:
-            try:
-                # (경과시간 / 진행률) = 전체 소요 시간 추정
-                estimated_total = self.elapsed_seconds / (current_progress / 100)
-                remaining = int(estimated_total - self.elapsed_seconds)
-                
-                # 남은 시간이 유효한 범위일 때만 표시
-                if remaining >= 0:
-                    # 24시간 이상이면 "> 24h" 등으로 표시하여 UI 깨짐 방지
-                    if remaining > 86400:
-                        eta_str = "> 24h"
-                    else:
-                        eta_str = format_time(remaining)
-                else:
-                    eta_str = "00:00"
-            except ZeroDivisionError:
-                eta_str = "--:--"
-                
-        elif current_progress >= 100:
+        elif self.pbar.value() >= 100:
             eta_str = "Done"
 
-        # 라벨 업데이트
-        self.time_label.setText(f"Elapsed: {elapsed_str}  |  ETA: {eta_str}")
+        # 상태바에 (현재/전체) 개수도 같이 보여주면 더 직관적임
+        self.time_label.setText(f"Elapsed: {elapsed_str}  |  ETA: {eta_str}  ({self.current_scan_count}/{self.total_scan_count})")
 
-    def update_progress(self, val):
-        self.pbar.setValue(val)
+    def update_progress(self, percent, count):
+        #[Update] 퍼센트와 '현재 처리된 개수'를 함께 받음
+        self.pbar.setValue(percent)
+        self.current_scan_count = count # 정확한 계산을 위해 저장
 
     def log_message(self, msg):
         self.log_console.append(msg)
@@ -389,7 +378,7 @@ class ScannerApp(QMainWindow):
         
         self.log_message("[*] 보안을 위해 자격증명 임시 데이터가 삭제되었습니다.")
         #QMessageBox.information(self, "Done", "진단이 완료되었습니다.")
-        
+
     def set_ui_busy(self, busy):
         # UI 상태를 제어하여 스캔 중 입력 변경을 방지하고, 
         # 스캔이 끝나면 입력을 다시 활성화합니다.
@@ -423,7 +412,6 @@ class ScannerApp(QMainWindow):
             self.pbar.setValue(0)
             self.elapsed_seconds = 0
             self.time_label.setText("Initializing...")
-            self.timer.start(1000)
         else:
             self.timer.stop()
             self.pbar.setValue(100) # 완료 시 100% 채움
@@ -612,8 +600,19 @@ class ScannerApp(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finish_signal.connect(self.scan_finished)
         self.worker.progress_signal.connect(self.update_progress)
-        self.worker.started_signal.connect(lambda n: self.log_message(f"[Info] Target Count: {n}"))
+        self.worker.started_signal.connect(self.on_scan_started)
         self.worker.asset_found_signal.connect(self.add_asset_to_table)
+
+    def on_scan_started(self, count):
+        #[New] 스캔 시작 시 전체 타겟 수를 저장
+        self.log_message(f"[Info] Target Count: {count}")
+        
+        # [ETA Logic] 전체 개수 저장
+        self.total_scan_count = count
+        self.current_scan_count = 0
+        
+        # 실제 스캔 시작 시점에 타이머 가동
+        self.timer.start(1000)
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
