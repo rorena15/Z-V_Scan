@@ -102,18 +102,24 @@ class ScanWorker(QThread):
                 AppLogger.log_error("DB Writer Fatal Error", e)
 
     def process_network_scan(self, ip):
-        #네트워크 스캔 프로세스
-        if self.stop_flag:
-            return
+        # 최신 DB Writer 형식에 맞춰 데이터 전송하도록 수정
+        if self.stop_flag: return
         
         try:
             scanner = AdvancedScanner()
+            # 1. 호스트 식별 (MAC 주소 확보)
             is_alive, os_type, mac, vendor = scanner.host_discovery(ip)
             
             if not is_alive:
                 return
 
-            self.db_queue.put(('save_asset', ip, "Scanned_Asset", os_type))
+            # 호스트네임 조회 시도
+            hostname = "Unknown"
+            try:
+                hostname = socket.gethostbyaddr(ip)[0]
+            except: 
+                pass
+            self.db_queue.put(("ASSET", (ip, hostname, os_type, mac)))
 
             try:
                 open_ports = scanner.tcp_scan(ip, self.ports)
@@ -123,17 +129,33 @@ class ScanWorker(QThread):
                 # 파일 로그에 상세 기록
                 AppLogger.log_error(f"Port Scan Error on {ip}", e) 
                 open_ports = []
+            
             port_str = "None"
             
             if open_ports:
                 port_str = ", ".join(map(str, open_ports))
+                
+                # UI 알림 (MAC/Vendor 정보 포함)
+                vendor_info = f"{mac} ({vendor})" if mac else "Unknown"
                 self.log_signal.emit(f"[+] 발견: {ip} ({vendor}) ({os_type}) | Ports: {port_str}")
+                
                 for port in open_ports:
                     banner = scanner.grab_banner(ip, port)
-                    self.db_queue.put(('save_open_port', ip, port, banner))
+                    
+                    self.db_queue.put(("PORT", (ip, port, banner)))
+                    
+                    # [추가] 취약점 매칭 (VulnMatcher) - 리포트에 취약점 정보 나오게 하려면 필요
+                    try:
+                        vuln = VulnMatcher.match(port, banner)
+                        if vuln['found']:
+                            self.db_queue.put(("VULN", (ip, vuln)))
+                    except:
+                        pass
+
             else:
                 self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: None")
 
+            # UI 업데이트용 시그널 전송
             full_info_os = f"{os_type} | {mac} ({vendor})"
             self.asset_found_signal.emit(ip, full_info_os, port_str)
 
