@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
     QHeaderView, QProgressBar, QComboBox, QMessageBox, QGroupBox,
-    QSplitter, QTextEdit, QMenu
+    QSplitter, QTextEdit, QMenu, QInputDialog
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QColor, QBrush, QAction
@@ -33,7 +33,8 @@ from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
-from gui.styles import STYLESHEET 
+from utils.db_connector import DBConnector
+from gui.styles import STYLESHEET
 
 class ScannerApp(QMainWindow):
     def __init__(self):
@@ -176,11 +177,12 @@ class ScannerApp(QMainWindow):
         left_layout.addLayout(header_h)
         
         self.asset_table = QTableWidget()
-        self.asset_table.setColumnCount(3)
-        self.asset_table.setHorizontalHeaderLabels(["IP Address", "OS Type", "Open Ports"])
+        self.asset_table.setColumnCount(4)
+        self.asset_table.setHorizontalHeaderLabels(["IP Address", "OS Type", "Open Ports", "Memo / Tag"])
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.asset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.asset_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.asset_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -241,6 +243,7 @@ class ScannerApp(QMainWindow):
         main_layout.addWidget(status_container)
 
         central_widget.setLayout(main_layout)
+        self.load_saved_assets()
 
     # --- 기능 메서드 ---
     def add_asset_to_table(self, ip, os_type, ports):
@@ -274,7 +277,29 @@ class ScannerApp(QMainWindow):
 
     # 자산 리스트 초기화
     def clear_asset_table(self):
-        
+        if self.asset_table.rowCount() == 0:
+            return
+
+        # 1. 안전장치: 사용자 확인 (메모 삭제 경고)
+        reply = QMessageBox.question(
+            self, 
+            "Confirm Delete", 
+            "⚠️ 경고: 모든 자산 데이터와 작성한 메모(Memo)가 영구적으로 삭제됩니다.\n\n"
+            "정말로 초기화하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No 
+        )
+
+        if reply == QMessageBox.Yes:
+            # 2. DB 데이터 삭제
+            db = DBConnector()
+            if db.delete_all_assets():
+                # 3. UI 테이블 초기화
+                self.asset_table.setRowCount(0)
+                self.log_message("[System] 🗑️ All assets and history have been cleared from Database.")
+                QMessageBox.information(self, "Cleared", "모든 데이터가 초기화되었습니다.")
+            else:
+                QMessageBox.critical(self, "Error", "DB 초기화 실패. 로그를 확인하세요.")
         self.asset_table.setRowCount(0)
         self.log_message("[UI] Asset list cleared.")
 
@@ -611,7 +636,85 @@ class ScannerApp(QMainWindow):
                 self.port_mode_combo.blockSignals(True) # 이벤트 재발생 방지 (중요)
                 self.port_mode_combo.setCurrentIndex(0) # Default 모드로 복귀
                 self.port_mode_combo.blockSignals(False)
-                
+
+# --- [New Feature] 자산 메모 및 로드 관련 메서드 ---
+
+    def load_saved_assets(self):
+        #DB에서 이전에 스캔된 자산 목록을 불러와 UI에 표시
+        db = DBConnector()
+        assets = db.get_all_assets() # [(ip, os, memo), ...]
+        
+        self.asset_table.setRowCount(0)
+        for ip, os_type, memo in assets:
+            self.add_asset_to_table(ip, os_type, "Scanned History", memo_text=memo)
+        
+        if assets:
+            self.log_message(f"[System] Loaded {len(assets)} assets from history.")
+
+    def add_asset_to_table(self, ip, os_type, ports, memo_text=None):
+        #자산 테이블에 추가 (메모 기능 연동)
+        # 기존에 있는 행인지 확인
+        items = self.asset_table.findItems(ip, Qt.MatchExactly)
+        row = -1
+        
+        if items:
+            row = items[0].row()
+        else:
+            row = self.asset_table.rowCount()
+            self.asset_table.insertRow(row)
+
+        # 메모가 None이면(스캔 결과), DB에서 기존 메모를 조회해서 유지해야 함
+        if memo_text is None:
+            db = DBConnector()
+            memo_text = db.get_memo(ip)
+
+        c_ip = QTableWidgetItem(ip)
+        c_os = QTableWidgetItem(os_type)
+        c_port = QTableWidgetItem(ports)
+        c_memo = QTableWidgetItem(memo_text) # New
+        
+        # 스타일링
+        c_ip.setForeground(QBrush(QColor("#ffffff")))
+        c_port.setForeground(QBrush(QColor("#aaaaaa")))
+        c_memo.setForeground(QBrush(QColor("#00ff00"))) # 메모는 녹색 계열로 강조
+        
+        if os_type == "Linux":
+            c_os.setForeground(QBrush(QColor("#ff9900")))
+        elif os_type == "Windows":
+            c_os.setForeground(QBrush(QColor("#00bfff")))
+        else:
+            c_os.setForeground(QBrush(QColor("#777777")))
+
+        self.asset_table.setItem(row, 0, c_ip)
+        self.asset_table.setItem(row, 1, c_os)
+        self.asset_table.setItem(row, 2, c_port)
+        self.asset_table.setItem(row, 3, c_memo) # New
+
+    def edit_asset_memo(self):
+        #선택된 자산의 메모 수정
+        row = self.asset_table.currentRow()
+        if row < 0: return
+        
+        ip = self.asset_table.item(row, 0).text()
+        current_memo = self.asset_table.item(row, 3).text()
+        
+        # 입력 다이얼로그 표시
+        text, ok = QInputDialog.getText(
+                                        self, "Asset Memo", 
+                                        f"Edit Memo for {ip}:", 
+                                        QLineEdit.Normal, current_memo
+                                        )
+        
+        if ok:
+            # 1. DB 업데이트
+            db = DBConnector()
+            if db.update_memo(ip, text):
+                # 2. UI 업데이트
+                self.asset_table.item(row, 3).setText(text)
+                self.log_message(f"[Asset] Memo updated for {ip}")
+            else:
+                QMessageBox.warning(self, "Error", "DB Update failed.")
+
     def show_context_menu(self, pos):
         #자산 리스트 우클릭 메뉴: 운영 편의 기능 제공
         # 선택된 행이 없으면 메뉴 안 띄움
@@ -626,6 +729,13 @@ class ScannerApp(QMainWindow):
         
         menu = QMenu()
         
+        # [New] 메모 수정 메뉴 (최상단 배치)
+        memo_action = QAction("📝 Edit Memo / Tag", self)
+        memo_action.triggered.connect(self.edit_asset_memo)
+        menu.addAction(memo_action)
+        
+        menu.addSeparator() # 구분선
+
         # 1. Ping 테스트 (살아있나 확인)
         ping_action = QAction(f"📡 Ping Check ({ip})", self)
         # Windows는 -t (계속), Linux는 기본 동작

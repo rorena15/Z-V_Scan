@@ -67,3 +67,9 @@ class AppLogger:
             logging.error(f"{message} | Details: {str(exception)}")
         else:
             logging.error(message)
+    
+    @staticmethod
+    def log_critical(message):
+        #프로그램 중단급 에러 기록 (CRITICAL Level)
+        if not AppLogger._initialized: AppLogger.setup()
+        logging.critical(message)

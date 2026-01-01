@@ -102,4 +102,11 @@ QMessageBox QLabel {
     color: #e0e0e0; /* 메시지 텍스트 색상 */
     font-weight: normal;
 }
+QInputDialog {
+    background-color: #1e1e1e; 
+    border: 1px solid #3e3e3e; 
+    color: #00ff00; 
+    font-family: 'Consolas', monospace; 
+    font-size: 9pt; 
+}
 """

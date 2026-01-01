@@ -19,12 +19,19 @@ from utils.logger import AppLogger
 
 # 전역 예외 처리
 def my_exception_hook(exctype, value, tb):
+    # 1. 에러 메시지 스택 트레이스 생성
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
-    print(f"[CRITICAL] {error_msg}")
+    
+    # 2. 콘솔 출력 (개발자 확인용)
+    print(f"[CRITICAL] Uncaught Exception:\n{error_msg}")
+    
+    # 3. 로그 파일(scan_debug.log)에 영구 기록
+    #    별도의 error_log.txt를 만들지 않고 통합 관리합니다.
     try:
-        with open("error_log.txt", "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*50}\n[{datetime.now()}]\n{error_msg}")
-    except: pass
+        AppLogger.log_critical(f"🔥 PROGRAM CRASHED 🔥\n{error_msg}")
+    except:
+        # 로거조차 실패했을 때를 대비한 최소한의 방어
+        print("[!] Failed to write to AppLogger inside exception hook.")
 
 sys.excepthook = my_exception_hook
 

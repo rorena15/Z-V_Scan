@@ -8,6 +8,7 @@
 import sqlite3
 import os
 from datetime import datetime
+from utils.logger import AppLogger
 
 class DBConnector:
     def __init__(self):
@@ -70,12 +71,18 @@ class DBConnector:
                 FOREIGN KEY(asset_id) REFERENCES TBL_ASSETS(asset_id)
             )
         ''')
+        # 5. 사용자 추가 MEMO 테이블
+        cursor.execute("PRAGMA table_info(TBL_ASSETS)")
+        columns = [info[1] for info in cursor.fetchall()]
+        if "memo" not in columns:
+            # print("[DB] Upgrading schema: Adding 'memo' column to TBL_ASSETS...")
+            cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN memo TEXT DEFAULT ''")
         
         conn.commit()
         conn.close()
 
     def save_asset(self, ip, hostname="Unknown", os_type="Unknown"):
-        """자산 정보 저장 또는 업데이트"""
+        # 자산 정보 저장 또는 업데이트
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -93,21 +100,21 @@ class DBConnector:
                 """, (now, hostname, os_type, asset_id))
             else:
                 cursor.execute("""
-                    INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, last_seen)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, last_seen, memo)
+                    VALUES (?, ?, ?, ?, '')
                 """, (ip, hostname, os_type, now))
                 asset_id = cursor.lastrowid
                 
             conn.commit()
             return asset_id
         except Exception as e:
-            print(f"[DB Error] Save Asset: {e}")
+            AppLogger.log_error(f"[DB Error] Save Asset Failed ({ip})", e)
             return None
         finally:
             conn.close()
 
     def save_open_port(self, asset_id, port, banner):
-        """오픈 포트 정보 저장"""
+        #오픈 포트 정보 저장
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -119,14 +126,12 @@ class DBConnector:
             """, (asset_id, port, "Unknown", banner, now))
             conn.commit()
         except Exception as e:
-            print(f"[DB Error] Save Port: {e}")
+            AppLogger.log_error(f"[DB Error] Save Port Failed ({port})", e)
         finally:
             conn.close()
 
     def _ensure_vuln_def(self, cursor, code, vuln_name=None, remediation=None):
-        """
-        [핵심] 취약점 정의가 이미 있어도, 최신 내용(이름/조치방안)으로 업데이트(UPDATE) 함
-        """
+        #[핵심] 취약점 정의가 이미 있어도, 최신 내용(이름/조치방안)으로 업데이트(UPDATE) 함
         cursor.execute("SELECT vuln_id FROM TBL_VULN_DEF WHERE code = ?", (code,))
         row = cursor.fetchone()
         
@@ -152,7 +157,7 @@ class DBConnector:
             return cursor.lastrowid
 
     def save_scan_result(self, asset_id, vuln_code, status, detail, vuln_name=None, remediation=None):
-        """[핵심] remediation 인자까지 받아서 저장"""
+        #[핵심] remediation 인자까지 받아서 저장
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -172,7 +177,72 @@ class DBConnector:
             conn.commit()
             return True
         except Exception as e:
-            print(f"[DB Error] Save Result: {e}")
+            AppLogger.log_error(f"[DB Error] Save Result Fail", e)
+            return False
+        finally:
+            conn.close()
+            
+    def update_memo(self, ip, memo_text):
+        #자산 메모 업데이트
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE TBL_ASSETS SET memo = ? WHERE ip_addr = ?", (memo_text, ip))
+            conn.commit()
+            return True
+        except Exception as e:
+            AppLogger.log_error(f"[DB Error] Update Memo Fail", e)
+            return False
+        finally:
+            conn.close()
+
+    def get_memo(self, ip):
+        # 특정 IP의 메모 조회
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT memo FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+            row = cursor.fetchone()
+            return row[0] if row else ""
+        except:
+            return ""
+        finally:
+            conn.close()
+
+    def get_all_assets(self):
+        #저장된 모든 자산 목록 조회 (프로그램 시작 시 로드용)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        assets = []
+        try:
+            # IP, OS, Memo, LastSeen 가져오기
+            cursor.execute("SELECT ip_addr, os_type, memo FROM TBL_ASSETS ORDER BY last_seen DESC")
+            assets = cursor.fetchall()
+        except Exception as e:
+            AppLogger.log_error(f"[DB Error] Assets Load Fail", e)
+        finally:
+            conn.close()
+        return assets
+    
+    def delete_all_assets(self):
+        # 모든 자산 및 관련 스캔 데이터 영구 삭제
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            # 1. 자식 테이블(결과, 포트) 먼저 삭제
+            cursor.execute("DELETE FROM TBL_SCAN_RESULT")
+            cursor.execute("DELETE FROM TBL_OPEN_PORTS")
+            
+            # 2. 부모 테이블(자산) 삭제
+            cursor.execute("DELETE FROM TBL_ASSETS")
+            
+            # 3. SQLite 시퀀스 초기화 (ID 1부터 다시 시작)
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='TBL_ASSETS'")
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            AppLogger.log_error(f"[DB Error] All delete Fail", e)
             return False
         finally:
             conn.close()
