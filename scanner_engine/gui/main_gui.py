@@ -21,6 +21,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
+# ---[라이브러리 및 모듈 Import] ---
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
@@ -43,14 +44,14 @@ from core.vuln_matcher import VulnMatcher
 from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
 
-def resource_path(relative_path):
-    """PyInstaller 빌드 환경 대응"""
+#--- [PyInstaller 빌드 환경 대응] ---
+def resource_path(relative_path): 
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
+#--- 전역 예외 처리 ---
 def my_exception_hook(exctype, value, tb):
-    """전역 예외 처리"""
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
     print(f"[CRITICAL ERROR] {error_msg}")
     try:
@@ -59,8 +60,7 @@ def my_exception_hook(exctype, value, tb):
             f.write(f"[{datetime.now()}]\n{error_msg}")
     except:
         pass
-
-sys.excepthook = my_exception_hook
+    sys.excepthook = my_exception_hook
 
 # --- [스타일시트: 다크 모드 & 모던 UI] ---
 STYLESHEET = """
@@ -538,7 +538,8 @@ class ScanWorker(QThread):
         
         self.finish_signal.emit("작업 완료")
 
-class LegalDisclaimerDialog(QDialog):
+#---[법적 고지 팝업 UI] ---
+class LegalDisclaimerDialog(QDialog): 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Legal Disclaimer & Agreement")
@@ -1284,8 +1285,7 @@ class ScannerApp(QMainWindow):
         # 메뉴 실행 (마우스 위치에)
         menu.exec(self.asset_table.viewport().mapToGlobal(pos))
 
-
-
+# --- [main UI 진입점] ---
 if __name__ == '__main__':
     AppLogger.setup()
     # 1. 윈도우 멀티프로세싱 프리징 지원 (EXE 빌드 시 필수, 가장 먼저 호출)
