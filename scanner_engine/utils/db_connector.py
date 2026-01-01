@@ -77,11 +77,16 @@ class DBConnector:
         if "memo" not in columns:
             # print("[DB] Upgrading schema: Adding 'memo' column to TBL_ASSETS...")
             cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN memo TEXT DEFAULT ''")
-        
+        # 6. mac_addr 컬럼 추가 (리포트/벤더 식별용)
+        try:
+            cursor.execute("SELECT mac_addr FROM TBL_ASSETS LIMIT 1")
+        except sqlite3.OperationalError:
+            AppLogger.log_info("[DB] Upgrading schema: Adding 'mac_addr' column...")
+            cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN mac_addr TEXT DEFAULT ''")
         conn.commit()
         conn.close()
 
-    def save_asset(self, ip, hostname="Unknown", os_type="Unknown"):
+    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", mac_addr=None):
         # 자산 정보 저장 또는 업데이트
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -93,17 +98,29 @@ class DBConnector:
             
             if row:
                 asset_id = row[0]
-                cursor.execute("""
-                    UPDATE TBL_ASSETS 
-                    SET last_seen = ?, hostname = ?, os_type = ? 
-                    WHERE asset_id = ?
-                """, (now, hostname, os_type, asset_id))
+                # 기존 자산 업데이트 (MAC 주소가 있으면 함께 갱신)
+                if mac_addr:
+                    cursor.execute("""
+                        UPDATE TBL_ASSETS 
+                        SET last_seen = ?, hostname = ?, os_type = ?, mac_addr = ? 
+                        WHERE asset_id = ?
+                    """, (now, hostname, os_type, mac_addr, asset_id))
+                else:
+                    # MAC 정보가 없으면 기존 MAC 유지 (덮어쓰기 방지)
+                    cursor.execute("""
+                        UPDATE TBL_ASSETS 
+                        SET last_seen = ?, hostname = ?, os_type = ?
+                        WHERE asset_id = ?
+                    """, (now, hostname, os_type, asset_id))
             else:
+                # 신규 등록 (mac_addr 포함)
                 cursor.execute("""
-                    INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, last_seen, memo)
-                    VALUES (?, ?, ?, ?, '')
-                """, (ip, hostname, os_type, now))
+                    INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, last_seen, memo, mac_addr)
+                    VALUES (?, ?, ?, ?, '', ?)
+                """, (ip, hostname, os_type, now, mac_addr))
                 asset_id = cursor.lastrowid
+                
+                
                 
             conn.commit()
             return asset_id
@@ -216,7 +233,7 @@ class DBConnector:
         assets = []
         try:
             # IP, OS, Memo, LastSeen 가져오기
-            cursor.execute("SELECT ip_addr, os_type, memo FROM TBL_ASSETS ORDER BY last_seen DESC")
+            cursor.execute("SELECT ip_addr, os_type, memo , mac_addr FROM TBL_ASSETS ORDER BY last_seen DESC")
             assets = cursor.fetchall()
         except Exception as e:
             AppLogger.log_error(f"[DB Error] Assets Load Fail", e)
