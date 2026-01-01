@@ -16,6 +16,8 @@ from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 from datetime import datetime
 from utils.os_utils import OSUtils
+from utils.logger import AppLogger # 로깅 연동
+from utils.oui_lookup import OUILookup # 벤더 조회를 위해 추가
 
 class PDFGenerator:
     def __init__(self):
