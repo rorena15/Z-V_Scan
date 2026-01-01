@@ -68,7 +68,7 @@ class ScannerApp(QMainWindow):
         header_layout = QHBoxLayout()
         title_label = QLabel("🛡️ Z-VulnScan V3.0.0 Professional Edition")
         title_label.setStyleSheet("color: #ffffff; font-size: 16pt; font-weight: bold;")
-        ver_label = QLabel("v2.2.0")
+        ver_label = QLabel("v3.0.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
