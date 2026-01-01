@@ -1,23 +1,193 @@
-[2026-01-02 01:10:50] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
-[2026-01-02 01:11:02] [ERROR] 192.168.0.1 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:02] [ERROR] 192.168.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:06] [ERROR] Banner grab failed 192.168.0.3:135 | Details: timed out
-[2026-01-02 01:11:08] [ERROR] Banner grab failed 192.168.0.3:139 | Details: timed out
-[2026-01-02 01:11:10] [ERROR] Banner grab failed 192.168.0.3:445 | Details: timed out
-[2026-01-02 01:11:11] [DEBUG] Loading KWallet
-[2026-01-02 01:11:11] [DEBUG] Loading SecretService
-[2026-01-02 01:11:11] [DEBUG] Loading Windows
-[2026-01-02 01:11:11] [DEBUG] Loaded cffi backend
-[2026-01-02 01:11:11] [DEBUG] Loading chainer
-[2026-01-02 01:11:11] [DEBUG] Loading libsecret
-[2026-01-02 01:11:11] [DEBUG] Loading macOS
-[2026-01-02 01:11:24] [ERROR] 192.168.0.1 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:24] [ERROR] 192.168.0.5 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:24] [ERROR] 192.168.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:25] [ERROR] 192.168.0.11 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:25] [ERROR] 192.168.0.13 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:26] [ERROR] 192.168.0.38 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:26] [ERROR] 192.168.0.42 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
-[2026-01-02 01:11:28] [ERROR] Banner grab failed 192.168.0.3:135 | Details: timed out
-[2026-01-02 01:11:30] [ERROR] Banner grab failed 192.168.0.3:139 | Details: timed out
-[2026-01-02 01:11:32] [ERROR] Banner grab failed 192.168.0.3:445 | Details: timed out
+[2026-01-02 01:50:25] [INFO] === Z-VulnScan Professional v2.2.0 Logger Started ===
+[2026-01-02 01:50:38] [ERROR] 127.0.0.4 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.3 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.17 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.18 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.5 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.2 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.16 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.6 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.13 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.11 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.15 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.12 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.7 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.8 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.20 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.10 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.14 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.9 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:38] [ERROR] 127.0.0.19 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.4:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.2:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.13:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.6:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.16:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.18:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.17:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.3:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.12:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.20:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.11:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.19:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.5:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.14:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.8:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.1:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.10:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.15:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.7:135 | Details: timed out
+[2026-01-02 01:50:42] [ERROR] Banner grab failed 127.0.0.9:135 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.4:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.18:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.13:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.16:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.2:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.17:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.6:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.12:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.1:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.14:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.11:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.8:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.20:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.15:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.9:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.5:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.10:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.3:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.19:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] Banner grab failed 127.0.0.7:445 | Details: timed out
+[2026-01-02 01:50:44] [ERROR] 127.0.0.21 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.22 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.23 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.24 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.25 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.26 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.31 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.30 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.29 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.28 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.27 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.37 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.35 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.33 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.32 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.36 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.38 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.34 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.39 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:44] [ERROR] 127.0.0.40 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.22:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.30:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.28:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.21:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.24:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.31:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.25:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.37:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.26:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.35:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.34:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.36:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.32:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.38:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.40:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.23:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.27:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.33:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.29:135 | Details: timed out
+[2026-01-02 01:50:48] [ERROR] Banner grab failed 127.0.0.39:135 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.22:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.28:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.30:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.24:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.21:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] 127.0.0.41 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.31:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.26:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.25:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.37:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.40:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.32:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.35:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.23:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.36:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.29:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.33:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.38:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.39:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.34:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] Banner grab failed 127.0.0.27:445 | Details: timed out
+[2026-01-02 01:50:50] [ERROR] 127.0.0.45 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.44 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.42 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.43 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.47 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.46 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.48 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.49 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.52 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.51 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.56 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.50 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.53 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.54 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.55 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.57 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.59 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.60 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:50] [ERROR] 127.0.0.58 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.41:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.44:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.45:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.48:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.46:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.49:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.43:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.47:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.42:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.50:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.51:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.56:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.53:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.60:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.57:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.55:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.58:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.52:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.54:135 | Details: timed out
+[2026-01-02 01:50:53] [ERROR] Banner grab failed 127.0.0.59:135 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.41:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] 127.0.0.61 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.46:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.48:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.45:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.49:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.42:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.47:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.44:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.43:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] 127.0.0.62 Host Discovery Failed | Details: cannot access local variable 'mac_match' where it is not associated with a value
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.51:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.53:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.57:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.60:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.55:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.56:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.59:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.50:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.58:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.54:445 | Details: timed out
+[2026-01-02 01:50:55] [ERROR] Banner grab failed 127.0.0.52:445 | Details: timed out
+[2026-01-02 01:50:59] [ERROR] Banner grab failed 127.0.0.62:135 | Details: timed out
+[2026-01-02 01:50:59] [ERROR] Banner grab failed 127.0.0.61:135 | Details: timed out
+[2026-01-02 01:51:01] [ERROR] Banner grab failed 127.0.0.62:445 | Details: timed out
+[2026-01-02 01:51:01] [ERROR] Banner grab failed 127.0.0.61:445 | Details: timed out
+[2026-01-02 01:51:02] [DEBUG] Loading KWallet
+[2026-01-02 01:51:02] [DEBUG] Loading SecretService
+[2026-01-02 01:51:02] [DEBUG] Loading Windows
+[2026-01-02 01:51:02] [DEBUG] Loaded cffi backend
+[2026-01-02 01:51:02] [DEBUG] Loading chainer
+[2026-01-02 01:51:02] [DEBUG] Loading libsecret
+[2026-01-02 01:51:02] [DEBUG] Loading macOS

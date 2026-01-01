@@ -7,7 +7,6 @@
 # --------------------------------------------------------------------------
 import sys
 import os
-import subprocess
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -27,7 +26,7 @@ def resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-# 분리된 모듈 Import
+# 엔진 모듈 연동
 from core.worker import ScanWorker              
 from core.advanced_scanner import AdvancedScanner
 from output.pdf_report import PDFGenerator
@@ -45,6 +44,7 @@ class ScannerApp(QMainWindow):
         self.elapsed_seconds = 0
         self.initUI()
 
+    # -- UI 세팅 --
     def initUI(self):
         self.setWindowTitle('Z-VulnScan v2.2.0 Professional Edition')
         self.setGeometry(100, 100, 1100, 750)
@@ -272,18 +272,19 @@ class ScannerApp(QMainWindow):
         self.asset_table.setItem(row, 1, c_os)
         self.asset_table.setItem(row, 2, c_port)
 
+    # 자산 리스트 초기화
     def clear_asset_table(self):
-        """자산 리스트 초기화"""
+        
         self.asset_table.setRowCount(0)
         self.log_message("[UI] Asset list cleared.")
 
+    # 로그 콘솔 초기화
     def clear_logs(self):
-        """로그 콘솔 초기화"""
         self.log_console.clear()
         self.log_message("[UI] Log console cleared.")
 
+    # 자산 더블클릭 시 Target 입력란에 자동 입력
     def on_asset_double_click(self):
-        """자산 더블클릭 시 Target 입력란에 자동 입력"""
         row = self.asset_table.currentRow()
         if row >= 0:
             ip = self.asset_table.item(row, 0).text()
@@ -351,10 +352,8 @@ class ScannerApp(QMainWindow):
         #QMessageBox.information(self, "Done", "진단이 완료되었습니다.")
         
     def set_ui_busy(self, busy):
-        """
-        UI 상태를 제어하여 스캔 중 입력 변경을 방지하고, 
-        스캔이 끝나면 입력을 다시 활성화합니다.
-        """
+        # UI 상태를 제어하여 스캔 중 입력 변경을 방지하고, 
+        # 스캔이 끝나면 입력을 다시 활성화합니다.
         # 1. 버튼 상태 토글
         self.btn_scan.setDisabled(busy)   # 스캔 중엔 시작 버튼 비활성
         self.btn_audit.setDisabled(busy)  # 스캔 중엔 진단 버튼 비활성
@@ -483,12 +482,12 @@ class ScannerApp(QMainWindow):
         user = self.user_input.text().strip()
         pw = self.pw_input.text().strip()
         
-        # [수정] 시뮬레이션이 아닌데 계정 정보가 없으면 경고
+        #시뮬레이션이 아닌데 계정 정보가 없으면 경고
         if not is_simulation and (not user or not pw):
             QMessageBox.warning(self, "Auth Error", "원격 진단을 위해 SSH/WinRM 계정 정보(User, PW)가 필요합니다.")
             return
         
-        # [수정] 시뮬레이션이 아닐 때만 보안 저장소에 저장
+        #시뮬레이션이 아닐 때만 보안 저장소에 저장
         if not is_simulation:
             if not SecureStorage.save_credential(ip, user, pw):
                 QMessageBox.critical(self, "Error", "자격증명을 보안 저장소에 저장하지 못했습니다.\n(ID/PW가 비어있는지 확인해주세요)")
@@ -496,7 +495,7 @@ class ScannerApp(QMainWindow):
 
         # 5. 스캔 시작
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user) # [중요] pw 인자 제거됨 확인
+        self.worker = ScanWorker("AUDIT_VULN", ip, user) #pw 인자 제거됨 확인
         self.connect_worker()
         self.worker.start()
 
@@ -516,13 +515,13 @@ class ScannerApp(QMainWindow):
             )
             
             if reply == QMessageBox.Yes:
-                self.open_file_platform_safe(filepath) # [변경] 헬퍼 메서드 호출
+                self.open_file_platform_safe(filepath) #헬퍼 메서드 호출
                 
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", str(e))
 
-    # [수정] Excel 생성 메서드
+    # Excel 생성 메서드
     def generate_excel(self):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -630,24 +629,23 @@ class ScannerApp(QMainWindow):
         # 1. Ping 테스트 (살아있나 확인)
         ping_action = QAction(f"📡 Ping Check ({ip})", self)
         # Windows는 -t (계속), Linux는 기본 동작
-        cmd = f"start cmd /k ping {ip} -t" if OSUtils.is_windows() else f"gnome-terminal -- ping {ip}"
-        ping_action.triggered.connect(lambda: subprocess.Popen(cmd, shell=True))
+        ping_action.triggered.connect(lambda: OSUtils.open_ping_test(ip))
         menu.addAction(ping_action)
         
         menu.addSeparator() # 구분선
 
-        # 2. OS 맞춤형 원격 접속 (이게 핵심!)
+        # 2. OS 맞춤형 원격 접속
         if "Windows" in os_type:
             # 원격 데스크톱(MSTSC) 바로 실행
             rdp_action = QAction("🖥️ Open Remote Desktop (RDP)", self)
-            rdp_action.triggered.connect(lambda: subprocess.Popen(f"mstsc /v:{ip}", shell=True))
+            rdp_action.triggered.connect(lambda: OSUtils.open_rdp(ip))
             menu.addAction(rdp_action)
             
         elif "Linux" in os_type:
             # SSH 접속 창 바로 열기 (CMD 창 이용)
             ssh_action = QAction("🐧 Open SSH Connection", self)
-            # SSH 접속 시도 (ID는 root로 가정하거나 입력받음)
-            ssh_action.triggered.connect(lambda: subprocess.Popen(f"start cmd /k ssh root@{ip}", shell=True))
+            current_user = self.user_input.text().strip() or "root"
+            ssh_action.triggered.connect(lambda: OSUtils.open_ssh(ip, current_user))
             menu.addAction(ssh_action)
 
         # 3. 클립보드 복사 (엑셀 등에 붙여넣기 용)
