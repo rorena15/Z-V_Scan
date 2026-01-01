@@ -327,29 +327,43 @@ class ScannerApp(QMainWindow):
     def update_timer(self):
         self.elapsed_seconds += 1
         
-        # 경과 시간 포맷팅
-        m, s = divmod(self.elapsed_seconds, 60)
-        elapsed_str = f"{m:02d}:{s:02d}"
+        # [Helper] 시간 포맷팅 함수 (시:분:초 지원)
+        def format_time(seconds):
+            m, s = divmod(seconds, 60)
+            h, m = divmod(m, 60)
+            if h > 0:
+                return f"{h:02d}:{m:02d}:{s:02d}"
+            return f"{m:02d}:{s:02d}"
+
+        elapsed_str = format_time(self.elapsed_seconds)
         
         # ETA (남은 시간) 계산 로직
         current_progress = self.pbar.value()
         eta_str = "--:--"
         
+        # 진행률이 0보다 크고 100 미만일 때만 계산
         if current_progress > 0 and current_progress < 100:
-            # (경과시간 / 진행률) = 1%당 소요 시간
-            # 남은 시간 = 1%당 소요 시간 * 남은 퍼센트
-            estimated_total = self.elapsed_seconds / (current_progress / 100)
-            remaining = int(estimated_total - self.elapsed_seconds)
-            
-            if remaining > 0:
-                rm, rs = divmod(remaining, 60)
-                eta_str = f"{rm:02d}:{rs:02d}"
-            else:
-                eta_str = "00:00"
+            try:
+                # (경과시간 / 진행률) = 전체 소요 시간 추정
+                estimated_total = self.elapsed_seconds / (current_progress / 100)
+                remaining = int(estimated_total - self.elapsed_seconds)
+                
+                # 남은 시간이 유효한 범위일 때만 표시
+                if remaining >= 0:
+                    # 24시간 이상이면 "> 24h" 등으로 표시하여 UI 깨짐 방지
+                    if remaining > 86400:
+                        eta_str = "> 24h"
+                    else:
+                        eta_str = format_time(remaining)
+                else:
+                    eta_str = "00:00"
+            except ZeroDivisionError:
+                eta_str = "--:--"
+                
         elif current_progress >= 100:
             eta_str = "Done"
 
-        # 라벨 업데이트 (경과 시간 | 남은 시간)
+        # 라벨 업데이트
         self.time_label.setText(f"Elapsed: {elapsed_str}  |  ETA: {eta_str}")
 
     def update_progress(self, val):
@@ -606,7 +620,7 @@ class ScannerApp(QMainWindow):
             self.worker.stop_flag = True
             self.worker.wait(2000)
         event.accept()
-        
+
     def toggle_port_input(self, index):
         # 1. Custom Range (Index 1) 활성화 처리
         is_custom = (index == 1)
