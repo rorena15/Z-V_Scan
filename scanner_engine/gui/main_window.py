@@ -35,6 +35,7 @@ from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
+from gui.topology_dialog import TopologyDialog
 
 class ScannerApp(QMainWindow):
     def __init__(self):
@@ -142,6 +143,13 @@ class ScannerApp(QMainWindow):
         )
         self.btn_excel.clicked.connect(self.generate_excel)
         
+        self.btn_map = QPushButton("🗺️ Topology Map")
+        self.btn_map.clicked.connect(self.show_topology_map)
+        self.btn_map.setStyleSheet(
+            "QPushButton { border-color: #1e7145; color: #ffffff; }"
+            "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"
+            )
+        
         self.btn_stop = QPushButton("🛑 Stop")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
@@ -151,6 +159,7 @@ class ScannerApp(QMainWindow):
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_pdf)
         btn_layout.addWidget(self.btn_excel)
+        btn_layout.addWidget(self.btn_map)
         btn_layout.addWidget(self.btn_stop)
         main_layout.addLayout(btn_layout)
 
@@ -385,11 +394,13 @@ class ScannerApp(QMainWindow):
         # 1. 버튼 상태 토글
         self.btn_scan.setDisabled(busy)   # 스캔 중엔 시작 버튼 비활성
         self.btn_audit.setDisabled(busy)  # 스캔 중엔 진단 버튼 비활성
+        self.btn_map.setDisabled(busy)    # 스캔 중엔 맵 버튼 비활성
         self.btn_stop.setEnabled(busy)    # 스캔 중에만 정지 버튼 활성
         
         # 2. PDF/Excel 버튼 (결과 나오기 전엔 비활성, 끝나면 활성)
         self.btn_pdf.setDisabled(busy)
         self.btn_excel.setDisabled(busy)
+        self.btn_map.setDisabled(busy)
 
         # 3. 입력창 상태 제어 (핵심 수정 부분)
         # busy가 True면 Disabled(잠금), False면 Enabled(해제)
@@ -574,6 +585,15 @@ class ScannerApp(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.log_message(f"[Error] Excel Generate Failed: {e}")
             QMessageBox.warning(self, "Error", f"생성 실패: {str(e)}")
+
+    def show_topology_map(self):
+        #네트워크 토폴로지 맵 다이얼로그 열기
+        if self.asset_table.rowCount() == 0:
+            QMessageBox.warning(self, "No Data", "표시할 데이터가 없습니다.\n스캔을 먼저 진행해주세요.")
+            return
+            
+        dialog = TopologyDialog(self)
+        dialog.exec()
 
     def open_file_platform_safe(self, filepath):
         success = OSUtils.open_file(filepath)
