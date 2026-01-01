@@ -142,13 +142,13 @@ class ScanWorker(QThread):
                     if v_info['found']:
                         status = 'VULNERABLE' if v_info['risk'] in ['High', 'Critical'] else 'WARNING'
                         
-                        # [수정 완료] (상태, 상세내용, 항목명, 조치방안) 4개 튜플 구조로 변경
+                        # (상태, 상세내용, 항목명, 조치방안) 4개 튜플 구조로 변경
                         # 아까 VulnMatcher에 추가한 'remediation'을 여기서 DB로 전달해야 리포트에 나옴
                         vuln_results[v_info['kisa']] = (
                             status, 
                             f"[Port {v_info['service']}] {v_info['desc']}", 
                             v_info['name'],      # 항목명
-                            v_info['remediation'] # <--- [핵심] 조치 방안 추가됨
+                            v_info['remediation'] # 조치 방안 추가됨
                         )
                         
                         self.log_signal.emit(f"    🚨 외부 취약점 발견: {v_info['service']} ({v_info['kisa']})")
