@@ -467,7 +467,7 @@ class ScanWorker(QThread):
                         self.progress_signal.emit(progress, processed_count)
 
             if not self.stop_flag:
-                self.progress_signal.emit(100)
+                self.progress_signal.emit(100, total_count)
         
         except Exception as e:
             # 예상치 못한 엔진 에러 캡처
