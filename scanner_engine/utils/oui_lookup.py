@@ -1,3 +1,10 @@
+# --------------------------------------------------------------------------
+# Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+# 
+# This software is proprietary and confidential. 
+# Unauthorized copying, modification, distribution, or reverse engineering 
+# of this file, via any medium, is strictly prohibited.
+# --------------------------------------------------------------------------
 class OUILookup:
     # 주요 제조사 OUI 데이터베이스 (하드코딩 예시)
     # 실제 상용화 시에는 oui.txt 파일을 로드하는 방식으로 확장 권장
