@@ -7,14 +7,20 @@
 # --------------------------------------------------------------------------
 import sqlite3
 import os
+import sys
 from datetime import datetime
 from utils.logger import AppLogger
 
 class DBConnector:
     def __init__(self):
-        # DB 파일 경로 설정 (상위 폴더의 zvuln_scan.db)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.db_path = os.path.join(os.path.dirname(base_dir), 'zvuln_scan.db')
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            current_file = os.path.abspath(__file__)
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+
+        # zvuln_scan.db 파일을 해당 경로에 지정
+        self.db_path = os.path.join(base_path, 'zvuln_scan.db')
         _signature = "Made_By_Rorena_2025_Seongnam_KR"
         self._init_db()
 
