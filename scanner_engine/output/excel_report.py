@@ -21,14 +21,9 @@ class ExcelGenerator:
     def __init__(self):
         # DB 경로 설정
         if getattr(sys, 'frozen', False):
-            # 1. EXE 실행 시 (PyInstaller 빌드 환경)
-            # sys.executable = 'E:\Z-VulnScan\dist\app.exe'
-            # project_root = 'E:\Z-VulnScan\dist'
             self.project_root = os.path.dirname(sys.executable)
         else:
-            # 2. 파이썬 스크립트 실행 시
-            # 현재 파일: .../scanner_engine/output/excel_report.py
-            # 3단계 상위 이동 -> .../Z-VulnScan (프로젝트 루트)
+
             current_file = os.path.abspath(__file__)
             self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
         
