@@ -8,6 +8,7 @@
 import os
 import sys
 import sqlite3
+import html
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
@@ -206,8 +207,8 @@ class PDFGenerator:
             code = r[0]
             name = self._truncate(r[1], 15) # 글자수 제한
             status_raw = r[2]
-            detail_text = r[3] if r[3] else "-"
-            remediation_text = r[4] if r[4] else "-"
+            detail_text = html.escape(detail_text)
+            remediation_text = html.escape(remediation_text)
 
             # 상태 표시 문자열 정제
             is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
