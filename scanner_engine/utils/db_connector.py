@@ -269,3 +269,82 @@ class DBConnector:
             return False
         finally:
             conn.close()
+            
+    def get_assets_for_manager(self):
+        #매니저 화면용: 모든 컬럼 다 가져오기
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT asset_id, ip_addr, hostname, os_type, mac_addr, last_seen, memo FROM TBL_ASSETS ORDER BY last_seen DESC")
+            return cursor.fetchall()
+        except Exception as e:
+            AppLogger.log_error("[DB] Fetch Manager Data Fail", e)
+            return []
+        finally:
+            conn.close()
+
+    def update_asset_field(self, asset_id, field_name, new_value):
+        #특정 자산의 특정 필드(hostname, memo 등) 수정
+        # 보안: 허용된 필드만 수정 가능하도록 제한
+        allowed_fields = ["hostname", "os_type", "memo", "mac_addr"]
+        if field_name not in allowed_fields:
+            return False
+            
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            query = f"UPDATE TBL_ASSETS SET {field_name} = ? WHERE asset_id = ?"
+            cursor.execute(query, (new_value, asset_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            AppLogger.log_error(f"[DB] Update {field_name} Fail", e)
+            return False
+        finally:
+            conn.close()
+
+    def delete_asset_by_id(self, asset_id):
+        #특정 자산 1개 삭제 (관련된 스캔 결과도 자동 삭제됨)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            # 외래키 제약조건이 있다면 자동 삭제되겠지만, 안전하게 수동 삭제
+            cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id = ?", (asset_id,))
+            cursor.execute("DELETE FROM TBL_OPEN_PORTS WHERE asset_id = ?", (asset_id,))
+            cursor.execute("DELETE FROM TBL_ASSETS WHERE asset_id = ?", (asset_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            AppLogger.log_error(f"[DB] Delete Asset {asset_id} Fail", e)
+            return False
+        finally:
+            conn.close()
+            
+    def get_dashboard_stats(self):
+        #대시보드 갱신용 통계 데이터 (전체 자산 수, 최근 스캔 수 등)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        stats = {
+            "total_assets": 0,
+            "vuln_critical": 0,
+            "last_scan": "-"
+        }
+        try:
+            # 1. 전체 자산 수
+            cursor.execute("SELECT COUNT(*) FROM TBL_ASSETS")
+            stats["total_assets"] = cursor.fetchone()[0]
+            
+            # 2. 발견된 취약점 수 (Status가 Safe가 아닌 것들)
+            cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE status != 'Safe'")
+            stats["vuln_critical"] = cursor.fetchone()[0]
+
+            # 3. 마지막 스캔 시간
+            cursor.execute("SELECT MAX(last_seen) FROM TBL_ASSETS")
+            last = cursor.fetchone()[0]
+            stats["last_scan"] = last if last else "N/A"
+            
+        except Exception as e:
+            AppLogger.log_error("[DB] Get Stats Fail", e)
+        finally:
+            conn.close()
+        return stats

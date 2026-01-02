@@ -41,6 +41,7 @@ from utils.network_visualizer import NetworkVisualizer
 class ScannerApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.db = DBConnector()
         self.worker = None
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_timer)
@@ -50,6 +51,7 @@ class ScannerApp(QMainWindow):
         self.scan_result_buffer = []
         
         self.initUI()
+        self.refresh_dashboard()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -68,9 +70,16 @@ class ScannerApp(QMainWindow):
         header_layout = QHBoxLayout()
         title_label = QLabel("🛡️ Z-VulnScan V3.0.0 Professional Edition")
         title_label.setStyleSheet("color: #ffffff; font-size: 16pt; font-weight: bold;")
+        
+        self.lbl_stats_assets = QLabel("Assets: 0")
+        self.lbl_stats_assets.setStyleSheet("color: #00b0ff; font-weight: bold; margin-left: 20px; font-size: 11pt;")
+        self.lbl_stats_vulns = QLabel("Issues: 0")
+        self.lbl_stats_vulns.setStyleSheet("color: #ff5555; font-weight: bold; margin-left: 10px; font-size: 11pt;")
         ver_label = QLabel("v3.0.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold;")
         header_layout.addWidget(title_label)
+        header_layout.addWidget(self.lbl_stats_assets)
+        header_layout.addWidget(self.lbl_stats_vulns)
         header_layout.addStretch()
         header_layout.addWidget(ver_label)
         main_layout.addLayout(header_layout)
@@ -149,7 +158,7 @@ class ScannerApp(QMainWindow):
         self.btn_excel.clicked.connect(self.generate_excel)
         
         self.btn_map = QPushButton("🗺️ Topology Map")
-        self.btn_map.clicked.connect(self.show_topology_map)
+        self.btn_map.clicked.connect(self.show_topology)
         self.btn_map.setStyleSheet(
             "QPushButton { border-color: #1e7145; color: #ffffff; }"
             "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"
@@ -158,6 +167,9 @@ class ScannerApp(QMainWindow):
         self.btn_stop = QPushButton("🛑 Stop")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
+        
+        self.btn_db_manager = QPushButton("DB Manager")
+        self.btn_db_manager.clicked.connect(self.open_db_manager)
 
         btn_layout.addWidget(self.btn_scan)
         btn_layout.addWidget(self.btn_audit)
@@ -166,6 +178,7 @@ class ScannerApp(QMainWindow):
         btn_layout.addWidget(self.btn_excel)
         btn_layout.addWidget(self.btn_map)
         btn_layout.addWidget(self.btn_stop)
+        btn_layout.addWidget(self.btn_db_manager)
         main_layout.addLayout(btn_layout)
 
         # 4. 콘텐츠 (Splitter)
@@ -694,3 +707,45 @@ class ScannerApp(QMainWindow):
             
         menu.addAction("📄 Copy IP", lambda: QApplication.clipboard().setText(ip))
         menu.exec(self.asset_table.viewport().mapToGlobal(pos))
+        
+    def open_db_manager(self):
+        from gui.db_manager import DatabaseManagerDialog
+        
+        # DB 커넥터 인스턴스를 넘겨줍니다
+        dlg = DatabaseManagerDialog(self.db, self)
+        dlg.exec()
+        
+        # 매니저 창이 닫히면 메인 화면의 통계나 리스트도 갱신하는 것이 좋음
+        self.refresh_dashboard() # (만약 이런 기능이 있다면)
+        
+    def refresh_dashboard(self):
+        #DB에서 최신 데이터를 읽어와 테이블과 통계를 갱신합니다.
+        # 1. 통계 데이터 갱신
+        stats = self.db.get_dashboard_stats()
+        if hasattr(self, 'lbl_stats_assets'):
+            self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
+        if hasattr(self, 'lbl_stats_vulns'):
+            self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
+            
+        # 2. 자산 리스트 갱신
+        # 기존 테이블 초기화
+        self.asset_table.setRowCount(0)
+        self.scanned_ip_cache = set() # 캐시 초기화
+        
+        # DB에서 전체 자산 가져오기
+        assets = self.db.get_all_assets() # [(ip, os, memo, mac), ...]
+        
+        self.asset_table.setSortingEnabled(False) # 렌더링 속도 향상
+        
+        for ip, os_type, memo, mac_addr in assets:
+            # OS 표기 처리 (MAC 주소 있으면 병기)
+            display_os = os_type
+            if mac_addr: 
+                display_os = f"{os_type} | {mac_addr}"
+            
+            # 기존에 만드신 add_asset_to_table 재활용
+            self.add_asset_to_table(ip, display_os, "History", memo_text=memo)
+            
+        self.asset_table.setSortingEnabled(True)
+        
+        self.log_message(f"[System] Dashboard Refreshed. (Assets: {stats['total_assets']})")
