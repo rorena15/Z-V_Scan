@@ -22,17 +22,15 @@ class PDFGenerator:
     def __init__(self):
         # DB 경로 설정
         if getattr(sys, 'frozen', False):
-            # EXE 실행 시
-            base_dir = os.path.dirname(sys.executable)
+            # EXE 실행 시 (PyInstaller)
+            self.project_root = os.path.dirname(sys.executable)
         else:
-            # 스크립트 실행 시
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            current_file = os.path.abspath(__file__)
+            self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
             
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.db_path = os.path.join(base_dir, 'zvuln_scan.db')
-        
-        # 저장 경로
-        output_dir = os.path.join(os.path.dirname(base_dir), 'report')
+        # [Fix] 명확한 경로 할당
+        self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
+        self.output_dir = os.path.join(self.project_root, 'report')
         _signature = "Made_By_Rorena_2025_Seongnam_KR"
         if not os.path.exists(output_dir):
             try:

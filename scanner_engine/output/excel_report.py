@@ -21,17 +21,21 @@ class ExcelGenerator:
     def __init__(self):
         # DB 경로 설정
         if getattr(sys, 'frozen', False):
-            # 빌드된 EXE 실행 시: EXE 파일이 있는 폴더 기준
-            base_dir = os.path.dirname(sys.executable)
+            # 1. EXE 실행 시 (PyInstaller 빌드 환경)
+            # sys.executable = 'E:\Z-VulnScan\dist\app.exe'
+            # project_root = 'E:\Z-VulnScan\dist'
+            self.project_root = os.path.dirname(sys.executable)
         else:
-            # 스크립트 실행 시: 프로젝트 최상위 루트 기준
-            # (현재 위치: scanner_engine/output/excel_report.py -> 3단계 상위)
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            # 2. 파이썬 스크립트 실행 시
+            # 현재 파일: .../scanner_engine/output/excel_report.py
+            # 3단계 상위 이동 -> .../Z-VulnScan (프로젝트 루트)
+            current_file = os.path.abspath(__file__)
+            self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
         
-        self.db_path = os.path.join(base_dir, 'zvuln_scan.db')
-        
-        # 저장 경로
-        self.output_dir = os.path.join(os.path.dirname(base_dir), 'report')
+        # [Fix] DB 및 리포트 경로를 project_root 기준으로 명확히 설정
+        self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
+        self.output_dir = os.path.join(self.project_root, 'report')
+
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
             

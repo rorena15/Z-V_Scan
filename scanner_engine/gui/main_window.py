@@ -425,10 +425,6 @@ class ScannerApp(QMainWindow):
             
             # [핵심] 스캔 결과 버퍼 초기화 (여기서 초기화해야 함)
             self.scan_result_buffer = []
-            
-            self.asset_table.setRowCount(0)
-            self.asset_table.setSortingEnabled(False)
-            
             # 캐시 초기화
             if hasattr(self, 'scanned_ip_cache'):
                 self.scanned_ip_cache.clear()
@@ -507,10 +503,15 @@ class ScannerApp(QMainWindow):
             msg.setDefaultButton(QMessageBox.No)
             if msg.exec() == QMessageBox.No: return
             target_ports = list(range(1, 65536))
+        self.asset_table.setRowCount(0)
+        
+        # 중복 방지 캐시 초기화
+        if hasattr(self, 'scanned_ip_cache'):
+            self.scanned_ip_cache.clear()
+        else:
+            self.scanned_ip_cache = set()
 
         self.set_ui_busy(True)
-        if "/" in ip: self.asset_table.setRowCount(0)
-        
         self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
         self.connect_worker()
         self.worker.start()
