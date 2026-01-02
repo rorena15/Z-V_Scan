@@ -21,8 +21,15 @@ from utils.oui_lookup import OUILookup
 class PDFGenerator:
     def __init__(self):
         # DB 경로 설정
+        if getattr(sys, 'frozen', False):
+            # EXE 실행 시
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # 스크립트 실행 시
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.db_path = os.path.join(os.path.dirname(base_dir), 'zvuln_scan.db')
+        self.db_path = os.path.join(base_dir, 'zvuln_scan.db')
         
         # 저장 경로
         output_dir = os.path.join(os.path.dirname(base_dir), 'report')
