@@ -36,7 +36,7 @@ from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
-from gui.topology_dialog import TopologyDialog
+from utils.network_visualizer import NetworkVisualizer
 
 class ScannerApp(QMainWindow):
     def __init__(self):
@@ -569,12 +569,31 @@ class ScannerApp(QMainWindow):
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", str(e))
 
-    def show_topology_map(self):
-        if self.asset_table.rowCount() == 0:
-            QMessageBox.warning(self, "No Data", "데이터가 없습니다.")
+    def show_topology(self):
+        # 1. 자산 데이터 가져오기
+        assets = self.db.get_all_assets()
+        if not assets:
+            QMessageBox.warning(self, "No Data", "표시할 자산 데이터가 없습니다.\n스캔을 먼저 수행해주세요.")
             return
-        dialog = TopologyDialog(self)
-        dialog.exec()
+        # 2. 로딩 표시 (선택사항)
+        self.statusBar().showMessage("Generating Topology Map...")
+        try:
+            viz = NetworkVisualizer()
+            # HTML 파일 생성
+            html_path = viz.create_topology(assets)
+            
+            if html_path and os.path.exists(html_path):
+                # 4. 다이얼로그 띄우기
+                from gui.topology_dialog import TopologyDialog
+                dlg = TopologyDialog(html_path, self)
+                dlg.exec()
+                self.statusBar().showMessage("Topology Map Closed.", 3000)
+            else:
+                QMessageBox.critical(self, "Error", "토폴로지 맵 생성에 실패했습니다.")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred:\n{str(e)}")
+            self.statusBar().showMessage("Error generating map.")
 
     def open_file_platform_safe(self, filepath):
         if not OSUtils.open_file(filepath):

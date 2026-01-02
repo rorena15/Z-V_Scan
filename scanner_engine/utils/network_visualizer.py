@@ -6,87 +6,77 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 
-import networkx as nx
-import matplotlib.pyplot as plt
-from utils.db_connector import DBConnector
+import os
+import sys
+from pyvis.network import Network
 
 class NetworkVisualizer:
-    def create_graph_figure(self):
-        db = DBConnector()
-        assets = db.get_all_assets()
-        
-        G = nx.Graph()
-        
-        # 중앙 노드 설정
-        center_node = "Scanner\n(My PC)"
-        G.add_node(center_node, node_type='center')
-        
-        if not assets:
-            return None
-            
-        for ip, os_type, memo, mac in assets:
-            # OS 이름 줄임 처리
-            short_os = os_type.split('|')[0].strip() if '|' in os_type else os_type
-            if len(short_os) > 12: 
-                short_os = short_os[:12] + ".."
-            
-            label = f"{ip}\n{short_os}"
-            G.add_node(label, node_type='asset')
-            G.add_edge(center_node, label)
-            
-        # ---------------------------------------------------------
-        # [스타일 설정: 다크 모드 강제 적용]
-        # ---------------------------------------------------------
-        plt.rcParams['font.family'] = 'Malgun Gothic'
-        plt.rcParams['axes.unicode_minus'] = False
+    def __init__(self, output_dir="scanner_engine/output"):
+        self.output_dir = output_dir
+        # 출력 폴더가 없으면 생성
+        if not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir)
+            except OSError:
+                pass # 권한 문제 등 예외 처리
 
-        # 1. Figure(전체 창) 생성 및 배경색 지정
-        fig = plt.figure(figsize=(12, 9))
-        fig.patch.set_facecolor('#2b2b2b') # 창 전체 배경 (Dark)
+    def create_topology(self, assets, output_filename="topology.html"):
+        try:
+            # 1. PyVis 네트워크 객체 생성 (전체화면, 다크테마)
+            net = Network(height="100%", width="100%", bgcolor="#2b2b2b", font_color="white", select_menu=True)
+            
+            # 2. 물리 엔진 설정 (노드 100개 이상 안정화용 BarnesHut 알고리즘)
+            net.barnes_hut(gravity=-3000, central_gravity=0.3, spring_length=150, spring_strength=0.05, damping=0.09, overlap=0)
+            
+            # 3. 데이터 추가
+            net.add_node("Gateway", label="Core Gateway", title="Main Entrance", color="#ff5722", shape="diamond", size=30)
 
-        # 2. Axis(그래프 영역) 배경 투명화
-        # [핵심 Fix] 그래프가 그려지는 네모난 영역의 흰색 배경을 제거합니다.
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#2b2b2b') 
-        
-        # 레이아웃 계산 (노드 간격 넓힘)
-        pos = nx.spring_layout(G, k=0.9, seed=42) 
-        
-        # 색상 설정
-        color_map = []
-        for node in G:
-            if G.nodes[node].get('node_type') == 'center':
-                color_map.append('#4a90e2') # 파랑
+            for asset in assets:
+                # DB 데이터 언패킹 (인덱스 에러 방지)
+                ip = asset[0] if len(asset) > 0 else "Unknown"
+                os_type = asset[1] if len(asset) > 1 else "Unknown"
+                memo = asset[2] if len(asset) > 2 else ""
+                
+                # OS별 아이콘/색상 구분
+                color = "#00b0ff" # 기본 PC (Cyan)
+                shape = "dot"
+                
+                os_lower = str(os_type).lower()
+                if "server" in os_lower or "linux" in os_lower:
+                    color = "#76ff03" # 서버 (Green)
+                    shape = "square"
+                elif "windows" in os_lower:
+                    color = "#2979ff" # 윈도우 (Blue)
+                elif "printer" in os_lower:
+                    color = "#ffea00" # 프린터 (Yellow)
+
+                # 툴팁 (마우스 오버 시 정보)
+                tooltip = f"<b>IP:</b> {ip}<br><b>OS:</b> {os_type}<br><b>Memo:</b> {memo}"
+                
+                # 노드 추가
+                net.add_node(ip, label=ip, title=tooltip, color=color, shape=shape, size=20)
+                
+                # 엣지 연결 (현재는 스위치 정보가 없으므로 Gateway와 연결)
+                net.add_edge("Gateway", ip, color="#555555", width=1)
+
+            # 4. 파일 저장
+            # PyInstaller 환경 고려: 절대 경로로 변환
+            if getattr(sys, 'frozen', False):
+                # EXE 실행 시 임시 폴더가 아닌, EXE 옆 output 폴더에 저장 권장
+                base_path = os.path.dirname(sys.executable)
+                save_dir = os.path.join(base_path, "scanner_engine", "output")
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                full_path = os.path.join(save_dir, output_filename)
             else:
-                color_map.append('#50c878') # 초록
-        
-        # 3. 그리기
-        nx.draw_networkx_nodes(G, pos, 
-                               node_color=color_map, 
-                               node_size=6000, # 노드 크기 더 키움
-                               alpha=1.0,
-                               ax=ax)
-                               
-        nx.draw_networkx_edges(G, pos, 
-                               edge_color='#888888', 
-                               width=1.5, 
-                               alpha=0.8,
-                               ax=ax)
-
-        nx.draw_networkx_labels(G, pos, 
-                                font_size=9, 
-                                font_weight='bold', 
-                                font_color='white', # 글자 흰색
-                                font_family='Malgun Gothic',
-                                ax=ax)
-
-        # [핵심 Fix] 축(Axis) 자체를 꺼버려서 흰색 테두리나 배경이 남지 않게 함
-        plt.axis('off') 
-        
-        # 제목 설정
-        plt.title(f"Network Topology Map (Total Assets: {len(assets)})", 
-                  fontsize=16, fontweight='bold', color='white', pad=20)
-        
-        plt.tight_layout() # 여백 자동 정리
-        
-        return fig
+                full_path = os.path.join(os.getcwd(), self.output_dir, output_filename)
+                
+            # PyVis의 save_graph는 템플릿 로딩 문제로 절대경로 처리가 중요
+            net.save_graph(full_path)
+            
+            return full_path
+            
+        except Exception as e:
+            # 로거가 있다면 기록, 없으면 콘솔 출력
+            print(f"[Visualizer Error] {e}")
+            return None
