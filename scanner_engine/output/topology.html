@@ -1,0 +1,322 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+                <link href="lib/tom-select/tom-select.css" rel="stylesheet">
+                <script src="lib/tom-select/tom-select.complete.min.js"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 100%;
+                 background-color: #2b2b2b;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+                <div id="select-menu" class="card-header">
+                    <div class="row no-gutters">
+                        <div class="col-10 pb-2">
+                            <select
+                            class="form-select"
+                            aria-label="Default select example"
+                            onchange="selectNode([value]);"
+                            id="select-node"
+                            placeholder="Select node..."
+                            >
+                                <option selected>Select a Node by ID</option>
+                                
+                                    <option value="Gateway">Gateway</option>
+                                
+                                    <option value="127.0.0.61">127.0.0.61</option>
+                                
+                                    <option value="127.0.0.62">127.0.0.62</option>
+                                
+                                    <option value="127.0.0.48">127.0.0.48</option>
+                                
+                                    <option value="127.0.0.47">127.0.0.47</option>
+                                
+                                    <option value="127.0.0.49">127.0.0.49</option>
+                                
+                                    <option value="127.0.0.53">127.0.0.53</option>
+                                
+                                    <option value="127.0.0.52">127.0.0.52</option>
+                                
+                                    <option value="127.0.0.51">127.0.0.51</option>
+                                
+                                    <option value="127.0.0.54">127.0.0.54</option>
+                                
+                                    <option value="127.0.0.55">127.0.0.55</option>
+                                
+                                    <option value="127.0.0.56">127.0.0.56</option>
+                                
+                                    <option value="127.0.0.59">127.0.0.59</option>
+                                
+                                    <option value="127.0.0.57">127.0.0.57</option>
+                                
+                                    <option value="127.0.0.58">127.0.0.58</option>
+                                
+                                    <option value="127.0.0.60">127.0.0.60</option>
+                                
+                                    <option value="127.0.0.41">127.0.0.41</option>
+                                
+                                    <option value="127.0.0.42">127.0.0.42</option>
+                                
+                                    <option value="127.0.0.44">127.0.0.44</option>
+                                
+                                    <option value="127.0.0.43">127.0.0.43</option>
+                                
+                                    <option value="127.0.0.45">127.0.0.45</option>
+                                
+                                    <option value="127.0.0.46">127.0.0.46</option>
+                                
+                                    <option value="127.0.0.50">127.0.0.50</option>
+                                
+                                    <option value="127.0.0.26">127.0.0.26</option>
+                                
+                                    <option value="127.0.0.27">127.0.0.27</option>
+                                
+                                    <option value="127.0.0.29">127.0.0.29</option>
+                                
+                                    <option value="127.0.0.30">127.0.0.30</option>
+                                
+                                    <option value="127.0.0.28">127.0.0.28</option>
+                                
+                                    <option value="127.0.0.33">127.0.0.33</option>
+                                
+                                    <option value="127.0.0.32">127.0.0.32</option>
+                                
+                                    <option value="127.0.0.31">127.0.0.31</option>
+                                
+                                    <option value="127.0.0.34">127.0.0.34</option>
+                                
+                                    <option value="127.0.0.35">127.0.0.35</option>
+                                
+                                    <option value="127.0.0.36">127.0.0.36</option>
+                                
+                                    <option value="127.0.0.38">127.0.0.38</option>
+                                
+                                    <option value="127.0.0.37">127.0.0.37</option>
+                                
+                                    <option value="127.0.0.39">127.0.0.39</option>
+                                
+                                    <option value="127.0.0.40">127.0.0.40</option>
+                                
+                                    <option value="127.0.0.21">127.0.0.21</option>
+                                
+                                    <option value="127.0.0.24">127.0.0.24</option>
+                                
+                                    <option value="127.0.0.23">127.0.0.23</option>
+                                
+                                    <option value="127.0.0.22">127.0.0.22</option>
+                                
+                                    <option value="127.0.0.25">127.0.0.25</option>
+                                
+                                    <option value="127.0.0.20">127.0.0.20</option>
+                                
+                                    <option value="127.0.0.11">127.0.0.11</option>
+                                
+                                    <option value="127.0.0.3">127.0.0.3</option>
+                                
+                                    <option value="127.0.0.17">127.0.0.17</option>
+                                
+                                    <option value="127.0.0.12">127.0.0.12</option>
+                                
+                                    <option value="127.0.0.7">127.0.0.7</option>
+                                
+                                    <option value="127.0.0.18">127.0.0.18</option>
+                                
+                                    <option value="127.0.0.13">127.0.0.13</option>
+                                
+                                    <option value="127.0.0.5">127.0.0.5</option>
+                                
+                                    <option value="127.0.0.10">127.0.0.10</option>
+                                
+                                    <option value="127.0.0.2">127.0.0.2</option>
+                                
+                                    <option value="127.0.0.6">127.0.0.6</option>
+                                
+                                    <option value="127.0.0.16">127.0.0.16</option>
+                                
+                                    <option value="127.0.0.15">127.0.0.15</option>
+                                
+                                    <option value="127.0.0.9">127.0.0.9</option>
+                                
+                                    <option value="127.0.0.19">127.0.0.19</option>
+                                
+                                    <option value="127.0.0.8">127.0.0.8</option>
+                                
+                                    <option value="127.0.0.4">127.0.0.4</option>
+                                
+                                    <option value="127.0.0.14">127.0.0.14</option>
+                                
+                                    <option value="127.0.0.1">127.0.0.1</option>
+                                
+                            </select>
+                        </div>
+                        <div class="col-2 pb-2">
+                            <button type="button" class="btn btn-primary btn-block" onclick="neighbourhoodHighlight({nodes: []});">Reset Selection</button>
+                        </div>
+                    </div>
+                </div>
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+                  new TomSelect("#select-node",{
+                      create: false,
+                      sortField: {
+                          field: "text",
+                          direction: "asc"
+                      }
+                  });
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#ff5722", "font": {"color": "white"}, "id": "Gateway", "label": "Core Gateway", "shape": "diamond", "size": 30, "title": "Main Entrance"}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.61", "label": "127.0.0.61", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.61\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.62", "label": "127.0.0.62", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.62\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.48", "label": "127.0.0.48", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.48\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.47", "label": "127.0.0.47", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.47\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.49", "label": "127.0.0.49", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.49\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.53", "label": "127.0.0.53", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.53\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.52", "label": "127.0.0.52", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.52\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.51", "label": "127.0.0.51", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.51\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.54", "label": "127.0.0.54", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.54\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.55", "label": "127.0.0.55", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.55\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.56", "label": "127.0.0.56", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.56\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.59", "label": "127.0.0.59", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.59\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.57", "label": "127.0.0.57", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.57\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.58", "label": "127.0.0.58", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.58\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.60", "label": "127.0.0.60", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.60\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.41", "label": "127.0.0.41", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.41\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.42", "label": "127.0.0.42", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.42\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.44", "label": "127.0.0.44", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.44\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.43", "label": "127.0.0.43", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.43\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.45", "label": "127.0.0.45", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.45\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.46", "label": "127.0.0.46", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.46\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.50", "label": "127.0.0.50", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.50\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.26", "label": "127.0.0.26", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.26\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.27", "label": "127.0.0.27", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.27\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.29", "label": "127.0.0.29", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.29\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.30", "label": "127.0.0.30", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.30\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.28", "label": "127.0.0.28", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.28\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.33", "label": "127.0.0.33", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.33\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.32", "label": "127.0.0.32", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.32\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.31", "label": "127.0.0.31", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.31\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.34", "label": "127.0.0.34", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.34\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.35", "label": "127.0.0.35", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.35\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.36", "label": "127.0.0.36", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.36\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.38", "label": "127.0.0.38", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.38\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.37", "label": "127.0.0.37", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.37\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.39", "label": "127.0.0.39", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.39\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.40", "label": "127.0.0.40", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.40\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.21", "label": "127.0.0.21", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.21\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.24", "label": "127.0.0.24", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.24\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.23", "label": "127.0.0.23", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.23\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.22", "label": "127.0.0.22", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.22\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.25", "label": "127.0.0.25", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.25\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.20", "label": "127.0.0.20", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.20\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.11", "label": "127.0.0.11", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.11\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.3", "label": "127.0.0.3", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.3\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.17", "label": "127.0.0.17", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.17\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.12", "label": "127.0.0.12", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.12\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.7", "label": "127.0.0.7", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.7\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.18", "label": "127.0.0.18", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.18\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.13", "label": "127.0.0.13", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.13\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.5", "label": "127.0.0.5", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.5\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.10", "label": "127.0.0.10", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.10\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.2", "label": "127.0.0.2", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.2\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.6", "label": "127.0.0.6", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.6\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.16", "label": "127.0.0.16", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.16\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.15", "label": "127.0.0.15", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.15\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.9", "label": "127.0.0.9", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.9\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.19", "label": "127.0.0.19", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.19\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.8", "label": "127.0.0.8", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.8\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.4", "label": "127.0.0.4", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.4\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.14", "label": "127.0.0.14", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.14\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}, {"color": "#2979ff", "font": {"color": "white"}, "id": "127.0.0.1", "label": "127.0.0.1", "shape": "dot", "size": 20, "title": "\u003cb\u003eIP:\u003c/b\u003e 127.0.0.1\u003cbr\u003e\u003cb\u003eOS:\u003c/b\u003e Windows\u003cbr\u003e\u003cb\u003eMemo:\u003c/b\u003e "}]);
+                  edges = new vis.DataSet([{"color": "#555555", "from": "Gateway", "to": "127.0.0.61", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.62", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.48", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.47", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.49", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.53", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.52", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.51", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.54", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.55", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.56", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.59", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.57", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.58", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.60", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.41", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.42", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.44", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.43", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.45", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.46", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.50", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.26", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.27", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.29", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.30", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.28", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.33", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.32", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.31", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.34", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.35", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.36", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.38", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.37", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.39", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.40", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.21", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.24", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.23", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.22", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.25", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.20", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.11", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.3", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.17", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.12", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.7", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.18", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.13", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.5", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.10", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.2", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.6", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.16", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.15", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.9", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.19", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.8", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.4", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.14", "width": 1}, {"color": "#555555", "from": "Gateway", "to": "127.0.0.1", "width": 1}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "barnesHut": {
+            "avoidOverlap": 0,
+            "centralGravity": 0.3,
+            "damping": 0.09,
+            "gravitationalConstant": -3000,
+            "springConstant": 0.05,
+            "springLength": 150
+        },
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+                    network.on("selectNode", neighbourhoodHighlight);
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

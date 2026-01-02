@@ -11,12 +11,19 @@ import os
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QProgressBar, QComboBox, QMessageBox, QGroupBox,
-    QSplitter, QTextEdit, QMenu, QInputDialog
+    QHeaderView, QProgressBar, QComboBox, QMessageBox, 
+    QSplitter, QTextEdit, QMenu, QInputDialog, QFileDialog,
+    QGroupBox,
+    QToolBar,
+    QTabWidget,
+    QAbstractItemView
 )
-from PySide6.QtCore import Qt, QTimer
-# [Fix] QTextCursor 추가 임포트 (로그 창 스크롤 에러 해결)
-from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
+
+# [PySide6 핵심 기능]
+from PySide6.QtCore import Qt, QTimer, QUrl
+
+# [PySide6 그래픽 및 액션]
+from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QDesktopServices
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -55,166 +62,303 @@ class ScannerApp(QMainWindow):
 
     # -- UI 세팅 --
     def initUI(self):
-        self.setWindowTitle('Z-VulnScan v3.0.0 Professional Edition')
-        self.setGeometry(100, 100, 1100, 750)
+        self.setWindowTitle('Z-Vuln Scan v3.0.0 Professional Edition')
+        self.resize(1200, 850)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
-        self.setStyleSheet(STYLESHEET)
+        
+        # [테마] 전체 스타일시트 (Deep Dark 모드 + 가독성 개선)
+        self.setStyleSheet("""
+            QMainWindow { background-color: #1e1e1e; }
+            QWidget { color: #d4d4d4; font-size: 10pt; font-family: 'Segoe UI', sans-serif; }
+            QToolTip { color: #ffffff; background-color: #2b2b2b; border: 1px solid #767676; }
+            
+            /* [공통] 입력창 스타일 */
+            QLineEdit {
+                background-color: #2d2d30;
+                color: #ffffff;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QLineEdit:focus { border: 1px solid #555555; background-color: #1e1e1e; }
+            QLineEdit:disabled { background-color: #333333; color: #888888; }
+            
+            /* [공통] 콤보박스 스타일 (투명화 해결 포함) */
+            QComboBox {
+                background-color: #2d2d30;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+                color: #ffffff;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox::down-arrow { image: none; border-left: 2px solid #555; width: 0; height: 0; }
+            QComboBox QAbstractItemView {
+                background-color: #2d2d30;
+                color: #ffffff;
+                border: 1px solid #3e3e42;
+                selection-background-color: #3e3e42;
+                selection-color: #ffffff;
+            }
 
+            /* 알림창(QMessageBox) & 입력창(QInputDialog) 테마 적용 */
+            QMessageBox, QInputDialog {
+                background-color: #252526;
+                color: #d4d4d4;
+            }
+            QMessageBox QLabel, QInputDialog QLabel {
+                color: #d4d4d4;
+                font-weight: normal;
+            }
+            /* 다이얼로그 내부 버튼 스타일 */
+            QMessageBox QPushButton, QInputDialog QPushButton {
+                background-color: #3e3e42;
+                color: white;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 6px 20px;
+                min-width: 60px;
+            }
+            QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
+                background-color: #4e4e52;
+                border-color: #777;
+            }
+            QMessageBox QPushButton:pressed, QInputDialog QPushButton:pressed {
+                background-color: #2d2d30;
+            }
+        """)
+
+        # [1. 상단 툴바]
+        toolbar = self.addToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        toolbar.setStyleSheet("""
+            QToolBar { background: #252526; border-bottom: 1px solid #333; spacing: 10px; padding: 5px; }
+            QToolButton { color: #cccccc; background: transparent; padding: 6px; border-radius: 4px; font-weight: bold; }
+            QToolButton:hover { background: #3e3e42; color: white; }
+        """)
+
+        # 툴바 액션
+        self.action_db = QAction("📂 DB Manager", self)
+        self.action_db.triggered.connect(self.open_db_manager)
+        toolbar.addAction(self.action_db)
+        
+        toolbar.addSeparator()
+        
+        self.action_map = QAction("🗺️ Topology", self)
+        self.action_map.triggered.connect(self.show_topology)
+        toolbar.addAction(self.action_map)
+        
+        toolbar.addSeparator()
+
+        self.action_pdf = QAction("📄 PDF", self)
+        self.action_pdf.triggered.connect(self.generate_pdf)
+        toolbar.addAction(self.action_pdf)
+        
+        self.action_xls = QAction("📊 Excel", self)
+        self.action_xls.triggered.connect(self.generate_excel)
+        toolbar.addAction(self.action_xls)
+
+        # --- 메인 컨텐츠 ---
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # 1. 헤더
+        # [2. 헤더 영역]
         header_layout = QHBoxLayout()
-        title_label = QLabel("🛡️ Z-VulnScan V3.0.0 Professional Edition")
-        title_label.setStyleSheet("color: #ffffff; font-size: 16pt; font-weight: bold;")
+        
+        # 타이틀
+        title_widget = QWidget()
+        title_widget.setStyleSheet("background-color: #1e1e1e; border-radius: 6px;")
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setContentsMargins(15, 8, 15, 8)
+        
+        title_label = QLabel("🛡️ Z-Vuln Scan Professional")
+        title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
+        ver_label = QLabel("v3.0.0")
+        ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
+        
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(ver_label)
+        header_layout.addWidget(title_widget)
+        
+        header_layout.addStretch()
+        
+        # 통계 컨테이너
+        stats_container = QWidget()
+        stats_container.setStyleSheet("background-color: #1e1e1e; border-radius: 6px; ali")
+        stats_layout = QHBoxLayout(stats_container)
+        stats_layout.setContentsMargins(15, 8, 15, 8)
         
         self.lbl_stats_assets = QLabel("Assets: 0")
-        self.lbl_stats_assets.setStyleSheet("color: #00b0ff; font-weight: bold; margin-left: 20px; font-size: 11pt;")
+        self.lbl_stats_assets.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11pt; border: none;")
+        
         self.lbl_stats_vulns = QLabel("Issues: 0")
-        self.lbl_stats_vulns.setStyleSheet("color: #ff5555; font-weight: bold; margin-left: 10px; font-size: 11pt;")
-        ver_label = QLabel("v3.0.0")
-        ver_label.setStyleSheet("color: #666; font-weight: bold;")
-        header_layout.addWidget(title_label)
-        header_layout.addWidget(self.lbl_stats_assets)
-        header_layout.addWidget(self.lbl_stats_vulns)
-        header_layout.addStretch()
-        header_layout.addWidget(ver_label)
+        self.lbl_stats_vulns.setStyleSheet("color: #ff6b6b; font-weight: bold; font-size: 11pt; border: none; margin-left: 15px;")
+        
+        stats_layout.addWidget(self.lbl_stats_assets)
+        stats_layout.addWidget(self.lbl_stats_vulns)
+        
+        header_layout.addWidget(stats_container)
         main_layout.addLayout(header_layout)
 
-        # 2. 타겟 & 포트 설정
-        input_group = QGroupBox("Configuration")
-        input_layout = QVBoxLayout()
+        # [3. 설정 영역] (탭 제거 -> 통합 뷰)
+        # 깔끔한 그룹박스로 감싸서 시각적 분리
+        config_group = QGroupBox("Scan Configuration")
+        config_group.setStyleSheet("""
+            QGroupBox { 
+                border: 1px solid #333; 
+                border-radius: 6px; 
+                margin-top: 10px; 
+                background-color: #252526; 
+                color: #ddd; 
+                font-weight: bold;
+                padding-top: 15px;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; }
+        """)
+        config_layout = QVBoxLayout(config_group)
+        config_layout.setContentsMargins(15, 15, 15, 15)
+        config_layout.setSpacing(15)
+
+        # Row 1: Target & Mode (가장 중요한 정보)
+        row1_layout = QHBoxLayout()
         
-        # Row 1: Target & Creds
-        row1 = QHBoxLayout()
+        lbl_target = QLabel("Target:")
+        lbl_target.setStyleSheet("color: #ccc; font-weight: bold;")
+        
         self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("IP Address or CIDR (e.g., 192.168.0.0/24)")
+        self.ip_input.setPlaceholderText("Target IP Address (e.g., 192.168.1.1 or 192.168.1.0/24)")
+        self.ip_input.setStyleSheet("font-size: 11pt; padding: 8px;") # 중요하니까 조금 크게
+        
+        lbl_mode = QLabel("Mode:")
+        lbl_mode.setStyleSheet("color: #ccc; font-weight: bold;")
+        
+        self.port_mode_combo = QComboBox()
+        self.port_mode_combo.addItems(["⚡ Fast Scan (Major)", "📝 Custom Range", "🐢 Full Scan(1~ 65535)"])
+        self.port_mode_combo.setStyleSheet("padding: 8px;")
+        self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
+
+        row1_layout.addWidget(lbl_target)
+        row1_layout.addWidget(self.ip_input, 3) # 비율 3
+        row1_layout.addSpacing(15)
+        row1_layout.addWidget(lbl_mode)
+        row1_layout.addWidget(self.port_mode_combo, 1) # 비율 1
+        
+        config_layout.addLayout(row1_layout)
+
+        # Row 2: Auth & Advanced (한 줄에 정렬)
+        row2_layout = QHBoxLayout()
+        
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("SSH/WinRM User")
+        
         self.pw_input = QLineEdit()
         self.pw_input.setPlaceholderText("Password")
         self.pw_input.setEchoMode(QLineEdit.Password)
         
-        row1.addWidget(QLabel("Target:"))
-        row1.addWidget(self.ip_input)
-        row1.addWidget(QLabel("User:"))
-        row1.addWidget(self.user_input)
-        row1.addWidget(QLabel("PW:"))
-        row1.addWidget(self.pw_input)
-        
-        # Row 2: Port Settings
-        row2 = QHBoxLayout()
-        self.port_mode_combo = QComboBox()
-        self.port_mode_combo.addItems(["⚡ Default (Fast)", "📝 Custom Range", "🐢 Full Scan (1-65535)"])
-        self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
-        
         self.port_input = QLineEdit()
-        self.port_input.setPlaceholderText("Ex: 80,443,8080 or 1-1024")
-        self.port_input.setEnabled(False)
-        
-        row2.addWidget(QLabel("Scan Mode:"))
-        row2.addWidget(self.port_mode_combo)
-        row2.addWidget(QLabel("Custom Ports:"))
-        row2.addWidget(self.port_input)
-        
-        input_layout.addLayout(row1)
-        input_layout.addLayout(row2)
-        input_group.setLayout(input_layout)
-        main_layout.addWidget(input_group)
+        self.port_input.setPlaceholderText("Custom Ports (80, 443...)")
+        self.port_input.setEnabled(False) # 모드 선택 시 활성화
 
-        # 3. 버튼 그룹
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
+        # 라벨 없이 Placeholder로 깔끔하게 처리하거나, 아이콘 사용 가능
+        # 여기선 공간 절약을 위해 라벨 최소화
+        row2_layout.addWidget(QLabel("User:"))
+        row2_layout.addWidget(self.user_input, 2)
+        row2_layout.addSpacing(10)
+        row2_layout.addWidget(QLabel("Pass:"))
+        row2_layout.addWidget(self.pw_input, 2)
+        row2_layout.addSpacing(10)
+        row2_layout.addWidget(QLabel("Ports:"))
+        row2_layout.addWidget(self.port_input, 2)
         
-        self.btn_scan = QPushButton("🔍 Network Discovery")
-        self.btn_scan.setToolTip("활성 자산 식별 및 포트 스캔")
+        config_layout.addLayout(row2_layout)
+        
+        main_layout.addWidget(config_group)
+
+        # [4. 액션 버튼]
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(15)
+        
+        btn_scan_style = """
+            QPushButton { background-color: #383838; color: white; font-weight: bold; font-size: 11pt; padding: 12px; border: 1px solid #555; border-radius: 4px; }
+            QPushButton:hover { background-color: #4d4d4d; border-color: #777; }
+            QPushButton:pressed { background-color: #2b2b2b; }
+        """
+        btn_audit_style = """
+            QPushButton { background-color: #7b1fa2; color: white; font-weight: bold; font-size: 11pt; padding: 12px; border: 1px solid #6a1b9a; border-radius: 4px; }
+            QPushButton:hover { background-color: #9c27b0; }
+        """
+        
+        self.btn_scan = QPushButton("🚀 Network Discovery Scan")
+        self.btn_scan.setToolTip("네트워크 스캔 수행")
+        self.btn_scan.setStyleSheet(btn_scan_style)
         self.btn_scan.clicked.connect(self.start_network_scan)
         
         self.btn_audit = QPushButton("🛡️ Vulnerability Audit")
-        self.btn_audit.setToolTip("정밀 진단 수행 (시뮬레이션 포함)")
-        self.btn_audit.setStyleSheet(
-            "QPushButton { border-color: #d73a49; } "
-            "QPushButton:hover { border-color: #ff5555; background-color: #3e2020; }"
-        )
+        self.btn_audit.setToolTip("취약점 진단 수행")
+        self.btn_audit.setStyleSheet(btn_audit_style)
         self.btn_audit.clicked.connect(self.start_audit)
         
-        self.btn_pdf = QPushButton("📄 PDF Report")
-        self.btn_pdf.setToolTip("Pro: PDF 리포트 생성")
-        self.btn_pdf.setStyleSheet(
-            "QPushButton { border-color: #28a745; } "
-            "QPushButton:hover { border-color: #4cd964; background-color: #1e3a20; }"
-        )
-        self.btn_pdf.clicked.connect(self.generate_pdf)
-        
-        self.btn_excel = QPushButton("📊 Excel Export")
-        self.btn_excel.setToolTip("Pro: 상세 진단 결과 엑셀 저장")
-        self.btn_excel.setStyleSheet(
-            "QPushButton { border-color: #1e7145; color: #ffffff; }"
-            "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"
-        )
-        self.btn_excel.clicked.connect(self.generate_excel)
-        
-        self.btn_map = QPushButton("🗺️ Topology Map")
-        self.btn_map.clicked.connect(self.show_topology)
-        self.btn_map.setStyleSheet(
-            "QPushButton { border-color: #1e7145; color: #ffffff; }"
-            "QPushButton:hover { border-color: #2e8b57; background-color: #1e3a20; }"
-            )
-        
-        self.btn_stop = QPushButton("🛑 Stop")
+        self.btn_stop = QPushButton("🛑 STOP")
+        self.btn_stop.setFixedWidth(100)
+        self.btn_stop.setStyleSheet("""
+            QPushButton { background-color: #1e1e1e; color: #ff5555; border: 1px solid #555; padding: 12px; border-radius: 4px; font-weight: bold; }
+            QPushButton:hover { background-color: #2d2d30; border-color: #ff5555; }
+            QPushButton:disabled { color: #555; border-color: #333; }
+        """)
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
+
+        action_layout.addWidget(self.btn_scan, 4)
+        action_layout.addWidget(self.btn_audit, 4)
+        action_layout.addWidget(self.btn_stop, 1)
         
-        self.btn_db_manager = QPushButton("DB Manager")
-        self.btn_db_manager.clicked.connect(self.open_db_manager)
+        main_layout.addLayout(action_layout)
 
-        btn_layout.addWidget(self.btn_scan)
-        btn_layout.addWidget(self.btn_audit)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.btn_pdf)
-        btn_layout.addWidget(self.btn_excel)
-        btn_layout.addWidget(self.btn_map)
-        btn_layout.addWidget(self.btn_stop)
-        btn_layout.addWidget(self.btn_db_manager)
-        main_layout.addLayout(btn_layout)
-
-        # 4. 콘텐츠 (Splitter)
+        # [5. 결과 뷰]
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(2)
+        splitter.setStyleSheet("QSplitter::handle { background-color: #333; }")
         
         # [LEFT] 자산 리스트
         left_widget = QWidget()
         left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 5, 0)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         
-        header_h = QHBoxLayout()
-        lbl_assets = QLabel("📋 Identified Assets")
-        lbl_assets.setStyleSheet("font-weight: bold; color: #007acc;")
+        list_header = QHBoxLayout()
+        lbl_list = QLabel("📋 Asset List")
+        lbl_list.setStyleSheet("font-weight: bold; color: #ddd; font-size: 10pt;")
         
-        self.btn_clear_assets = QPushButton("🗑️ Clear List")
-        self.btn_clear_assets.setObjectName("ClearBtn")
+        self.btn_clear_assets = QPushButton("Clear List")
+        self.btn_clear_assets.setFixedSize(90, 30)
+        self.btn_clear_assets.setStyleSheet("""
+            QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
+            QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
+        """)
         self.btn_clear_assets.clicked.connect(self.clear_asset_table)
         
-        header_h.addWidget(lbl_assets)
-        header_h.addStretch()
-        header_h.addWidget(self.btn_clear_assets)
-        left_layout.addLayout(header_h)
+        list_header.addWidget(lbl_list)
+        list_header.addStretch()
+        list_header.addWidget(self.btn_clear_assets)
+        left_layout.addLayout(list_header)
         
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(4)
-        self.asset_table.setHorizontalHeaderLabels(["IP Address", "OS Type", "Open Ports", "Memo / Tag"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr", "OS / Type", "Ports", "Memo"])
+        self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.asset_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.asset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.asset_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.asset_table.verticalHeader().setVisible(False)
-        self.asset_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.asset_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.asset_table.setShowGrid(False)
+        self.asset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.asset_table.setAlternatingRowColors(True)
+        self.asset_table.setStyleSheet("""
+            QTableWidget { background-color: #1e1e1e; gridline-color: #333; border: 1px solid #444; border-radius: 4px; }
+            QHeaderView::section { background-color: #252526; color: #ccc; padding: 8px; border: none; border-bottom: 1px solid #444; font-weight: bold; }
+            QTableWidget::item { padding: 5px; color: #ddd; }
+            QTableWidget::item:selected { background-color: #37373d; color: white; border-left: 2px solid #ff5555; }
+            QTableWidget::item:hover { background-color: #2a2a2e; }
+        """)
         self.asset_table.doubleClicked.connect(self.on_asset_double_click)
         self.asset_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.asset_table.customContextMenuRequested.connect(self.show_context_menu)
@@ -225,31 +369,36 @@ class ScannerApp(QMainWindow):
         # [RIGHT] 로그 콘솔
         right_widget = QWidget()
         right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(5, 0, 0, 0)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         
-        log_h = QHBoxLayout()
-        lbl_logs = QLabel("💻 System Logs")
-        lbl_logs.setStyleSheet("font-weight: bold; color: #28a745;")
+        log_header = QHBoxLayout()
+        lbl_log = QLabel("📟 System Log")
+        lbl_log.setStyleSheet("font-weight: bold; color: #4ec9b0; font-size: 10pt;")
         
-        self.btn_clear_logs = QPushButton("🗑️ Clear Logs")
-        self.btn_clear_logs.setObjectName("ClearBtn")
+        self.btn_clear_logs = QPushButton("Clear Log")
+        self.btn_clear_logs.setFixedSize(90, 30)
+        self.btn_clear_logs.setStyleSheet("""
+            QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
+            QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
+        """)
         self.btn_clear_logs.clicked.connect(self.clear_logs)
         
-        log_h.addWidget(lbl_logs)
-        log_h.addStretch()
-        log_h.addWidget(self.btn_clear_logs)
-        right_layout.addLayout(log_h)
+        log_header.addWidget(lbl_log)
+        log_header.addStretch()
+        log_header.addWidget(self.btn_clear_logs)
+        right_layout.addLayout(log_header)
         
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
-        # [Style] 로그 콘솔 스타일 (해커 테마)
         self.log_console.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
-                color: #00ff00;
+                background-color: #101010;
+                color: #cccccc;
                 font-family: Consolas, 'Courier New', monospace;
-                font-size: 10pt;
-                border: 1px solid #333;
+                font-size: 9pt;
+                border: 1px solid #444;
+                border-radius: 4px;
+                padding: 5px;
             }
         """)
         right_layout.addWidget(self.log_console)
@@ -257,30 +406,36 @@ class ScannerApp(QMainWindow):
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
-        splitter.setSizes([450, 650])
-        splitter.setCollapsible(0, False)
-        splitter.setCollapsible(1, False)
+        splitter.setSizes([650, 500])
         main_layout.addWidget(splitter)
 
-        # 5. 상태바
-        status_container = QWidget()
-        status_container.setStyleSheet("background-color: #252526; border-radius: 5px; padding: 5px;")
-        status_layout = QHBoxLayout(status_container)
-        status_layout.setContentsMargins(10, 5, 10, 5)
+        # [6. 상태바]
+        self.setStatusBar(None)
         
-        self.pbar = QProgressBar()
-        self.pbar.setFixedHeight(15)
-        self.pbar.setTextVisible(False)
+        status_bar_widget = QWidget()
+        status_bar_widget.setStyleSheet("background-color: #2d2d30; color: #bbb; border-top: 1px solid #3e3e42;")
+        status_layout = QHBoxLayout(status_bar_widget)
+        status_layout.setContentsMargins(15, 5, 15, 5)
         
         self.time_label = QLabel("Ready")
-        self.time_label.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: bold;")
+        self.time_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #ddd;")
         
-        status_layout.addWidget(self.pbar)
+        self.pbar = QProgressBar()
+        self.pbar.setFixedHeight(14)
+        self.pbar.setTextVisible(False)
+        self.pbar.setStyleSheet("QProgressBar { background: #1e1e1e; border: 1px solid #444; border-radius: 3px; } QProgressBar::chunk { background: #888; }")
+        
         status_layout.addWidget(self.time_label)
-        main_layout.addWidget(status_container)
+        status_layout.addStretch()
+        status_layout.addWidget(self.pbar, 1)
+        
+        docked_status_container = QWidget()
+        docked_layout = QVBoxLayout(docked_status_container)
+        docked_layout.setContentsMargins(0,0,0,0)
+        docked_layout.addWidget(status_bar_widget)
+        main_layout.addWidget(docked_status_container)
 
         central_widget.setLayout(main_layout)
-        self.load_saved_assets()
 
     # --- 기능 메서드 ---
     
@@ -424,9 +579,12 @@ class ScannerApp(QMainWindow):
         self.btn_scan.setDisabled(busy)
         self.btn_audit.setDisabled(busy)
         self.btn_stop.setEnabled(busy)
-        self.btn_pdf.setDisabled(busy)
-        self.btn_excel.setDisabled(busy)
-        self.btn_map.setDisabled(busy)
+        
+        # [핵심] 이제 self.action_XXX 로 접근 가능
+        if hasattr(self, 'action_pdf'): self.action_pdf.setEnabled(not busy)
+        if hasattr(self, 'action_xls'): self.action_xls.setEnabled(not busy)
+        if hasattr(self, 'action_map'): self.action_map.setEnabled(not busy)
+        if hasattr(self, 'action_db'):  self.action_db.setEnabled(not busy)
 
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)
@@ -435,22 +593,17 @@ class ScannerApp(QMainWindow):
 
         if busy:
             self.port_input.setDisabled(True)
-            
-            # [핵심] 스캔 결과 버퍼 초기화 (여기서 초기화해야 함)
             self.scan_result_buffer = []
-            # 캐시 초기화
             if hasattr(self, 'scanned_ip_cache'):
                 self.scanned_ip_cache.clear()
             else:
                 self.scanned_ip_cache = set()
-            
             self.pbar.setValue(0)
             self.elapsed_seconds = 0
             self.time_label.setText("Initializing...")
         else:
             is_custom = (self.port_mode_combo.currentIndex() == 1)
             self.port_input.setEnabled(is_custom)
-            
             self.timer.stop()
             self.pbar.setValue(100)
 
