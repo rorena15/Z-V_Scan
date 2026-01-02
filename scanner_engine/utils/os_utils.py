@@ -126,7 +126,7 @@ class OSUtils:
             except Exception as e:
                 AppLogger.log_error(f"[Utills] Failed to open RDP:", e)
         else:
-            AppLogger.log_error(f"[Utills] [Warning] RDP shortcut is primarily for Windows hosts.", e)
+            AppLogger.log_error(f"[Utills] [Warning] RDP shortcut is primarily for Windows hosts.")
 
     @staticmethod
     def open_ssh(target_ip, user="root"):
