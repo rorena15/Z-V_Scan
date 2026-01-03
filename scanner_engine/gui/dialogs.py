@@ -85,8 +85,6 @@ class LegalDisclaimerDialog(QDialog):
         본 도구는 패킷 제어를 위해 <b>[관리자 권한]</b>으로 실행되어야 하며, 결과 저장을 위해 <b>[파일 쓰기 권한]</b>이 필수적입니다. <br>
         권한이 제한된 환경(예: 압축 파일 내부 실행, 쓰기 금지된 저장소)에서는 프로그램이 정상 작동하지 않거나 종료될 수 있습니다.</p>
         <br>
-        
-        <br>
         <p style='color: #cccccc;'>위 내용을 충분히 숙지하였으며, 이에 동의하는 경우에만 프로그램을 시작하십시오.</p>
         """)
         layout.addWidget(self.text_area)
