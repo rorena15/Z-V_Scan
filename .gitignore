@@ -10,7 +10,11 @@
 /build/
 /dist/
 /Z-VulnScan_Build_Work/
-/scanner_engine_Build_work/
+/scanner_engine_Build_work/build
+/scanner_engine_Build_work/dist/
+/scanner_engine_Build_work/rules
+/scanner_engine_Build_work/*.exe
+/scanner_engine_Build_work/Z-VulnScan_Professional_v3.0.0_Final
 
 ########################################
 # Executables & Release Files
