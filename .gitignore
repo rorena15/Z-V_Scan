@@ -1,40 +1,62 @@
+########################################
+# Environment / Config
+########################################
 .env
-.spec
+*.spec
+
+########################################
+# Build / Distribution Artifacts
+########################################
+/build/
+/dist/
+/Z-VulnScan_Build_Work/
+/scanner_engine_Build_work/
+
+########################################
+# Executables & Release Files
+########################################
+*.exe
+*.zip
+
+########################################
+# Reports / Logs / Databases
+########################################
 Security_Report.pdf
+audit_agreement.log
+error_log.txt
+scanner_engine/utils/scan_debug.log
 zvuln_scan.db
+
+########################################
+# Python Cache / Compiled Files
+########################################
+__pycache__/
+*.pyc
+
+########################################
+# Scanner Engine Cache (Explicit)
+########################################
+scanner_engine/__pycache__/
+scanner_engine/gui/__pycache__/
+scanner_engine/core/__pycache__/
+scanner_engine/utils/__pycache__/
+scanner_engine/output/__pycache__/
+
+########################################
+# Assets / Temporary Resources
+########################################
 ico.py
 app_icon_preview.png
-/build
-/dist
-Z-VulnScan_Enterprise_v2.1.0.spec
-audit_agreement.log
-Z-VulnScan_Build_Work
-/report
-/scanner_engine_Build_work
-scanner_engine/__pycache__
-scanner_engine/gui/__pycache__
-scanner_engine/output/__pycache__/excel_report.cpython-313.pyc
-scanner_engine/output/__pycache__/pdf_report.cpython-313.pyc
-/Z-VulnScan_Enterprise_v2.1_Alpha
-error_log.txt
-/__pycache__
-Z-VulnScan_Professional_Edition_v2.1_Alpha/Z-VulnScan_Professional_Edition_v2.1.0_Alpha.exe
-Z-VulnScan_Professional_Edition_v2.1_Alpha.zip
-Z-VulnScan_Professional_Edition_v2.1.0_Alpha.spec
-Z-VulnScan 바이러스 제출용.zip
-동기화.zip
-.zip
-Z-VulnScan_Professional_Edition_v2.1_Alpha 노트북 빌드.zip
-Z-VulnScan_Professional_Edition_v2.2.0(Stable).zip
-Z-VulnScan_Professional_Edition_v2.2.0.spec
-Z-VulnScan_Professional_Edition_v2.2.0(Stable)/Z-VulnScan_Professional_Edition_v2.2.0.exe
+
+########################################
+# Versioned / Archived Project Folders
+########################################
+/Z-VulnScan_Enterprise_v2.1_Alpha/
+/Z-VulnScan_Professional_Edition_v2.1_Alpha/
+/Z-VulnScan_Professional_Edition_v2.2.0(Stable)/
+/Z-VulnScan_Professional_Edition_v3.0.0(01-02-newest)/
+
+########################################
+# Documents
+########################################
 \[별첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
-Z-VulnScan_Professional_Edition_v3.0.0.spec
-scanner_engine/gui/__pycache__/main_window.cpython-313.pyc
-scanner_engine/utils/scan_debug.log
-scanner_engine/utils/__pycache__/logger.cpython-313.pyc
-Z-VulnScan_Professional_Edition_v3.0.0(01-02-newest)/Z-VulnScan_Professional_Edition_v3.0.0.exe
-/scanner_engine/gui/__pycache__
-/scanner_engine/core/__pycache__
-/scanner_engine/utils/__pycache__
-/scanner_engine/output/__pycache__
