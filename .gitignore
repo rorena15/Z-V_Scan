@@ -30,3 +30,7 @@ scanner_engine/gui/__pycache__/main_window.cpython-313.pyc
 scanner_engine/utils/scan_debug.log
 scanner_engine/utils/__pycache__/logger.cpython-313.pyc
 Z-VulnScan_Professional_Edition_v3.0.0(01-02-newest)/Z-VulnScan_Professional_Edition_v3.0.0.exe
+/scanner_engine/gui/__pycache__
+/scanner_engine/core/__pycache__
+/scanner_engine/utils/__pycache__
+/scanner_engine/output/__pycache__
