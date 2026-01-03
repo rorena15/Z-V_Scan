@@ -6,6 +6,7 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 import os
+import sys
 import sqlite3
 import re
 from datetime import datetime
@@ -19,11 +20,17 @@ from utils.oui_lookup import OUILookup  # [New] 벤더 조회를 위해 추가
 class ExcelGenerator:
     def __init__(self):
         # DB 경로 설정
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.db_path = os.path.join(os.path.dirname(base_dir), 'zvuln_scan.db')
+        if getattr(sys, 'frozen', False):
+            self.project_root = os.path.dirname(sys.executable)
+        else:
+
+            current_file = os.path.abspath(__file__)
+            self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
         
-        # 저장 경로
-        self.output_dir = os.path.join(os.path.dirname(base_dir), 'report')
+        # [Fix] DB 및 리포트 경로를 project_root 기준으로 명확히 설정
+        self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
+        self.output_dir = os.path.join(self.project_root, 'report')
+
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
             

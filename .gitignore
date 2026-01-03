@@ -8,7 +8,11 @@ app_icon_preview.png
 /dist
 Z-VulnScan_Enterprise_v2.1.0.spec
 audit_agreement.log
+Z-VulnScan_Build_Work
 /report
+/scanner_engine_Build_work
+scanner_engine/__pycache__
+scanner_engine/gui/__pycache__
 scanner_engine/output/__pycache__/excel_report.cpython-313.pyc
 scanner_engine/output/__pycache__/pdf_report.cpython-313.pyc
 /Z-VulnScan_Enterprise_v2.1_Alpha
