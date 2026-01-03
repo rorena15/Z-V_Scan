@@ -10,6 +10,7 @@
 /build/
 /dist/
 /Z-VulnScan_Build_Work/
+/난독화 빌드 파일/
 
 ########################################
 # Executables & Release Files
