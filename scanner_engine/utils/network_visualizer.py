@@ -59,7 +59,7 @@ class NetworkVisualizer:
                 elif "printer" in os_lower:
                     color = "#ffea00"
 
-                tooltip = f"IP: {ip}OS: {os_type} Memo: {memo_display}"
+                tooltip = f"IP: {ip}, OS: {os_type}, Memo: {memo_display}"
                 net.add_node(ip, label=ip, title=tooltip, color=color, shape=shape, size=20)
                 net.add_edge("Gateway", ip, color="#555555", width=1)
 

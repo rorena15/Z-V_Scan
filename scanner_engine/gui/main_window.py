@@ -352,7 +352,7 @@ class ScannerApp(QMainWindow):
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.asset_table.setAlternatingRowColors(True)
+        self.asset_table.setAlternatingRowColors(False)
         self.asset_table.setStyleSheet("""
             QTableWidget { background-color: #1e1e1e; gridline-color: #333; border: 1px solid #444; border-radius: 4px; }
             QHeaderView::section { background-color: #252526; color: #ccc; padding: 8px; border: none; border-bottom: 1px solid #444; font-weight: bold; }
