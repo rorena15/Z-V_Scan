@@ -44,6 +44,7 @@ from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
+from utils.auth_token import get_engine_token
 
 class ScannerApp(QMainWindow):
     def __init__(self):
@@ -438,7 +439,6 @@ class ScannerApp(QMainWindow):
         central_widget.setLayout(main_layout)
 
     # --- 기능 메서드 ---
-    
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
     def add_asset_to_table(self, ip, os_type, ports, memo_text=None):
         """테이블에 자산을 추가합니다. (DB 로드 / 스캔 결과 공용)"""
@@ -678,7 +678,8 @@ class ScannerApp(QMainWindow):
             self.scanned_ip_cache = set()
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
+        token = get_engine_token()
+        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, auth_token=token)
         self.connect_worker()
         self.worker.start()
 
@@ -705,7 +706,8 @@ class ScannerApp(QMainWindow):
                 return
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user)
+        token = get_engine_token()
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, auth_token=token)
         self.connect_worker()
         self.worker.start()
 

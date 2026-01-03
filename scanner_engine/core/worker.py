@@ -26,6 +26,7 @@ from core.windows_inspector import WindowsInspector
 from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
+from utils.auth_token import get_engine_token
 
 class ScanWorker(QThread):
     log_signal = Signal(str)
@@ -34,7 +35,7 @@ class ScanWorker(QThread):
     started_signal = Signal(int)
     asset_found_signal = Signal(str, str, str)
 
-    def __init__(self, mode, target_input, user=None, ports=None):
+    def __init__(self, mode, target_input, user=None, ports=None,auth_token=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -48,6 +49,10 @@ class ScanWorker(QThread):
         self.writer_stop = False
         self.asset_ids = {}
         self.lock = threading.Lock()
+        if auth_token == get_engine_token():
+            self.is_authorized = True
+        else:
+            self.is_authorized = False
 
     def db_writer(self):
         # [Fix] DB 쓰기 전담 소비자 스레드 (안전 버전)
@@ -408,12 +413,19 @@ class ScanWorker(QThread):
         self.log_signal.emit(f"    📊 결과 요약: 취약 {vuln_cnt}건 / 양호 {safe_cnt}건")
 
     def run(self):
+        
+        if not self.is_authorized:
+            self.log_signal.emit("[CRITICAL] Engine Access Denied: Invalid Authentication Token.")
+            self.finish_signal.emit("Error: Unauthorized Engine Access.")
+            AppLogger.log_critical("Unauthorized attempt to access ScanWorker engine.")
+            return
+        
         #메인 실행 루프
         self.log_signal.emit(f"[*] 엔진 가동 (Threads: {self.max_threads})")
         
         target_gen = None
         total_count = 0
-        
+            
         try:
             if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
