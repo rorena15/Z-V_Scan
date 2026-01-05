@@ -9,6 +9,7 @@ import os
 import sys
 import sqlite3
 import html
+import re
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
@@ -33,7 +34,7 @@ class PDFGenerator:
             
         self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
         self.output_dir = os.path.join(self.project_root, 'report')
-        self._signature = "Made_By_Rorena_2025_Seongnam_KR"
+        _signature = "Made_By_rorena_2025_Seongnam_KR"
         
         if not os.path.exists(self.output_dir):
             try:
@@ -71,7 +72,7 @@ class PDFGenerator:
         
         # 1. 헤더 (Title)
         canvas.setFont(self.font_name, 20)
-        canvas.drawString(30, height - 40, "Z-VulnScan Executive Report")
+        canvas.drawString(30, height - 40, "Z-VulnScan Executive Report Trial")
         
         # 2. 헤더 라인
         canvas.setStrokeColor(colors.darkblue)
@@ -88,8 +89,7 @@ class PDFGenerator:
         # 4. 푸터 (Signature)
         canvas.line(30, 40, width - 30, 40)
         canvas.setFont(self.font_name, 8)
-        canvas.drawString(30, 25, self._signature)
-        canvas.drawRightString(width - 30, 25, "Z-VulnScan Enterprise v3.0.0")
+        canvas.drawRightString(width - 30, 25, "Created by Z-Vuln Scan (Trial Version) - Contact: [rorena1586@gmail.com]")
         
         canvas.restoreState()
 
@@ -207,8 +207,29 @@ class PDFGenerator:
             code = r[0]
             name = self._truncate(r[1], 15) # 글자수 제한
             status_raw = r[2]
-            detail_text = html.escape(detail_text)
-            remediation_text = html.escape(remediation_text)
+            
+            raw_detail = r[3] if r[3] else "-"      # 값이 None일 경우 처리
+            raw_remediation = r[4] if r[4] else "-" # 값이 None일 경우 처리
+            
+            if isinstance(raw_detail, str):
+                # 태그를 빈 문자열로 치환하고 앞뒤 공백 제거
+                text = raw_detail.replace("[Banner Info]", "").replace("[banner info]", "")
+                
+                text = re.sub(r'[^\w\s\.\-\:\;\(\)\[\]\/=\,\"\']', ' ', text)
+                
+                text = re.sub(r'\s+', ' ', text).strip()
+                
+                if len(text) > 80:
+                    text = text[:80] + "..."
+                
+                raw_detail = text
+                
+                # 태그 지웠더니 남는 게 없으면 '-' 처리
+                if not raw_detail: 
+                    raw_detail = "-"
+            
+            detail_text = html.escape(raw_detail)
+            remediation_text = html.escape(raw_remediation)
 
             # 상태 표시 문자열 정제
             is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
@@ -218,7 +239,7 @@ class PDFGenerator:
             elif is_warn: display_status = "Warn"
             else: 
                 display_status = "Safe"
-                remediation = "-"
+                remediation_text = "-"
                 
             p_detail = Paragraph(detail_text, cell_style)
             p_remediation = Paragraph(remediation_text, cell_style)
