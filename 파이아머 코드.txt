@@ -1,0 +1,1 @@
+pyarmor gen -O dist/obfuscated -r .

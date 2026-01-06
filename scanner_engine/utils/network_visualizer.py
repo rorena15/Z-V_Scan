@@ -75,14 +75,20 @@ class NetworkVisualizer:
                 
             full_path = os.path.join(save_dir, output_filename)
             
-            # [Fix] CP949 인코딩 에러 해결
+            #CP949 인코딩 에러 해결
             # 5. HTML 생성 및 UTF-8 강제 저장
-            html_content = net.generate_html()
+            try:
+                html_content = net.generate_html()
+            except Exception as enc_err:
+            #라이브러리 내부 템플릿 로드 에러 시 빈 깡통이라도 생성
+                AppLogger.log_error("PyVis Template Load Error", enc_err)
+                return None
+            
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
             
-            return full_path
-            
+                return full_path
+
         except Exception as e:
             AppLogger.log_critical(f" [Visualizer Error] ",e)
             return None

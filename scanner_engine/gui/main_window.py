@@ -63,7 +63,7 @@ class ScannerApp(QMainWindow):
 
     # -- UI 세팅 --
     def initUI(self):
-        self.setWindowTitle('Z-Vuln Scan v3.0.0 Professional Edition')
+        self.setWindowTitle('Z-Vuln Scan v3.0.0 Professional Edition [Evaluation Copy]')
         self.resize(1200, 850)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         
@@ -175,7 +175,7 @@ class ScannerApp(QMainWindow):
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(15, 8, 15, 8)
         
-        title_label = QLabel("🛡️ Z-Vuln Scan Professional")
+        title_label = QLabel("🛡️ Z-Vuln Scan Professional Trial Version")
         title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
         ver_label = QLabel("v3.0.0")
         ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
