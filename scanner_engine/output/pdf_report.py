@@ -208,30 +208,32 @@ class PDFGenerator:
             name = self._truncate(r[1], 15) # 글자수 제한
             status_raw = r[2]
             
-            raw_detail = r[3] if r[3] else "-"      # 값이 None일 경우 처리
-            raw_remediation = r[4] if r[4] else "-" # 값이 None일 경우 처리
+            # [수정 핵심 1] 값이 없으면 "-" 넣고, 있으면 무조건 문자열(str)로 변환
+            # DB에서 숫자(123)가 나와도 "123" 문자가 되어 안전함
+            raw_detail = str(r[3]) if r[3] is not None else "-"
+            raw_remediation = str(r[4]) if r[4] is not None else "-"
             
-            if isinstance(raw_detail, str):
-                # 태그를 빈 문자열로 치환하고 앞뒤 공백 제거
-                text = raw_detail.replace("[Banner Info]", "").replace("[banner info]", "")
-                
-                text = re.sub(r'[^\w\s\.\-\:\;\(\)\[\]\/=\,\"\']', ' ', text)
-                
-                text = re.sub(r'\s+', ' ', text).strip()
-                
-                if len(text) > 80:
-                    text = text[:80] + "..."
-                
-                raw_detail = text
-                
-                # 태그 지웠더니 남는 게 없으면 '-' 처리
-                if not raw_detail: 
-                    raw_detail = "-"
+            # [수정 핵심 2] 이제 무조건 문자열이니 isinstance 검사 불필요
+            # 태그 제거 및 공백 정리
+            text = raw_detail.replace("[Banner Info]", "").replace("[banner info]", "")
+            text = re.sub(r'[^\w\s\.\-\:\;\(\)\[\]\/=\,\"\']', ' ', text) # 특수문자 정제
+            text = re.sub(r'\s+', ' ', text).strip()
             
+            # 길이 제한
+            if len(text) > 80:
+                text = text[:80] + "..."
+            
+            raw_detail = text
+            
+            # 정리했더니 빈 값이면 "-"
+            if not raw_detail.strip(): 
+                raw_detail = "-"
+            
+            # [수정 핵심 3] 조건문 없이 무조건 실행되므로 변수 미할당 에러 방지
             detail_text = html.escape(raw_detail)
             remediation_text = html.escape(raw_remediation)
 
-            # 상태 표시 문자열 정제
+            # 상태 표시
             is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
             is_warn = status_raw in ['WARNING', '경고', 'Medium', 'Low']
             
