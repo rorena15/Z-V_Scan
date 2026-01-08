@@ -15,7 +15,7 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
@@ -25,7 +25,7 @@ from utils.oui_lookup import OUILookup
 
 class PDFGenerator:
     def __init__(self):
-        # [Fix] 실행 위치(Project Root) 기준 경로 설정 (유지)
+        # [Fix] 실행 위치(Project Root) 기준 경로 설정
         if getattr(sys, 'frozen', False):
             self.project_root = os.path.dirname(sys.executable)
         else:
@@ -65,7 +65,7 @@ class PDFGenerator:
             return text[:limit] + "..."
         return text
 
-    # [New] 각 페이지마다 고정적으로 그려질 헤더/푸터 함수
+    # 각 페이지마다 고정적으로 그려질 헤더/푸터 함수
     def _header_footer(self, canvas, doc):
         canvas.saveState()
         width, height = A4
@@ -79,14 +79,14 @@ class PDFGenerator:
         canvas.setLineWidth(1.5)
         canvas.line(30, height - 55, width - 30, height - 55)
         
-        # 3. 메타 정보 (날짜 등)
+        # 3. 메타 정보
         canvas.setFont(self.font_name, 9)
         canvas.setFillColor(colors.gray)
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         canvas.drawString(30, height - 70, f"Generated: {timestamp}  |  Confidential Document")
         canvas.drawRightString(width - 30, height - 70, f"Page {doc.page}")
         
-        # 4. 푸터 (Signature)
+        # 4. 푸터
         canvas.line(30, 40, width - 30, 40)
         canvas.setFont(self.font_name, 8)
         canvas.drawRightString(width - 30, 25, "Created by Z-Vuln Scan (Trial Version) - Contact: [rorena1586@gmail.com]")
@@ -94,8 +94,6 @@ class PDFGenerator:
         canvas.restoreState()
 
     def generate(self):
-        # [핵심] SimpleDocTemplate 사용 (자동 페이지 넘김 지원)
-        # topMargin을 넉넉히 주어 헤더와 겹치지 않게 함
         doc = SimpleDocTemplate(
             self.filename, 
             pagesize=A4,
@@ -103,7 +101,7 @@ class PDFGenerator:
             topMargin=90, bottomMargin=50
         )
         
-        elements = [] # PDF에 들어갈 내용물(Flowables)을 담을 리스트
+        elements = []
         styles = getSampleStyleSheet()
         normal_style = styles['Normal']
         normal_style.fontName = self.font_name
@@ -111,178 +109,201 @@ class PDFGenerator:
         cell_style = ParagraphStyle(
             name='CellStyle',
             parent=styles['Normal'],
-            fontName=self.font_name, # 한글 폰트
-            fontSize=8,              # 글자 크기
-            leading=10               # 줄 간격
+            fontName=self.font_name,
+            fontSize=8,
+            leading=10
         )
-        # --- 1. 데이터 조회 ---
+
+        # --- 1. 데이터 조회 (전체 자산) ---
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, memo FROM TBL_ASSETS ORDER BY last_seen DESC LIMIT 1")
-            asset = cursor.fetchone()
-        except Exception:
-            raise Exception("진단 데이터가 없습니다.")
-        
-        if not asset:
+            # [수정] LIMIT 1 제거, ORDER BY IP, fetchall() 사용
+            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, memo FROM TBL_ASSETS ORDER BY ip_addr ASC")
+            all_assets = cursor.fetchall()
+            
+        except Exception as e:
             conn.close()
-            raise Exception("리포트 데이터 없음")
+            raise Exception(f"DB Error: {e}")
 
-        asset_id, ip, os_type, hostname, mac_addr, memo = asset
-        vendor = OUILookup.lookup(mac_addr)
-        if not memo: memo = "-"
+        if not all_assets:
+            conn.close()
+            raise Exception("진단된 자산 데이터가 없습니다.")
 
-        # --- 2. 자산 정보 요약 박스 (Summary Info) ---
-        # 정보를 테이블 형태로 깔끔하게 배치
-        info_data = [
-            [f"Target IP: {ip}", f"OS Type: {os_type}"],
-            [f"Hostname: {hostname}", f"Vendor: {vendor}"],
-            [f"Memo: {memo}", ""]
-        ]
-        
-        info_table = Table(info_data, colWidths=[260, 260])
-        info_table.setStyle(TableStyle([
-            ('FONTNAME', (0,0), (-1,-1), self.font_name),
-            ('FONTSIZE', (0,0), (-1,-1), 10),
-            ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
-            ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
-        ]))
-        elements.append(info_table)
-        elements.append(Spacer(1, 15)) # 여백 추가
+        # --- [추가] 2. 전체 자산 요약 (Network Summary Page) ---
+        # 리포트 맨 첫 페이지에 발견된 전체 호스트 리스트를 표로 보여줍니다.
+        title_para = Paragraph(f"<b>[Network Scan Summary] Total Assets: {len(all_assets)}</b>", styles['Heading2'])
+        elements.append(title_para)
+        elements.append(Spacer(1, 10))
 
-        # --- 3. 취약점 통계 (Scorecard) ---
-        sql = """
-            SELECT V.code, V.name, R.status, R.detected_value, V.remediation
-            FROM TBL_SCAN_RESULT R
-            JOIN TBL_VULN_DEF V ON R.vuln_id = V.vuln_id
-            WHERE R.asset_id = ?
-            ORDER BY V.code ASC
-        """
-        cursor.execute(sql, (asset_id,))
-        rows = cursor.fetchall()
-        conn.close()
+        summary_header = ['IP Address', 'Hostname', 'OS Type', 'Vendor']
+        summary_data = [summary_header]
 
-        vuln_cnt = sum(1 for r in rows if r[2] in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High'])
-        warn_cnt = sum(1 for r in rows if r[2] in ['WARNING', '경고', 'Medium', 'Low'])
-        safe_cnt = len(rows) - (vuln_cnt + warn_cnt)
-        
-        # 점수 계산
-        deduction = (vuln_cnt * 10) + (warn_cnt * 3)
-        score = max(0, 100 - deduction)
-        if vuln_cnt > 0 and score > 90: score = 90
+        for asset in all_assets:
+            s_ip = asset[1]
+            s_host = self._truncate(asset[3], 20)
+            s_os = self._truncate(asset[2], 15)
+            # Mac Address로 벤더 조회
+            s_vendor = self._truncate(OUILookup.lookup(asset[4]), 20)
+            summary_data.append([s_ip, s_host, s_os, s_vendor])
 
-        # 통계 테이블
-        stats_data = [[
-            f"Security Score: {score} / 100", 
-            f"Vuln: {vuln_cnt}", 
-            f"Warn: {warn_cnt}", 
-            f"Safe: {safe_cnt}"
-        ]]
-        
-        stats_table = Table(stats_data, colWidths=[200, 100, 100, 100])
-        stats_table.setStyle(TableStyle([
-            ('FONTNAME', (0,0), (-1,-1), self.font_name),
-            ('FONTSIZE', (0,0), (0,0), 14), # Score 폰트 크게
-            ('FONTSIZE', (1,0), (-1,-1), 10),
+        summary_table = Table(summary_data, colWidths=[120, 140, 100, 140])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), # 헤더 배경
+            ('TEXTCOLOR', (0,0), (-1,0), colors.black),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TEXTCOLOR', (1,0), (1,0), colors.red),    # Vuln Red
-            ('TEXTCOLOR', (2,0), (2,0), colors.orange), # Warn Orange
-            ('TEXTCOLOR', (3,0), (3,0), colors.green),  # Safe Green
-            ('BOX', (0,0), (-1,-1), 1, colors.grey),
-            ('BACKGROUND', (0,0), (-1,-1), colors.aliceblue),
-        ]))
-        elements.append(stats_table)
-        elements.append(Spacer(1, 20))
-
-        # --- 4. 상세 결과 테이블 (Main Table) ---
-        # 헤더
-        table_data = [['Code', 'Item Name', 'Status', 'Issue Summary', 'Action Plan']]
-        
-        # 내용 채우기
-        for r in rows:
-            code = r[0]
-            name = self._truncate(r[1], 15) # 글자수 제한
-            status_raw = r[2]
-            
-            # [수정 핵심 1] 값이 없으면 "-" 넣고, 있으면 무조건 문자열(str)로 변환
-            # DB에서 숫자(123)가 나와도 "123" 문자가 되어 안전함
-            raw_detail = str(r[3]) if r[3] is not None else "-"
-            raw_remediation = str(r[4]) if r[4] is not None else "-"
-            
-            # [수정 핵심 2] 이제 무조건 문자열이니 isinstance 검사 불필요
-            # 태그 제거 및 공백 정리
-            text = raw_detail.replace("[Banner Info]", "").replace("[banner info]", "")
-            text = re.sub(r'[^\w\s\.\-\:\;\(\)\[\]\/=\,\"\']', ' ', text) # 특수문자 정제
-            text = re.sub(r'\s+', ' ', text).strip()
-            
-            # 길이 제한
-            if len(text) > 80:
-                text = text[:80] + "..."
-            
-            raw_detail = text
-            
-            # 정리했더니 빈 값이면 "-"
-            if not raw_detail.strip(): 
-                raw_detail = "-"
-            
-            # [수정 핵심 3] 조건문 없이 무조건 실행되므로 변수 미할당 에러 방지
-            detail_text = html.escape(raw_detail)
-            remediation_text = html.escape(raw_remediation)
-
-            # 상태 표시
-            is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
-            is_warn = status_raw in ['WARNING', '경고', 'Medium', 'Low']
-            
-            if is_vuln: display_status = "Vuln"
-            elif is_warn: display_status = "Warn"
-            else: 
-                display_status = "Safe"
-                remediation_text = "-"
-                
-            p_detail = Paragraph(detail_text, cell_style)
-            p_remediation = Paragraph(remediation_text, cell_style)
-            table_data.append([code, name, display_status, p_detail, p_remediation])
-            
-        if not rows:
-            table_data.append(["-", "No Vulnerabilities Found", "-", "-", "-"])
-
-        # 테이블 스타일링
-        # colWidths 합계가 A4 가로폭(약 595pt) - 여백(60) = 535 내외여야 함
-        main_table = Table(table_data, colWidths=[45, 120, 50, 160, 160], repeatRows=1) # [중요] repeatRows=1 : 페이지 넘어가도 헤더 반복
-        
-        style = TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.darkblue), # 헤더 배경
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),     # 헤더 글자색
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'), # Code 센터
-            ('ALIGN', (2,0), (2,-1), 'CENTER'), # Status 센터
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('FONTNAME', (0,0), (-1,-1), self.font_name),
-            ('FONTSIZE', (0,0), (-1,-1), 8),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
-        ])
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+        ]))
+        elements.append(summary_table)
+        elements.append(PageBreak()) # 요약 페이지 끝, 다음 장부터 상세 내용
 
-        # 행별 색상 처리 (취약점 강조)
-        for i, row in enumerate(table_data[1:], start=1):
-            status = row[2]
-            if status == "Vuln":
-                style.add('TEXTCOLOR', (2, i), (2, i), colors.red)
-                style.add('FONTSIZE', (2, i), (2, i), 9) # 강조
-            elif status == "Warn":
-                style.add('TEXTCOLOR', (2, i), (2, i), colors.orange)
-            else:
-                style.add('TEXTCOLOR', (2, i), (2, i), colors.green)
+        # --- 3. 개별 자산 상세 리포트 반복 (Loop) ---
+        for idx, asset in enumerate(all_assets):
+            asset_id, ip, os_type, hostname, mac_addr, memo = asset
+            vendor = OUILookup.lookup(mac_addr)
+            if not memo: memo = "-"
 
-        main_table.setStyle(style)
-        elements.append(main_table)
+            # 제목 (어떤 IP의 리포트인지 명시)
+            elements.append(Paragraph(f"<b>Detail Report : {ip}</b>", styles['Heading2']))
+            elements.append(Spacer(1, 5))
 
+            # 3-1. 자산 정보 요약 박스
+            info_data = [
+                [f"Target IP: {ip}", f"OS Type: {os_type}"],
+                [f"Hostname: {hostname}", f"Vendor: {vendor}"],
+                [f"Memo: {memo}", ""]
+            ]
+            
+            info_table = Table(info_data, colWidths=[260, 260])
+            info_table.setStyle(TableStyle([
+                ('FONTNAME', (0,0), (-1,-1), self.font_name),
+                ('FONTSIZE', (0,0), (-1,-1), 10),
+                ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+                ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
+            ]))
+            elements.append(info_table)
+            elements.append(Spacer(1, 15))
 
+            # 3-2. 취약점 통계 (Scorecard)
+            sql = """
+                SELECT V.code, V.name, R.status, R.detected_value, V.remediation
+                FROM TBL_SCAN_RESULT R
+                JOIN TBL_VULN_DEF V ON R.vuln_id = V.vuln_id
+                WHERE R.asset_id = ?
+                ORDER BY V.code ASC
+            """
+            cursor.execute(sql, (asset_id,))
+            rows = cursor.fetchall()
+
+            vuln_cnt = sum(1 for r in rows if r[2] in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High'])
+            warn_cnt = sum(1 for r in rows if r[2] in ['WARNING', '경고', 'Medium', 'Low'])
+            safe_cnt = len(rows) - (vuln_cnt + warn_cnt)
+            
+            deduction = (vuln_cnt * 10) + (warn_cnt * 3)
+            score = max(0, 100 - deduction)
+            if vuln_cnt > 0 and score > 90: score = 90
+
+            stats_data = [[
+                f"Security Score: {score} / 100", 
+                f"Vuln: {vuln_cnt}", 
+                f"Warn: {warn_cnt}", 
+                f"Safe: {safe_cnt}"
+            ]]
+            
+            stats_table = Table(stats_data, colWidths=[200, 100, 100, 100])
+            stats_table.setStyle(TableStyle([
+                ('FONTNAME', (0,0), (-1,-1), self.font_name),
+                ('FONTSIZE', (0,0), (0,0), 14),
+                ('FONTSIZE', (1,0), (-1,-1), 10),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('TEXTCOLOR', (1,0), (1,0), colors.red),
+                ('TEXTCOLOR', (2,0), (2,0), colors.orange),
+                ('TEXTCOLOR', (3,0), (3,0), colors.green),
+                ('BOX', (0,0), (-1,-1), 1, colors.grey),
+                ('BACKGROUND', (0,0), (-1,-1), colors.aliceblue),
+            ]))
+            elements.append(stats_table)
+            elements.append(Spacer(1, 20))
+
+            # 3-3. 상세 결과 테이블
+            table_data = [['Code', 'Item Name', 'Status', 'Issue Summary', 'Action Plan']]
+            
+            for r in rows:
+                code = r[0]
+                name = self._truncate(r[1], 15)
+                status_raw = r[2]
+                
+                # 안전한 문자열 변환
+                raw_detail = str(r[3]) if r[3] is not None else "-"
+                raw_remediation = str(r[4]) if r[4] is not None else "-"
+                
+                # 텍스트 정제
+                text = raw_detail.replace("[Banner Info]", "").replace("[banner info]", "")
+                text = re.sub(r'[^\w\s\.\-\:\;\(\)\[\]\/=\,\"\']', ' ', text)
+                text = re.sub(r'\s+', ' ', text).strip()
+                if len(text) > 80: text = text[:80] + "..."
+                if not text: text = "-"
+                
+                detail_text = html.escape(text)
+                remediation_text = html.escape(raw_remediation)
+
+                # 상태별 표시
+                is_vuln = status_raw in ['VULNERABLE', '취약', 'Fail', 'Critical', 'High']
+                is_warn = status_raw in ['WARNING', '경고', 'Medium', 'Low']
+                
+                if is_vuln: display_status = "Vuln"
+                elif is_warn: display_status = "Warn"
+                else: 
+                    display_status = "Safe"
+                    remediation_text = "-"
+                    
+                p_detail = Paragraph(detail_text, cell_style)
+                p_remediation = Paragraph(remediation_text, cell_style)
+                table_data.append([code, name, display_status, p_detail, p_remediation])
+                
+            if not rows:
+                table_data.append(["-", "No Vulnerabilities Found", "-", "-", "-"])
+
+            main_table = Table(table_data, colWidths=[45, 120, 50, 160, 160], repeatRows=1)
+            
+            style = TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('ALIGN', (0,0), (0,-1), 'CENTER'), # Code
+                ('ALIGN', (2,0), (2,-1), 'CENTER'), # Status
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('FONTNAME', (0,0), (-1,-1), self.font_name),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
+            ])
+
+            for i, row in enumerate(table_data[1:], start=1):
+                status = row[2]
+                if status == "Vuln":
+                    style.add('TEXTCOLOR', (2, i), (2, i), colors.red)
+                    style.add('FONTSIZE', (2, i), (2, i), 9)
+                elif status == "Warn":
+                    style.add('TEXTCOLOR', (2, i), (2, i), colors.orange)
+                else:
+                    style.add('TEXTCOLOR', (2, i), (2, i), colors.green)
+
+            main_table.setStyle(style)
+            elements.append(main_table)
+
+            # 마지막 자산이 아니라면 페이지를 넘깁니다.
+            if idx < len(all_assets) - 1:
+                elements.append(PageBreak())
+
+        conn.close()
         doc.build(elements, onFirstPage=self._header_footer, onLaterPages=self._header_footer)
-        
         return self.filename
