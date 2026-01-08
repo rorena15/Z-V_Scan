@@ -67,26 +67,6 @@ if __name__ == '__main__':
     # 2. 법적 고지 준비
     disclaimer = LegalDisclaimerDialog()
     disclaimer.setWindowIcon(QIcon(icon_path))
-
-    # ----------------------------------------------------------------
-    # [Fix] 스플래시 화면 강제 종료 (텍스트 코드 제거됨)
-    # ----------------------------------------------------------------
-    import time
-    
-    try:
-        import pyi_splash # type: ignore
-        
-        # 1. 닫기 명령 전송
-        pyi_splash.close()
-        
-        # 2. [핵심] 윈도우가 '닫기' 이벤트를 처리하도록 강제 (Deadlock 방지)
-        # 이 한 줄이 없으면 스플래시가 법적 고지 창 뒤에 눌러붙습니다.
-        app.processEvents() 
-        time.sleep(0.1)     
-        
-    except ImportError:
-        pass
-    # ----------------------------------------------------------------
     
     # 3. 법적 고지 실행
     if disclaimer.exec() == QDialog.Accepted:
