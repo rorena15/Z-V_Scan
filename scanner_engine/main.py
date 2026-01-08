@@ -71,12 +71,6 @@ if __name__ == '__main__':
     # (혹시 몰라 다이얼로그 개별 아이콘도 한 번 더 확실하게 지정)
     disclaimer.setWindowIcon(QIcon(icon_path))
     
-    try:
-        import pyi_splash # type: ignore
-        pyi_splash.close()
-    except ImportError:
-        pass
-
     if disclaimer.exec() == QDialog.Accepted:
         # 3. 메인 앱 실행
         scanner = ScannerApp()
