@@ -33,7 +33,9 @@ class PDFGenerator:
             self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
             
         self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
-        self.output_dir = os.path.join(self.project_root, 'report')
+        
+        # [수정] 폴더명을 'reports'로 변경
+        self.output_dir = os.path.join(self.project_root, 'reports')
         _signature = "Made_By_rorena_2025_Seongnam_KR"
         
         if not os.path.exists(self.output_dir):
