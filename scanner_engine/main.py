@@ -64,19 +64,16 @@ if __name__ == '__main__':
     icon_path = resource_path("app_icon.ico") 
     app.setWindowIcon(QIcon(icon_path))
     
-    # 2. 법적 고지 실행
-    # 이제 이 다이얼로그도 위에서 설정한 아이콘을 달고 나옵니다.
-    disclaimer = LegalDisclaimerDialog()
-    
-    # (혹시 몰라 다이얼로그 개별 아이콘도 한 번 더 확실하게 지정)
-    disclaimer.setWindowIcon(QIcon(icon_path))
-    
     try:
         import pyi_splash # type: ignore
         pyi_splash.close()
     except ImportError:
         pass
-
+    # 2. 법적 고지 실행
+    # 이제 이 다이얼로그도 위에서 설정한 아이콘을 달고 나옵니다.
+    disclaimer = LegalDisclaimerDialog()
+    # (혹시 몰라 다이얼로그 개별 아이콘도 한 번 더 확실하게 지정)
+    disclaimer.setWindowIcon(QIcon(icon_path))
     if disclaimer.exec() == QDialog.Accepted:
         # 3. 메인 앱 실행
         scanner = ScannerApp()
