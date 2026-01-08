@@ -103,51 +103,70 @@ class VulnMatcher:
     @staticmethod
     def load_rules():
         """외부 JSON 룰 파일 로딩 시도"""
+        paths_to_check = []
+        
+        # 1. 경로 탐색
         if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)       # 외부 (EXE 옆)
-            internal_base = sys._MEIPASS                      # 내부 (임시폴더)
+            paths_to_check.append(os.path.join(os.path.dirname(sys.executable), 'rules'))
+            paths_to_check.append(os.path.join(sys._MEIPASS, 'rules'))
         else:
-            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            internal_base = base_path
+            current_file_path = os.path.abspath(__file__)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+            paths_to_check.append(os.path.join(project_root, 'rules'))
+            paths_to_check.append(os.path.join(os.getcwd(), 'rules'))
 
-        # 2. 로드할 파일 목록
+        valid_rule_path = None
+        for path in paths_to_check:
+            if os.path.exists(path) and os.path.isdir(path):
+                valid_rule_path = path
+                break
+
+        if not valid_rule_path:
+            print("[Warning] 'rules' folder not found. Using Defaults.")
+            return False
+
+        # 2. 파일 로딩 (유연한 파싱 적용)
         target_files = ["linux_rules.json", "windows_rules.json"]
         loaded_count = 0
+        
+        print(f"[Info] Loading rules from: {valid_rule_path}")
 
         for file_name in target_files:
-            # 각 파일별 경로 확인
-            ext_path = os.path.join(base_path, 'rules', file_name)
-            int_path = os.path.join(internal_base, 'rules', file_name)
+            full_path = os.path.join(valid_rule_path, file_name)
             
-            final_path = None
-            source_msg = ""
-
-            # 우선순위: 외부 > 내부
-            if os.path.exists(ext_path):
-                final_path = ext_path
-                source_msg = "External (Updated)"
-            elif os.path.exists(int_path):
-                final_path = int_path
-                source_msg = "Internal (Default)"
-            
-            if final_path:
+            if os.path.exists(full_path):
                 try:
-                    with open(final_path, 'r', encoding='utf-8') as f:
+                    with open(full_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                        # [Merge] 기존 DB에 병합 (포트 번호가 같으면 덮어씌움)
-                        for port, info in data.items():
-                            VulnMatcher.VULN_DB[int(port)] = info
                         
-                        print(f"[Info] Loaded '{file_name}' from {source_msg}")
+                        # [핵심 수정] List 타입과 Dict 타입 모두 처리
+                        if isinstance(data, list):
+                            # JSON이 리스트([])인 경우: [ {"port":21, ...}, ... ]
+                            for item in data:
+                                # 'port' 또는 'Port' 키를 찾아서 ID로 사용
+                                port_key = item.get('port') or item.get('Port')
+                                if port_key:
+                                    VulnMatcher.VULN_DB[int(port_key)] = item
+                                    
+                        elif isinstance(data, dict):
+                            # JSON이 딕셔너리({})인 경우: { "21": {...}, ... }
+                            for port, info in data.items():
+                                VulnMatcher.VULN_DB[int(port)] = info
+                                
+                        else:
+                            print(f"[Warning] '{file_name}' has unknown structure.")
+                            continue
+
                         loaded_count += 1
                 except Exception as e:
-                    print(f"[Error] Failed to load '{file_name}': {e}")
-        
-        if loaded_count == 0:
-            print("[Warning] No rule files loaded. Using Hardcoded Defaults only.")
+                    print(f"[Error] Failed to parse '{file_name}': {e}")
+
+        if loaded_count > 0:
+            print(f"[Info] Rule loading complete. ({loaded_count} files merged)")
+            return True
+        else:
+            print("[Warning] Rules invalid. Using Defaults.")
             return False
-            
-        return True
     
     @staticmethod
     def match(port, banner=""):
