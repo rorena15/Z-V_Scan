@@ -351,6 +351,7 @@ class ScannerApp(QMainWindow):
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
+        self.asset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.asset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.asset_table.setAlternatingRowColors(False)
         self.asset_table.setStyleSheet("""
@@ -827,6 +828,8 @@ class ScannerApp(QMainWindow):
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")
 
+    """
+    현재 미사용 함수
     def edit_asset_memo(self):
         row = self.asset_table.currentRow()
         if row < 0: return
@@ -840,6 +843,7 @@ class ScannerApp(QMainWindow):
             if db.update_memo(ip, text):
                 self.asset_table.item(row, 3).setText(text)
                 self.log_message(f"[Asset] Memo updated for {ip}")
+    """
 
     def show_context_menu(self, pos):
         if not self.asset_table.selectionModel().selection().indexes(): return
@@ -848,9 +852,12 @@ class ScannerApp(QMainWindow):
         ip = self.asset_table.item(row, 0).text()
         os_type = self.asset_table.item(row, 1).text()
         
-        menu = QMenu()
+        """
+        미사용 메모
         menu.addAction("📝 Edit Memo / Tag", self.edit_asset_memo)
         menu.addSeparator()
+        """
+        menu = QMenu()
         menu.addAction(f"📡 Ping Check ({ip})", lambda: OSUtils.open_ping_test(ip))
         menu.addSeparator()
         
