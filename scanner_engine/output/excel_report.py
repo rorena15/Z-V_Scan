@@ -23,13 +23,14 @@ class ExcelGenerator:
         if getattr(sys, 'frozen', False):
             self.project_root = os.path.dirname(sys.executable)
         else:
-
             current_file = os.path.abspath(__file__)
             self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
         
-        # [Fix] DB 및 리포트 경로를 project_root 기준으로 명확히 설정
+        # [Fix] DB 및 리포트 경로 설정
         self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
-        self.output_dir = os.path.join(self.project_root, 'report')
+        
+        # [수정] 폴더명을 'reports'로 변경하여 가시성 확보
+        self.output_dir = os.path.join(self.project_root, 'reports')
 
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)

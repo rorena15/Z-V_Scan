@@ -5,17 +5,17 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
+import os
+import sys
+import json
 
 class VulnMatcher:
-    """
-    포트 및 배너 정보를 기반으로 CVE 및 KISA 진단 코드를 매핑하는 엔진
-    [Update] 조치 방안(Remediation) 데이터 추가됨
-    """
+    #[Hybrid Loader]
+    #1. 외부 'rules/kisa_guide.json' 파일이 있으면 우선 로드 (업데이트 용이성)
+    #2. 없으면 내부 하드코딩된 VULN_DB 사용 (안정성)
     
-    # [진단 규칙 데이터베이스]
-    # Key: Port 번호
-    # Value: {Service, CVE, KISA Code, Risk, Name, Description, Remediation}
-    VULN_DB = {
+    # [내장 기본 룰] (Fallback용)
+    DEFAULT_DB = {
         21: {
             "service": "FTP",
             "cve": "CVE-2011-2523",
@@ -98,13 +98,80 @@ class VulnMatcher:
             "remediation": "관리자 페이지 외부 접속 차단(IP ACL 설정) 및 기본 패스워드 변경"
         }
     }
+    VULN_DB = DEFAULT_DB
+    
+    @staticmethod
+    def load_rules():
+        """외부 JSON 룰 파일 로딩 시도"""
+        paths_to_check = []
+        
+        # 1. 경로 탐색
+        if getattr(sys, 'frozen', False):
+            paths_to_check.append(os.path.join(os.path.dirname(sys.executable), 'rules'))
+            paths_to_check.append(os.path.join(sys._MEIPASS, 'rules'))
+        else:
+            current_file_path = os.path.abspath(__file__)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+            paths_to_check.append(os.path.join(project_root, 'rules'))
+            paths_to_check.append(os.path.join(os.getcwd(), 'rules'))
 
+        valid_rule_path = None
+        for path in paths_to_check:
+            if os.path.exists(path) and os.path.isdir(path):
+                valid_rule_path = path
+                break
+
+        if not valid_rule_path:
+            print("[Warning] 'rules' folder not found. Using Defaults.")
+            return False
+
+        # 2. 파일 로딩 (유연한 파싱 적용)
+        target_files = ["linux_rules.json", "windows_rules.json"]
+        loaded_count = 0
+        
+        print(f"[Info] Loading rules from: {valid_rule_path}")
+
+        for file_name in target_files:
+            full_path = os.path.join(valid_rule_path, file_name)
+            
+            if os.path.exists(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        
+                        # [핵심 수정] List 타입과 Dict 타입 모두 처리
+                        if isinstance(data, list):
+                            # JSON이 리스트([])인 경우: [ {"port":21, ...}, ... ]
+                            for item in data:
+                                # 'port' 또는 'Port' 키를 찾아서 ID로 사용
+                                port_key = item.get('port') or item.get('Port')
+                                if port_key:
+                                    VulnMatcher.VULN_DB[int(port_key)] = item
+                                    
+                        elif isinstance(data, dict):
+                            # JSON이 딕셔너리({})인 경우: { "21": {...}, ... }
+                            for port, info in data.items():
+                                VulnMatcher.VULN_DB[int(port)] = info
+                                
+                        else:
+                            print(f"[Warning] '{file_name}' has unknown structure.")
+                            continue
+
+                        loaded_count += 1
+                except Exception as e:
+                    print(f"[Error] Failed to parse '{file_name}': {e}")
+
+        if loaded_count > 0:
+            print(f"[Info] Rule loading complete. ({loaded_count} files merged)")
+            return True
+        else:
+            print("[Warning] Rules invalid. Using Defaults.")
+            return False
+    
     @staticmethod
     def match(port, banner=""):
         _signature = "Made_By_Rorena_2025_Seongnam_KR"
-        """
-        포트 번호와 배너 정보를 받아 취약점 상세 정보를 반환
-        """
+        #포트 번호와 배너 정보를 받아 취약점 상세 정보를 반환
         port = int(port)
         info = VulnMatcher.VULN_DB.get(port)
         
@@ -125,3 +192,5 @@ class VulnMatcher:
             }
         
         return {"found": False}
+    
+VulnMatcher.load_rules()

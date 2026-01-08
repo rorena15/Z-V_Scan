@@ -26,6 +26,7 @@ from core.windows_inspector import WindowsInspector
 from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
+from core.discovery import HostDiscovery
 from utils.auth_token import get_engine_token
 
 class ScanWorker(QThread):
@@ -112,44 +113,39 @@ class ScanWorker(QThread):
         
         try:
             scanner = AdvancedScanner()
-            # 1. 호스트 식별 (MAC 주소 확보)
+            # 1. 호스트 식별 (MAC 주소 확보 - 이미 살아있음이 확인되었지만 MAC 수집을 위해 실행)
+            # discovery에서 MAC을 가져오지 않았다면 여기서 다시 가져와야 함
             is_alive, os_type, mac, vendor = scanner.host_discovery(ip)
             
-            if not is_alive:
-                return
-
-            # 호스트네임 조회 시도
+            # 호스트네임 조회
             hostname = "Unknown"
             try:
                 hostname = socket.gethostbyaddr(ip)[0]
             except: 
                 pass
+            
             self.db_queue.put(("ASSET", (ip, hostname, os_type, mac)))
 
+            # 2. 포트 스캔
             try:
                 open_ports = scanner.tcp_scan(ip, self.ports)
             except Exception as e:
-                # 화면에 빨간색으로 에러 표시
                 self.log_signal.emit(f"[!] {ip} 포트 스캔 실패: {str(e)}") 
-                # 파일 로그에 상세 기록
-                AppLogger.log_error(f"Port Scan Error on {ip}", e) 
                 open_ports = []
             
             port_str = "None"
             
             if open_ports:
                 port_str = ", ".join(map(str, open_ports))
-                
-                # UI 알림 (MAC/Vendor 정보 포함)
                 vendor_info = f"{mac} ({vendor})" if mac else "Unknown"
-                self.log_signal.emit(f"[+] 발견: {ip} ({vendor}) ({os_type}) | Ports: {port_str}")
+                self.log_signal.emit(f"[+] 발견: {ip} ({vendor}) | Ports: {port_str}")
                 
                 for port in open_ports:
+                    if self.stop_flag: break
                     banner = scanner.grab_banner(ip, port)
-                    
                     self.db_queue.put(("PORT", (ip, port, banner)))
                     
-                    # [추가] 취약점 매칭 (VulnMatcher) - 리포트에 취약점 정보 나오게 하려면 필요
+                    # [VulnMatcher] 취약점 매칭
                     try:
                         vuln = VulnMatcher.match(port, banner)
                         if vuln['found']:
@@ -160,7 +156,7 @@ class ScanWorker(QThread):
             else:
                 self.log_signal.emit(f"[+] 발견: {ip} ({os_type}) | Ports: None")
 
-            # UI 업데이트용 시그널 전송
+            # UI 업데이트용 시그널
             full_info_os = f"{os_type} | {mac} ({vendor})"
             self.asset_found_signal.emit(ip, full_info_os, port_str)
 
@@ -413,27 +409,28 @@ class ScanWorker(QThread):
         self.log_signal.emit(f"    📊 결과 요약: 취약 {vuln_cnt}건 / 양호 {safe_cnt}건")
 
     def run(self):
-        
         if not self.is_authorized:
             self.log_signal.emit("[CRITICAL] Engine Access Denied: Invalid Authentication Token.")
             self.finish_signal.emit("Error: Unauthorized Engine Access.")
             AppLogger.log_critical("Unauthorized attempt to access ScanWorker engine.")
             return
         
-        #메인 실행 루프
         self.log_signal.emit(f"[*] 엔진 가동 (Threads: {self.max_threads})")
         
-        target_gen = None
+        target_list = []
         total_count = 0
             
         try:
+            # 1. IP 대역 파싱 (리스트로 변환)
             if "/" in self.target_input:
                 network = ipaddress.ip_network(self.target_input, strict=False)
-                total_count = network.num_addresses - 2 if network.prefixlen < 31 else 1
-                target_gen = network.hosts()
+                # 네트워크 주소와 브로드캐스트 주소 제외하고 리스트화
+                target_list = [str(ip) for ip in network.hosts()]
             else:
-                total_count = 1
-                target_gen = [self.target_input]
+                target_list = [self.target_input]
+            
+            total_count = len(target_list)
+
         except ValueError:
             self.log_signal.emit("[Error] IP 형식이 올바르지 않습니다.")
             self.finish_signal.emit("입력 오류")
@@ -447,50 +444,75 @@ class ScanWorker(QThread):
             self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
             self.writer_thread.start()
 
+            # -----------------------------------------------------
+            # [Phase 1] Host Discovery (생존 확인) - Network Scan일 때만
+            # -----------------------------------------------------
+            scan_targets = []
+            
+            # 대상이 2개 이상일 때만 생존 확인 수행 (단일 IP는 바로 스캔)
+            if self.mode == "NETWORK_SCAN" and total_count > 1:
+                self.log_signal.emit(f"🔍 Phase 1: 활성 호스트 탐지 중... ({total_count} IPs)")
+                
+                discovery = HostDiscovery()
+                # Discovery 모듈로 빠르게 살아있는 놈만 추려냄
+                scan_targets = discovery.scan_network(target_list)
+                
+                if not scan_targets:
+                    self.log_signal.emit("[-] 활성 호스트가 발견되지 않았습니다.")
+                    # 아무것도 없으면 바로 종료 처리
+                    self.db_queue.put(None) 
+                    self.finish_signal.emit("No Active Hosts")
+                    return
+                    
+                self.log_signal.emit(f"✅ Phase 1 완료: {len(scan_targets)}개 활성 호스트 발견.")
+            else:
+                # 단일 IP거나 Audit 모드면 입력값 그대로 스캔 대상
+                scan_targets = target_list
+
+            # -----------------------------------------------------
+            # [Phase 2] Main Scan (Port Scan / Audit)
+            # -----------------------------------------------------
+            real_total_count = len(scan_targets)
+            self.log_signal.emit(f"🚀 Phase 2: 정밀 스캔 시작 ({real_total_count} Targets)")
+            
             processed_count = 0
             work_func = self.process_network_scan if self.mode == "NETWORK_SCAN" else self.process_audit_scan
             cur_threads = self.max_threads if self.mode == "NETWORK_SCAN" else self.audit_threads
 
-            # 스레드 풀 실행
+            # 스레드 풀 실행 (살아있는 scan_targets 만 대상으로 함)
             with ThreadPoolExecutor(max_workers=cur_threads) as executor:
-                # [메모리 최적화] 제너레이터를 리스트로 즉시 변환하지 않고 사용
-                # 단, progress 표시를 위해 futures 딕셔너리는 필요함
-                futures = {executor.submit(work_func, str(ip)): str(ip) for ip in target_gen}
+                futures = {executor.submit(work_func, str(ip)): str(ip) for ip in scan_targets}
                 
                 for future in as_completed(futures):
                     ip = futures[future]
                     
                     if self.stop_flag:
-                        # [Fix] 중단 시 잔여 작업 취소 시도
                         executor.shutdown(wait=False, cancel_futures=True)
                         self.log_signal.emit("[!] 사용자 요청에 의해 스캔 중단됨.")
                         break
                     try:
                         future.result()
                     except Exception as e:
-                    # 에러가 발생했다면 로그에 기록 
                         error_msg = f"[Thread Error] {ip} 처리 중 오류 발생: {e}"
                         AppLogger.log_error(error_msg)
+                    
                     processed_count += 1
                     
-                    # 진행률 업데이트 (부하를 줄이기 위해 1% 단위 또는 5건 단위로 갱신)
-                    if total_count > 0 and (processed_count % 5 == 0 or processed_count >= total_count):
-                        progress = int((processed_count / total_count) * 100)
+                    # 진행률 업데이트
+                    if real_total_count > 0:
+                        progress = int((processed_count / real_total_count) * 100)
                         self.progress_signal.emit(progress, processed_count)
                     self.msleep(10)
+
             if not self.stop_flag:
-                self.progress_signal.emit(100, total_count)
+                self.progress_signal.emit(100, real_total_count)
             
-        
         except Exception as e:
-            # 예상치 못한 엔진 에러 캡처
             critical_msg = f"[Critical] 엔진 실행 중 오류 발생: {str(e)}"
             self.log_signal.emit(critical_msg)
             AppLogger.log_critical(critical_msg)
         
         finally:
-            # [Fix] DB Writer 안전 종료 (Sentinel 패턴)
-            # 큐에 None을 넣어야 db_writer의 get()이 깨어나서 루프를 종료함
             self.db_queue.put(None)
             
             if self.writer_thread:

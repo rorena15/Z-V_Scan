@@ -139,3 +139,30 @@ class OSUtils:
                 subprocess.Popen(f"gnome-terminal -- ssh {user}@{target_ip}", shell=True)
         except Exception as e:
             AppLogger.log_error(f"[Utills] Failed to open SSH console:", e)
+            
+    def get_mac_address(ip):
+        # Stop 시 'local variable referenced before assignment' 에러 방지
+        mac_match = None 
+        
+        try:
+            cmd = ["arp", "-a", ip]
+            # 윈도우 창 숨김 옵션 적용
+            startup_opts = OSUtils.get_subprocess_kwargs()
+            
+            if OSUtils.is_windows():
+                # cp949 인코딩 (한글 윈도우 호환)
+                output = subprocess.check_output(cmd, timeout=2, **startup_opts).decode('cp949', errors='ignore')
+            else:
+                output = subprocess.check_output(cmd, timeout=2).decode('utf-8', errors='ignore')
+                
+            import re
+            mac_pattern = r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
+            mac_match = re.search(mac_pattern, output)
+            
+        except Exception:
+            pass # 타임아웃이나 에러 시 무시
+
+        if mac_match:
+            return mac_match.group(0).replace('-', ':').upper()
+            
+        return None
