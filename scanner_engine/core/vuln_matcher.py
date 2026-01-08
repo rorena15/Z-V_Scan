@@ -5,17 +5,17 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
+import os
+import sys
+import json
 
 class VulnMatcher:
-    """
-    포트 및 배너 정보를 기반으로 CVE 및 KISA 진단 코드를 매핑하는 엔진
-    [Update] 조치 방안(Remediation) 데이터 추가됨
-    """
+    #[Hybrid Loader]
+    #1. 외부 'rules/kisa_guide.json' 파일이 있으면 우선 로드 (업데이트 용이성)
+    #2. 없으면 내부 하드코딩된 VULN_DB 사용 (안정성)
     
-    # [진단 규칙 데이터베이스]
-    # Key: Port 번호
-    # Value: {Service, CVE, KISA Code, Risk, Name, Description, Remediation}
-    VULN_DB = {
+    # [내장 기본 룰] (Fallback용)
+    DEFAULT_DB = {
         21: {
             "service": "FTP",
             "cve": "CVE-2011-2523",
@@ -98,13 +98,36 @@ class VulnMatcher:
             "remediation": "관리자 페이지 외부 접속 차단(IP ACL 설정) 및 기본 패스워드 변경"
         }
     }
-
+    VULN_DB = DEFAULT_DB
+    
+    @staticmethod
+    def load_rules():
+        """외부 JSON 룰 파일 로딩 시도"""
+        try:
+            if getattr(sys, 'frozen', False):
+                base_path = os.path.dirname(sys.executable)
+            else:
+                base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
+            rule_path = os.path.join(base_path, 'rules', 'kisa_guide.json')
+            
+            if os.path.exists(rule_path):
+                with open(rule_path, 'r', encoding='utf-8') as f:
+                    # JSON 키를 정수형(Port)으로 변환하여 로드
+                    external_data = json.load(f)
+                    VulnMatcher.VULN_DB = {int(k): v for k, v in external_data.items()}
+                    print(f"[Info] External rules loaded from {rule_path}")
+                    return True
+        except Exception as e:
+            print(f"[Warning] Failed to load external rules: {e}")
+            VulnMatcher.VULN_DB = VulnMatcher.DEFAULT_DB # 실패 시 기본값 복구
+            
+        return False
+    
     @staticmethod
     def match(port, banner=""):
         _signature = "Made_By_Rorena_2025_Seongnam_KR"
-        """
-        포트 번호와 배너 정보를 받아 취약점 상세 정보를 반환
-        """
+        #포트 번호와 배너 정보를 받아 취약점 상세 정보를 반환
         port = int(port)
         info = VulnMatcher.VULN_DB.get(port)
         
@@ -125,3 +148,5 @@ class VulnMatcher:
             }
         
         return {"found": False}
+    
+VulnMatcher.load_rules()

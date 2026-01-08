@@ -534,25 +534,17 @@ class ScannerApp(QMainWindow):
         def format_time(seconds):
             m, s = divmod(seconds, 60)
             h, m = divmod(m, 60)
-            if h > 0: return f"{h:02d}:{m:02d}:{s:02d}"
-            return f"{m:02d}:{s:02d}"
+            return f"{h:02d}:{m:02d}:{s:02d}"
 
         elapsed_str = format_time(self.elapsed_seconds)
-        eta_str = "Calculating..."
-
-        if hasattr(self, 'current_scan_count') and self.current_scan_count > 0:
-            avg_time = self.elapsed_seconds / self.current_scan_count
-            remain_cnt = self.total_scan_count - self.current_scan_count
-            if remain_cnt < 0: remain_cnt = 0
-            
-            rem_sec = int(avg_time * remain_cnt)
-            if rem_sec > 86400: eta_str = "> 24h"
-            else: eta_str = format_time(rem_sec)
         
-        elif self.pbar.value() >= 100:
-            eta_str = "Done"
+        # 상태 메시지 단순화
+        if self.pbar.value() >= 100:
+            status_txt = f"Done (Duration: {elapsed_str})"
+        else:
+            status_txt = f"Running... [{elapsed_str}]"
 
-        self.time_label.setText(f"Elapsed: {elapsed_str} | ETA: {eta_str}")
+        self.time_label.setText(status_txt)
 
     def update_progress(self, percent, count):
         self.pbar.setValue(percent)
