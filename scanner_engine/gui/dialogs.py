@@ -126,7 +126,7 @@ class LegalDisclaimerDialog(QDialog):
             pc_name = platform.node()
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            log_msg = f"[{timestamp}] AGREEMENT ACCEPTED | User: {username} | PC: {pc_name} | Version: v2.2.0\n"
+            log_msg = f"[{timestamp}] AGREEMENT ACCEPTED | User: {username} | PC: {pc_name} | Version: v3.0\n"
             
             # 프로젝트 루트에 로그 저장
             with open("audit_agreement.log", "a", encoding="utf-8") as f:
