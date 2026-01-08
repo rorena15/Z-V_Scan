@@ -103,26 +103,51 @@ class VulnMatcher:
     @staticmethod
     def load_rules():
         """외부 JSON 룰 파일 로딩 시도"""
-        try:
-            if getattr(sys, 'frozen', False):
-                base_path = os.path.dirname(sys.executable)
-            else:
-                base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)       # 외부 (EXE 옆)
+            internal_base = sys._MEIPASS                      # 내부 (임시폴더)
+        else:
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            internal_base = base_path
+
+        # 2. 로드할 파일 목록
+        target_files = ["linux_rules.json", "windows_rules.json"]
+        loaded_count = 0
+
+        for file_name in target_files:
+            # 각 파일별 경로 확인
+            ext_path = os.path.join(base_path, 'rules', file_name)
+            int_path = os.path.join(internal_base, 'rules', file_name)
             
-            rule_path = os.path.join(base_path, 'rules', 'kisa_guide.json')
+            final_path = None
+            source_msg = ""
+
+            # 우선순위: 외부 > 내부
+            if os.path.exists(ext_path):
+                final_path = ext_path
+                source_msg = "External (Updated)"
+            elif os.path.exists(int_path):
+                final_path = int_path
+                source_msg = "Internal (Default)"
             
-            if os.path.exists(rule_path):
-                with open(rule_path, 'r', encoding='utf-8') as f:
-                    # JSON 키를 정수형(Port)으로 변환하여 로드
-                    external_data = json.load(f)
-                    VulnMatcher.VULN_DB = {int(k): v for k, v in external_data.items()}
-                    print(f"[Info] External rules loaded from {rule_path}")
-                    return True
-        except Exception as e:
-            print(f"[Warning] Failed to load external rules: {e}")
-            VulnMatcher.VULN_DB = VulnMatcher.DEFAULT_DB # 실패 시 기본값 복구
+            if final_path:
+                try:
+                    with open(final_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        # [Merge] 기존 DB에 병합 (포트 번호가 같으면 덮어씌움)
+                        for port, info in data.items():
+                            VulnMatcher.VULN_DB[int(port)] = info
+                        
+                        print(f"[Info] Loaded '{file_name}' from {source_msg}")
+                        loaded_count += 1
+                except Exception as e:
+                    print(f"[Error] Failed to load '{file_name}': {e}")
+        
+        if loaded_count == 0:
+            print("[Warning] No rule files loaded. Using Hardcoded Defaults only.")
+            return False
             
-        return False
+        return True
     
     @staticmethod
     def match(port, banner=""):
