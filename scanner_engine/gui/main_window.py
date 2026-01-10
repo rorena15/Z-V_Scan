@@ -747,11 +747,16 @@ class ScannerApp(QMainWindow):
             html_path = viz.create_topology(assets)
             
             if html_path and os.path.exists(html_path):
-                # 4. 다이얼로그 띄우기
-                from gui.topology_dialog import TopologyDialog
-                dlg = TopologyDialog(html_path, self)
-                dlg.exec()
-                self.statusBar().showMessage("Topology Map Closed.", 3000)
+                # [수정됨] 다이얼로그 모듈 로드 실패 시 브라우저로 열기 (안전장치)
+                try:
+                    from gui.topology_dialog import TopologyDialog
+                    dlg = TopologyDialog(html_path, self)
+                    dlg.exec()
+                except ImportError:
+                    self.log_message("[Info] GUI Dialog missing. Opening in browser.")
+                    self.open_file_platform_safe(html_path)
+                
+                self.statusBar().showMessage("Ready", 3000)
             else:
                 QMessageBox.critical(self, "Error", "토폴로지 맵 생성에 실패했습니다.")
                 
@@ -787,6 +792,15 @@ class ScannerApp(QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.stop_flag = True
             self.worker.wait(2000)
+        
+        # 2. [추가됨] 종료 시 자격증명(ID/PW) 보안 삭제
+        target_ip = self.ip_input.text().strip()
+        user = self.user_input.text().strip()
+        if target_ip and user:
+            SecureStorage.delete_credential(target_ip, user)
+            # 디버깅용 로그 (필요 시 주석 처리)
+            print(f"[System] Credentials for {target_ip} wiped.")
+        
         event.accept()
 
     def toggle_port_input(self, index):
