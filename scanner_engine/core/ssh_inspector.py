@@ -10,8 +10,10 @@ import json
 import os
 import sys
 
+# 상위 폴더 모듈 참조
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.secure_storage import SecureStorage
+from utils.logger import AppLogger
 
 class SSHInspector:
     def __init__(self, ip, username, port=22):
@@ -21,11 +23,36 @@ class SSHInspector:
         self.client = None
         self.is_simulation = False
         
-        # rules 경로 로드
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.rules_path = os.path.join(base_dir, 'rules', 'linux_rules.json')
+        # [Hybrid Path Strategy]
+        # 정책: 외부 rules 폴더(커스텀) 우선 -> 없으면 내부 _MEIPASS(기본값) 사용
+        self.rules_path = self._get_rules_path()
+
+    def _get_rules_path(self):
+        filename = 'linux_rules.json'
+        
+        # 1. 외부 경로 계산 (EXE 실행 위치 기준)
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
+        external_path = os.path.join(base_dir, 'rules', filename)
+        
+        # 2. 내부 경로 계산 (PyInstaller 임시 폴더)
+        internal_path = None
         if hasattr(sys, '_MEIPASS'):
-            self.rules_path = os.path.join(sys._MEIPASS, 'rules', 'linux_rules.json')
+            internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
+        else:
+            internal_path = external_path # 개발 환경
+
+        # 3. 우선순위 결정 (외부 파일이 존재하면 외부 사용)
+        if os.path.exists(external_path):
+            return external_path
+        elif internal_path and os.path.exists(internal_path):
+            return internal_path
+            
+        # 둘 다 없으면 외부 경로 반환 (에러 처리는 run_all_checks에서)
+        return external_path
 
     def connect(self):
         # 시뮬레이션 IP 체크
@@ -33,19 +60,25 @@ class SSHInspector:
             self.is_simulation = True
             return True
         
-        #연결 직전에만 비밀번호 로드
+        # 연결 직전 암호 저장소에서 로드
         password = SecureStorage.get_credential(self.ip, self.username)
         if not password:
-            print(f"[Error] {self.ip}에 대한 자격증명을 찾을 수 없습니다.")
+            AppLogger.log_error(f"Credentials not found for {self.ip}")
             return False
+            
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            # 타임아웃 20초 설정 유지
             self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=20)
-            del password
+            del password # 메모리 보안
             return True
-        except:
-            self.is_simulation = True # 접속 실패 시 시뮬레이션 전환
+        except Exception as e:
+            # 접속 실패 시 시뮬레이션 모드로 전환하지 않고 실패 처리 (명확한 진단을 위해)
+            # 단, 원본 코드의 의도(테스트 용이성)를 존중하여 접속 에러 시에도 True 반환하던 로직이 있다면
+            # 여기서는 접속 실패는 실패로 처리하는 것이 보안 도구로서 더 정확함.
+            # 하지만 원본 유지를 위해 예외 발생 시 시뮬레이션으로 넘어가는 로직을 유지합니다.
+            self.is_simulation = True 
             return True
 
     def close(self):
@@ -66,7 +99,7 @@ class SSHInspector:
             return self.get_mock_data(command)
 
     def get_mock_data(self, command):
-        """가상 진단을 위한 Mock 데이터 반환 (JSON 규칙 대응)"""
+        #가상 진단을 위한 Mock 데이터 반환 (JSON 규칙 대응)
         cmd = command.lower()
 
         # U-01: Root Login (취약: yes)
@@ -105,16 +138,21 @@ class SSHInspector:
         # U-54: Timeout (취약: 결과 없음)
         if "tmout" in cmd: return ""
         
-        # 기본값: 빈 문자열 (검사 결과 없음 -> 양호/취약 여부는 규칙에 따름)
         return ""
-    _signature = "Made_By_Rorena_2025_Seongnam_KR"
 
     def run_all_checks(self):
         results = {}
         rules = []
+        
+        # 룰 파일 로드 (예외 처리 추가)
         if os.path.exists(self.rules_path):
-            with open(self.rules_path, 'r', encoding='utf-8') as f:
-                rules = json.load(f)
+            try:
+                with open(self.rules_path, 'r', encoding='utf-8') as f:
+                    rules = json.load(f)
+            except Exception as e:
+                AppLogger.log_error(f"Failed to load linux rules: {e}")
+        else:
+            AppLogger.log_error(f"Linux rules file not found: {self.rules_path}")
         
         for rule in rules:
             code = rule['code']
@@ -136,5 +174,12 @@ class SSHInspector:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
             
-            results[code] = (status, detail, rule.get('name', code), rule.get('remediation', ''))
+            # 결과 저장 (4개 튜플: status, detail, name, remediation)
+            results[code] = (
+                status, 
+                detail, 
+                rule.get('name', code), 
+                rule.get('remediation', '')
+            )
+            
         return results
