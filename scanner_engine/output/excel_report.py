@@ -5,77 +5,43 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
-
 import os
 import sys
 import sqlite3
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.chart import PieChart, Reference
 from openpyxl.utils import get_column_letter
 
+# 상위 모듈 참조
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
 
 class ExcelGenerator:
-    # --- [개선된 스타일 정의] ---
+    # --- KISA 스타일 상수 정의 ---
+    COLOR_HEADER_BG = 'E7E6E6'   # 헤더 배경 (연한 회색)
+    COLOR_BORDER = '000000'      # 테두리 (검정)
     
-    # 1. 색상 팔레트 (모던 블루 테마)
-    PRIMARY_BLUE = '0066CC'
-    DARK_BLUE = '003D7A'
-    LIGHT_BLUE = 'E6F2FF'
-    ACCENT_ORANGE = 'FF6B35'
-    NEUTRAL_GRAY = 'F5F5F5'
-    DARK_GRAY = '4A4A4A'
-    
-    # 2. 헤더 스타일
-    HEADER_FILL = PatternFill(start_color=DARK_BLUE, end_color=DARK_BLUE, fill_type='solid')
-    HEADER_FONT = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
-    
-    # 3. 서브헤더 스타일
-    SUBHEADER_FILL = PatternFill(start_color=LIGHT_BLUE, end_color=LIGHT_BLUE, fill_type='solid')
-    SUBHEADER_FONT = Font(name='Segoe UI', size=10, bold=True, color=DARK_BLUE)
-    
-    # 4. KPI 카드 스타일
-    KPI_TITLE_FONT = Font(name='Segoe UI', size=10, color='666666')
-    KPI_VALUE_FONT = Font(name='Segoe UI', size=32, bold=True, color=DARK_BLUE)
-    KPI_SUBTITLE_FONT = Font(name='Segoe UI', size=9, color='888888', italic=True)
-    
-    # 5. 테두리 스타일
-    BORDER_THIN = Border(
-        left=Side(style='thin', color='CCCCCC'),
-        right=Side(style='thin', color='CCCCCC'),
-        top=Side(style='thin', color='CCCCCC'),
-        bottom=Side(style='thin', color='CCCCCC')
+    # 위험도 색상
+    COLOR_CRITICAL = 'FFCCCC' # 상 (연한 빨강)
+    COLOR_HIGH = 'FFE6CC'     # 중 (연한 주황)
+    COLOR_GOOD = 'E2EFDA'     # 양호 (연한 초록)
+    COLOR_WAIVER = 'D9D9D9'   # 예외 (회색)
+
+    # 폰트
+    FONT_TITLE = Font(name='맑은 고딕', size=20, bold=True)
+    FONT_HEADER = Font(name='맑은 고딕', size=10, bold=True)
+    FONT_NORMAL = Font(name='맑은 고딕', size=9)
+    FONT_BOLD = Font(name='맑은 고딕', size=9, bold=True)
+
+    # 테두리 스타일
+    BORDER_ALL = Border(
+        left=Side(style='thin', color=COLOR_BORDER),
+        right=Side(style='thin', color=COLOR_BORDER),
+        top=Side(style='thin', color=COLOR_BORDER),
+        bottom=Side(style='thin', color=COLOR_BORDER)
     )
-    
-    BORDER_THICK = Border(
-        left=Side(style='medium', color=DARK_BLUE),
-        right=Side(style='medium', color=DARK_BLUE),
-        top=Side(style='medium', color=DARK_BLUE),
-        bottom=Side(style='medium', color=DARK_BLUE)
-    )
-    
-    # 6. 위험도 색상 (더 명확한 그라데이션)
-    RISK_COLORS = {
-        "Critical": "DC3545",  # 진한 빨강
-        "High":     "FD7E14",  # 주황
-        "Medium":   "FFC107",  # 노랑
-        "Low":      "28A745",  # 초록
-        "Info":     "6C757D",  # 회색
-        "Safe":     "20C997"   # 청록
-    }
-    
-    # 7. 위험도 아이콘 (유니코드)
-    RISK_ICONS = {
-        "Critical": "🔴",
-        "High":     "🟠",
-        "Medium":   "🟡",
-        "Low":      "🟢",
-        "Info":     "⚪",
-        "Safe":     "✅"
-    }
 
     def __init__(self):
         self.db = DBConnector()
@@ -93,27 +59,42 @@ class ExcelGenerator:
             except OSError:
                 pass
 
+    def _style_range(self, ws, cell_range, border=None, fill=None, font=None, alignment=None):
+        """
+        [Fix] 단일 셀('A1')과 범위('A1:B2') 모두 처리하도록 개선
+        """
+        selection = ws[cell_range]
+        
+        # 만약 selection이 튜플/리스트가 아니라면(단일 Cell 객체라면), 튜플로 감싸서 반복 가능하게 만듦
+        if not isinstance(selection, (tuple, list)):
+            selection = ((selection,),)
+            
+        for row in selection:
+            for cell in row:
+                if border: cell.border = border
+                if fill: cell.fill = fill
+                if font: cell.font = font
+                if alignment: cell.alignment = alignment
+
     def generate(self):
         try:
             wb = Workbook()
-            data = self._fetch_data()
             
-            # 데이터 검증
-            if not data:
+            scan_data = self._fetch_scan_result()
+            asset_data = self._fetch_asset_list()
+            
+            if not asset_data:
                 raise Exception("진단된 자산 데이터가 없습니다.")
             
-            # 시트 생성 순서
-            self._create_dashboard_sheet(wb, data)
-            self._create_summary_sheet(wb, data)
-            self._create_detail_sheet(wb, data)
-            self._create_remediation_sheet(wb, data)
+            self._create_cover_sheet(wb, asset_data, scan_data)
+            self._create_detail_sheet(wb, scan_data)
+            self._create_asset_sheet(wb, asset_data)
             
-            # 기본 Sheet 제거
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"ZVulnScan_Report_{timestamp}.xlsx"
+            filename = f"주요정보통신기반시설_취약점진단결과_{timestamp}.xlsx"
             filepath = os.path.join(self.output_dir, filename)
             
             wb.save(filepath)
@@ -123,337 +104,217 @@ class ExcelGenerator:
             AppLogger.log_error("Excel Generation Error", e)
             raise e
 
-    def _fetch_data(self):
-        """DB 데이터 직접 조회"""
-        conn = None
+    def _fetch_scan_result(self):
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
         try:
-            conn = sqlite3.connect(self.db.db_path)
-            cursor = conn.cursor()
-            
             query = """
                 SELECT 
-                    A.ip_addr, A.hostname, A.os_type,
-                    R.vuln_code, R.vuln_name, R.risk_level, R.status, 
-                    R.detected_value, R.remediation, R.scan_date
+                    A.ip_addr, A.hostname, 
+                    R.kisa_code, R.vuln_code, R.vuln_name, 
+                    R.risk_level, R.status, R.detected_value, 
+                    R.raw_output, R.remediation, R.waiver_status, R.waiver_reason
                 FROM TBL_SCAN_RESULT R
                 JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
-                ORDER BY 
-                    CASE R.risk_level 
-                        WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 
-                        WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 
-                        ELSE 5 END ASC,
-                    A.ip_addr ASC
+                ORDER BY A.ip_addr ASC, R.kisa_code ASC
             """
             cursor.execute(query)
             return cursor.fetchall()
         except Exception as e:
-            AppLogger.log_error("DB Fetch Error", e)
+            AppLogger.log_error("Fetch Scan Result Error", e)
             return []
         finally:
-            if conn: conn.close()
+            conn.close()
 
-    def _create_dashboard_sheet(self, wb, data):
-        """[Dashboard] 경영진 요약 대시보드"""
+    def _fetch_asset_list(self):
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT ip_addr, hostname, os_type, mac_addr FROM TBL_ASSETS")
+            return cursor.fetchall()
+        except: return []
+        finally: conn.close()
+
+    def _create_cover_sheet(self, wb, asset_data, scan_data):
         ws = wb.active
-        ws.title = "📊 Dashboard"
-        ws.sheet_view.showGridLines = False
+        ws.title = "1.종합요약"
         
-        # 배경색 설정
-        for row in ws.iter_rows(min_row=1, max_row=50, min_col=1, max_col=15):
-            for cell in row:
-                cell.fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        # 1. 제목
+        ws.merge_cells('B2:I3')
+        ws['B2'] = "주요정보통신기반시설 기술적 취약점 분석 평가 결과"
+        self._style_range(ws, 'B2:I3', border=self.BORDER_ALL, font=self.FONT_TITLE, 
+                          alignment=Alignment(horizontal='center', vertical='center'))
 
-        # === 타이틀 섹션 ===
-        ws.merge_cells('B2:M2')
-        title_cell = ws['B2']
-        title_cell.value = "Z-VulnScan Security Assessment Report"
-        title_cell.font = Font(name='Segoe UI', size=24, bold=True, color=self.DARK_BLUE)
-        title_cell.alignment = Alignment(horizontal='left', vertical='center')
+        # 2. 결재란
+        start_col = 11 # K열
+        col_letter = get_column_letter(start_col)
         
-        ws.merge_cells('B3:M3')
-        subtitle_cell = ws['B3']
-        subtitle_cell.value = f"Report Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}"
-        subtitle_cell.font = Font(name='Segoe UI', size=11, color='666666', italic=True)
-        subtitle_cell.alignment = Alignment(horizontal='left', vertical='center')
-        
-        # 구분선
-        ws.merge_cells('B4:M4')
-        ws['B4'].fill = PatternFill(start_color=self.PRIMARY_BLUE, end_color=self.PRIMARY_BLUE, fill_type='solid')
-        ws.row_dimensions[4].height = 3
+        # '결재'
+        range_str = f'{col_letter}2:{col_letter}5'
+        ws.merge_cells(range_str)
+        ws[f'{col_letter}2'] = "결\n\n재"
+        self._style_range(ws, range_str, border=self.BORDER_ALL, 
+                          fill=PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid'),
+                          alignment=Alignment(horizontal='center', vertical='center', wrap_text=True))
 
-        # === 데이터 집계 ===
-        risk_counts = {k: 0 for k in self.RISK_COLORS.keys()}
-        total_vulns = 0
-        
-        for row in data:
-            risk = row[5]
-            if risk in risk_counts:
-                risk_counts[risk] += 1
-            else:
-                risk_counts["Info"] += 1
-            total_vulns += 1
-        
-        unique_ips = set(row[0] for row in data)
-        total_assets = len(unique_ips)
-        critical_high = risk_counts["Critical"] + risk_counts["High"]
+        roles = ["담 당", "팀 장", "부서장"]
+        for i, role in enumerate(roles):
+            c = get_column_letter(start_col + 1 + i)
+            
+            # 직책 (단일 셀)
+            ws[f'{c}2'] = role
+            self._style_range(ws, f'{c}2', border=self.BORDER_ALL, 
+                              fill=PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid'),
+                              alignment=Alignment(horizontal='center', vertical='center'))
+            
+            # 서명란 (병합 범위)
+            range_sign = f'{c}3:{c}5'
+            ws.merge_cells(range_sign)
+            self._style_range(ws, range_sign, border=self.BORDER_ALL)
 
-        # === KPI 카드 섹션 ===
-        self._draw_modern_kpi(ws, 6, 2, "Total Assets Scanned", total_assets, "🖥️", "E8F4F8")
-        self._draw_modern_kpi(ws, 6, 5, "Total Vulnerabilities", total_vulns, "⚠️", "FFF4E6")
-        self._draw_modern_kpi(ws, 6, 8, "Critical & High", critical_high, "🔥", "FFE5E5")
-        self._draw_modern_kpi(ws, 6, 11, "Compliance Score", 
-                             f"{max(0, 100 - (critical_high * 5))}%", "✓", "E8F5E9")
-
-        # === 위험도 분포 테이블 ===
-        table_row = 12
-        ws.merge_cells(f'B{table_row}:F{table_row}')
-        ws[f'B{table_row}'].value = "Risk Distribution Summary"
-        ws[f'B{table_row}'].font = Font(name='Segoe UI', size=14, bold=True, color=self.DARK_BLUE)
+        # 3. 진단 개요
+        row = 7
+        ws[f'B{row}'] = "■ 진단 개요"
+        ws[f'B{row}'].font = Font(name='맑은 고딕', size=12, bold=True)
+        row += 1
         
-        table_row += 1
-        headers = ["Risk Level", "Count", "Percentage", "Status"]
-        for col_idx, header in enumerate(headers, 2):
-            cell = ws.cell(row=table_row, column=col_idx)
-            cell.value = header
-            cell.fill = self.HEADER_FILL
-            cell.font = self.HEADER_FONT
+        overview_data = [
+            ["진단 기간", datetime.now().strftime("%Y년 %m월 %d일")],
+            ["진단 대상", f"총 {len(asset_data)}대 (서버/네트워크 장비)"],
+            ["진단 도구", "Z-VulnScan Pro v3.0 (KISA Guide Compliance)"],
+            ["수행자", "자체 보안 점검"]
+        ]
+        
+        for title, content in overview_data:
+            # 제목 (단일 셀)
+            ws[f'B{row}'] = title
+            self._style_range(ws, f'B{row}', border=self.BORDER_ALL, 
+                              fill=PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid'),
+                              alignment=Alignment(horizontal='center', vertical='center'))
+            
+            # 내용 (병합 범위)
+            range_content = f'C{row}:E{row}'
+            ws.merge_cells(range_content)
+            ws[f'C{row}'] = content
+            self._style_range(ws, range_content, border=self.BORDER_ALL, 
+                              alignment=Alignment(horizontal='left', vertical='center', indent=1))
+            row += 1
+
+        # 4. 종합 통계
+        row += 2
+        ws[f'B{row}'] = "■ 취약점 진단 결과 요약"
+        ws[f'B{row}'].font = Font(name='맑은 고딕', size=12, bold=True)
+        row += 1
+        
+        total_vuln = 0
+        vuln_high = 0
+        vuln_medium = 0
+        waived_cnt = 0
+        
+        for r in scan_data:
+            if r[10] == 1: waived_cnt += 1; continue
+            if r[6] == "VULNERABLE":
+                total_vuln += 1
+                if r[5] in ['Critical', 'High']: vuln_high += 1
+                else: vuln_medium += 1
+        
+        deduction = (vuln_high * 5) + (vuln_medium * 2)
+        score = max(0, 100 - deduction)
+        
+        headers = ["진단 대상 수", "취약 항목 수", "예외 처리 수", "종합 점수"]
+        values = [f"{len(asset_data)} 대", f"{total_vuln} 건", f"{waived_cnt} 건", f"{score} 점"]
+        
+        for i, h in enumerate(headers):
+            col_idx = 2 + i
+            # 헤더
+            cell = ws.cell(row=row, column=col_idx)
+            cell.value = h
+            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
+            cell.border = self.BORDER_ALL
+            cell.alignment = Alignment(horizontal='center')
+            
+            # 값
+            val_cell = ws.cell(row=row+1, column=col_idx)
+            val_cell.value = values[i]
+            val_cell.border = self.BORDER_ALL
+            val_cell.alignment = Alignment(horizontal='center')
+            val_cell.font = self.FONT_BOLD
+            
+            ws.column_dimensions[get_column_letter(col_idx)].width = 20
+
+    def _create_detail_sheet(self, wb, scan_data):
+        ws = wb.create_sheet("2.상세점검결과")
+        
+        headers = [
+            ("A", "No", 5), ("B", "자산 IP", 15), ("C", "호스트명", 20),
+            ("D", "진단코드", 12), ("E", "항목명", 30), ("F", "중요도", 10),
+            ("G", "진단결과", 10), ("H", "현황(요약)", 30), ("I", "상세 증적 (Evidence)", 60),
+            ("J", "조치 방안", 40), ("K", "예외 사유", 20)
+        ]
+        
+        for col, title, width in headers:
+            cell = ws[f'{col}1']
+            cell.value = title
+            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
+            cell.font = self.FONT_HEADER
             cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_THIN
-        
-        table_row += 1
-        for risk in ["Critical", "High", "Medium", "Low", "Info"]:
-            count = risk_counts[risk]
-            percentage = (count / total_vulns * 100) if total_vulns > 0 else 0
+            cell.border = self.BORDER_ALL
+            ws.column_dimensions[col].width = width
             
-            # Risk Level
-            cell = ws.cell(row=table_row, column=2)
-            cell.value = f"{self.RISK_ICONS.get(risk, '')} {risk}"
-            cell.fill = PatternFill(start_color=self.RISK_COLORS[risk], 
-                                    end_color=self.RISK_COLORS[risk], fill_type='solid')
-            cell.font = Font(name='Segoe UI', size=10, bold=True, color='FFFFFF')
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_THIN
-            
-            # Count
-            ws.cell(row=table_row, column=3, value=count).alignment = Alignment(horizontal='center')
-            ws.cell(row=table_row, column=3).border = self.BORDER_THIN
-            
-            # Percentage
-            ws.cell(row=table_row, column=4, value=f"{percentage:.1f}%").alignment = Alignment(horizontal='center')
-            ws.cell(row=table_row, column=4).border = self.BORDER_THIN
-            
-            # Status bar (visual)
-            status_cell = ws.cell(row=table_row, column=5)
-            bar_length = int(percentage / 10)
-            status_cell.value = "█" * bar_length
-            status_cell.font = Font(color=self.RISK_COLORS[risk])
-            status_cell.border = self.BORDER_THIN
-            
-            table_row += 1
-
-        # === 차트 생성 ===
-        chart = PieChart()
-        chart.title = "Vulnerability Distribution"
-        chart.style = 10
-        
-        # 차트 데이터 준비
-        chart_start = 25
-        ws.cell(row=chart_start, column=2, value="Risk")
-        ws.cell(row=chart_start, column=3, value="Count")
-        
-        row = chart_start + 1
-        for risk, count in risk_counts.items():
-            if count > 0:
-                ws.cell(row=row, column=2, value=risk)
-                ws.cell(row=row, column=3, value=count)
-                row += 1
-        
-        data_end = row - 1
-        
-        if data_end > chart_start:
-            labels = Reference(ws, min_col=2, min_row=chart_start+1, max_row=data_end)
-            data_ref = Reference(ws, min_col=3, min_row=chart_start+1, max_row=data_end)
-            chart.add_data(data_ref, titles_from_data=False)
-            chart.set_categories(labels)
-            chart.width = 15
-            chart.height = 10
-            ws.add_chart(chart, "H12")
-
-        # 컬럼 너비 조정
-        ws.column_dimensions['A'].width = 2
-        ws.column_dimensions['B'].width = 20
-        ws.column_dimensions['C'].width = 15
-        ws.column_dimensions['D'].width = 15
-        ws.column_dimensions['E'].width = 20
-        ws.column_dimensions['F'].width = 15
-
-    def _draw_modern_kpi(self, ws, row, col, title, value, icon, bg_color):
-        """모던한 KPI 카드 디자인"""
-        # 4x3 영역 병합
-        ws.merge_cells(start_row=row, start_column=col, end_row=row+3, end_column=col+2)
-        
-        cell = ws.cell(row=row, column=col)
-        cell.value = f"{icon}\n{title}\n{value}"
-        cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type='solid')
-        cell.font = Font(name='Segoe UI', size=11, bold=True, color=self.DARK_BLUE)
-        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        
-        # 테두리 적용
-        for r in range(row, row+4):
-            for c in range(col, col+3):
-                ws.cell(row=r, column=c).border = Border(
-                    left=Side(style='medium', color=self.PRIMARY_BLUE),
-                    right=Side(style='medium', color=self.PRIMARY_BLUE),
-                    top=Side(style='medium', color=self.PRIMARY_BLUE),
-                    bottom=Side(style='medium', color=self.PRIMARY_BLUE)
-                )
-
-    def _create_summary_sheet(self, wb, data):
-        """[Summary] 자산별 요약"""
-        ws = wb.create_sheet("📋 Summary by Asset")
-        
-        # 헤더
-        headers = ["IP Address", "Hostname", "OS", "Critical", "High", "Medium", "Low", "Total", "Risk Score"]
-        ws.append(headers)
-        
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.fill = self.HEADER_FILL
-            cell.font = self.HEADER_FONT
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_THIN
-        
-        # 자산별 집계
-        asset_summary = {}
-        for row in data:
-            ip = row[0]
-            if ip not in asset_summary:
-                asset_summary[ip] = {
-                    'hostname': row[1],
-                    'os': row[2],
-                    'Critical': 0, 'High': 0, 'Medium': 0, 'Low': 0
-                }
-            risk = row[5]
-            if risk in asset_summary[ip]:
-                asset_summary[ip][risk] += 1
-        
-        # 데이터 작성
-        for ip, info in sorted(asset_summary.items()):
-            total = sum([info['Critical'], info['High'], info['Medium'], info['Low']])
-            risk_score = info['Critical'] * 10 + info['High'] * 5 + info['Medium'] * 2 + info['Low']
-            
-            row_data = [
-                ip, info['hostname'], info['os'],
-                info['Critical'], info['High'], info['Medium'], info['Low'],
-                total, risk_score
-            ]
-            ws.append(row_data)
-            
-            row_num = ws.max_row
-            for col in range(1, len(row_data) + 1):
-                cell = ws.cell(row=row_num, column=col)
-                cell.border = self.BORDER_THIN
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                
-                # 숫자 컬럼 하이라이트
-                if col >= 4 and col <= 7:
-                    val = row_data[col-1]
-                    if val > 0:
-                        if col == 4:  # Critical
-                            cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
-                        elif col == 5:  # High
-                            cell.fill = PatternFill(start_color='FFE6CC', end_color='FFE6CC', fill_type='solid')
-        
-        # 컬럼 너비
-        widths = [15, 20, 12, 10, 10, 10, 10, 10, 12]
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
-        
-        ws.auto_filter.ref = ws.dimensions
-
-    def _create_detail_sheet(self, wb, data):
-        """[Detail] 상세 취약점 목록"""
-        ws = wb.create_sheet("📄 Vulnerability Details")
-        
-        headers = ["IP", "Hostname", "OS", "Code", "Vulnerability Name", "Risk", "Status", "Details", "Remediation", "Scan Date"]
-        ws.append(headers)
-        
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.fill = self.HEADER_FILL
-            cell.font = self.HEADER_FONT
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_THIN
-        
-        for row_idx, row_data in enumerate(data, 2):
-            for col_idx, val in enumerate(row_data, 1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=str(val))
-                cell.border = self.BORDER_THIN
-                cell.alignment = Alignment(vertical='top', wrap_text=True)
-                
-                # Risk 컬럼
-                if col_idx == 6 and val in self.RISK_COLORS:
-                    icon = self.RISK_ICONS.get(val, '')
-                    cell.value = f"{icon} {val}"
-                    cell.fill = PatternFill(start_color=self.RISK_COLORS[val], 
-                                            end_color=self.RISK_COLORS[val], fill_type='solid')
-                    cell.font = Font(bold=True, color='FFFFFF')
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-        
-        widths = [14, 18, 10, 10, 35, 12, 10, 40, 40, 18]
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
-        
-        ws.auto_filter.ref = ws.dimensions
+        ws.row_dimensions[1].height = 25
         ws.freeze_panes = 'A2'
 
-    def _create_remediation_sheet(self, wb, data):
-        """[Remediation] 조치 가이드"""
-        ws = wb.create_sheet("🔧 Remediation Guide")
-        
-        # 타이틀
-        ws.merge_cells('A1:E1')
-        ws['A1'] = "Priority Remediation Actions"
-        ws['A1'].font = Font(name='Segoe UI', size=16, bold=True, color=self.DARK_BLUE)
-        ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
-        ws.row_dimensions[1].height = 30
-        
-        # Critical & High만 필터링
-        priority_items = [row for row in data if row[5] in ['Critical', 'High']]
-        
-        headers = ["Priority", "IP", "Vulnerability", "Risk", "Remediation Action"]
-        ws.append(headers)
-        
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=2, column=col)
-            cell.fill = self.HEADER_FILL
-            cell.font = self.HEADER_FONT
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_THIN
-        
-        for idx, row in enumerate(priority_items, 1):
-            ws.append([
-                idx,
-                row[0],
-                row[4],
-                f"{self.RISK_ICONS.get(row[5], '')} {row[5]}",
-                row[8]
-            ])
+        for idx, row in enumerate(scan_data, 1):
+            ip, hostname = row[0], row[1]
+            kisa_code = row[2] if row[2] else row[3]
+            name = row[4]
+            risk = row[5]
+            status = row[6]
+            summary = row[7]
+            evidence = row[8]
+            remediation = row[9]
+            is_waived = row[10]
+            waiver_reason = row[11]
+
+            final_status = "양호"
+            if is_waived == 1: final_status = "예외"
+            elif status == "VULNERABLE": final_status = "취약"
             
-            row_num = ws.max_row
-            for col in range(1, 6):
-                cell = ws.cell(row=row_num, column=col)
-                cell.border = self.BORDER_THIN
+            row_vals = [idx, ip, hostname, kisa_code, name, risk, final_status, summary, evidence, remediation, waiver_reason]
+            
+            r_idx = idx + 1
+            for c_idx, val in enumerate(row_vals, 1):
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.value = str(val) if val else "-"
+                cell.font = self.FONT_NORMAL
+                cell.border = self.BORDER_ALL
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
                 
-                if col == 4:  # Risk column
-                    cell.fill = PatternFill(start_color=self.RISK_COLORS[row[5]], 
-                                            end_color=self.RISK_COLORS[row[5]], fill_type='solid')
-                    cell.font = Font(bold=True, color='FFFFFF')
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-        
-        ws.column_dimensions['A'].width = 10
-        ws.column_dimensions['B'].width = 15
-        ws.column_dimensions['C'].width = 40
-        ws.column_dimensions['D'].width = 15
-        ws.column_dimensions['E'].width = 50
+                if c_idx in [1, 2, 4, 6, 7]: 
+                    cell.alignment = Alignment(horizontal='center', vertical='top')
+                
+                if c_idx == 7: 
+                    cell.font = self.FONT_BOLD
+                    if final_status == "취약": cell.fill = PatternFill(start_color=self.COLOR_CRITICAL, fill_type='solid')
+                    elif final_status == "양호": cell.fill = PatternFill(start_color=self.COLOR_GOOD, fill_type='solid')
+                    elif final_status == "예외": cell.fill = PatternFill(start_color=self.COLOR_WAIVER, fill_type='solid')
+
+    def _create_asset_sheet(self, wb, asset_data):
+        ws = wb.create_sheet("3.자산목록")
+        headers = ["No", "IP 주소", "호스트명", "OS 정보", "MAC 주소"]
+        for i, h in enumerate(headers):
+            cell = ws.cell(row=1, column=i+1)
+            cell.value = h
+            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
+            cell.font = self.FONT_HEADER
+            cell.border = self.BORDER_ALL
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions[get_column_letter(i+1)].width = 20
+
+        for idx, row in enumerate(asset_data, 1):
+            vals = [idx, row[0], row[1], row[2], row[3]]
+            for c, v in enumerate(vals, 1):
+                cell = ws.cell(row=idx+1, column=c)
+                cell.value = v
+                cell.border = self.BORDER_ALL
+                cell.alignment = Alignment(horizontal='center')
