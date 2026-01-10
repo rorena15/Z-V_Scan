@@ -7,6 +7,9 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
+# [FINAL FIXED] utils/db_connector.py
+# get_asset_id 메서드 복구 및 KISA 증적 저장 기능 통합 버전
+
 import sqlite3
 import os
 import sys
@@ -53,24 +56,20 @@ class DBConnector:
                 )
             ''')
 
-            # 2. 스캔 결과 테이블 (대대적 개편)
-            # - raw_output: 명령어 실행 전체 결과 (증적)
-            # - kisa_code: W-01, U-02 등 (Rules.json과 매핑)
-            # - waiver_status: 0(미적용), 1(예외승인)
-            # - waiver_reason: 예외 사유
+            # 2. 스캔 결과 테이블 (KISA 증적/예외처리 컬럼 포함)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS TBL_SCAN_RESULT (
                     result_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     asset_id INTEGER,
-                    vuln_code TEXT,       -- 내부 관리 코드 (혹은 KISA 코드)
-                    kisa_code TEXT,       -- UI 표시용 KISA 코드 (예: W-01)
+                    vuln_code TEXT,       
+                    kisa_code TEXT,       
                     vuln_name TEXT,
                     risk_level TEXT,
-                    status TEXT,          -- VULNERABLE, SAFE, ERROR
-                    detected_value TEXT,  -- 요약된 결과 (UI 표시용)
-                    raw_output TEXT,      -- [핵심] 실제 명령어 실행 전체 결과 (증적)
+                    status TEXT,          
+                    detected_value TEXT,  
+                    raw_output TEXT,      
                     remediation TEXT,
-                    waiver_status INTEGER DEFAULT 0, -- 0: Normal, 1: Waived(Risk Acceptance)
+                    waiver_status INTEGER DEFAULT 0, 
                     waiver_reason TEXT DEFAULT '',
                     scan_date DATETIME,
                     FOREIGN KEY(asset_id) REFERENCES TBL_ASSETS(asset_id)
@@ -90,18 +89,14 @@ class DBConnector:
                 )
             ''')
             
-            # 기존 테이블 마이그레이션 (컬럼 추가 체크)
-            try:
-                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN raw_output TEXT DEFAULT ''")
+            # 마이그레이션 (컬럼 추가)
+            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN raw_output TEXT DEFAULT ''")
             except: pass
-            try:
-                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN kisa_code TEXT DEFAULT ''")
+            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN kisa_code TEXT DEFAULT ''")
             except: pass
-            try:
-                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_status INTEGER DEFAULT 0")
+            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_status INTEGER DEFAULT 0")
             except: pass
-            try:
-                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_reason TEXT DEFAULT ''")
+            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_reason TEXT DEFAULT ''")
             except: pass
 
             conn.commit()
@@ -144,17 +139,24 @@ class DBConnector:
             finally:
                 conn.close()
 
-    # [수정] save_result 메서드 파라미터 확장 (raw_output, kisa_code 추가)
+    # [복구됨] 이 메서드가 없어서 에러가 발생했습니다.
+    def get_asset_id(self, ip):
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT asset_id FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+                row = cursor.fetchone()
+                return row[0] if row else None
+            except: return None
+            finally: conn.close()
+
     def save_result(self, asset_id, code, name, risk, status, detail, remediation="-", raw_output="", kisa_code=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                # 기존 결과가 있다면 waiver 상태는 유지해야 하는가? 
-                # 정책: 재스캔 시 예외처리는 초기화할지 유지할지 결정 필요. 
-                # 여기서는 일단 덮어쓰기(초기화) 하되, 추후 로직 개선 가능.
                 
                 cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?", (asset_id, code))
                 
@@ -171,13 +173,11 @@ class DBConnector:
                 return False
             finally: conn.close()
 
-    # [추가] 예외 처리(Risk Acceptance) 토글 기능
     def toggle_waiver(self, result_id, reason=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                # 현재 상태 조회
                 cursor.execute("SELECT waiver_status FROM TBL_SCAN_RESULT WHERE result_id=?", (result_id,))
                 row = cursor.fetchone()
                 if not row: return False
@@ -208,7 +208,6 @@ class DBConnector:
             finally: conn.close()
 
     def get_dashboard_stats(self):
-        """대시보드 통계 (예외처리된 항목은 위험 통계에서 제외)"""
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
@@ -218,7 +217,6 @@ class DBConnector:
                 row = cursor.fetchone()
                 if row: stats["total_assets"] = row[0]
 
-                # [중요] waiver_status가 0인(예외처리 안 된) 항목만 카운트
                 cursor.execute("""
                     SELECT COUNT(*) FROM TBL_SCAN_RESULT 
                     WHERE risk_level IN ('Critical', 'High') AND waiver_status = 0
@@ -233,7 +231,6 @@ class DBConnector:
             finally: conn.close()
             return stats
 
-    # ... (기타 get_memo, update_memo 등은 기존 유지) ...
     def get_memo(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -312,24 +309,6 @@ class DBConnector:
             try:
                 cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=?", (asset_id,))
                 cursor.execute("DELETE FROM TBL_OPEN_PORTS WHERE asset_id=?", (asset_id,))
-                cursor.execute("DELETE FROM TBL_ASSETS WHERE asset_id=?", (asset_id,))
-                conn.commit()
-                return True
-            except Exception as e:
-                AppLogger.log_error(f"[DB] Delete Asset {asset_id} Failed", e)
-                return False
-            finally:
-                conn.close()
-        """DB Manager에서 삭제 시 호출됨"""
-        with self._db_lock:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = conn.cursor()
-            try:
-                # 연관된 데이터 먼저 삭제 (참조 무결성)
-                cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=?", (asset_id,))
-                cursor.execute("DELETE FROM TBL_OPEN_PORTS WHERE asset_id=?", (asset_id,))
-                
-                # 본체 삭제
                 cursor.execute("DELETE FROM TBL_ASSETS WHERE asset_id=?", (asset_id,))
                 conn.commit()
                 return True
