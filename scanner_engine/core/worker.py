@@ -5,7 +5,6 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
-
 import threading
 import ipaddress
 import queue
@@ -31,7 +30,7 @@ from core.discovery import HostDiscovery
 from utils.auth_token import get_engine_token, REAL_KEY
 
 class ScanWorker(QThread):
-    # UI 업데이트를 위한 시그널 정의
+    # UI 업데이트를 위한 시그널
     log_signal = Signal(str)
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
@@ -51,12 +50,11 @@ class ScanWorker(QThread):
         self._security_token = get_engine_token()
 
     def stop(self):
-        #스캔 중단 요청
         self.stop_flag = True
         self.log_signal.emit("[-] Stopping scan worker...")
 
     def db_writer(self):
-        # DB 쓰기 전용 스레드
+        # [수정] DB 쓰기 스레드: 증적(Raw Output) 데이터 처리 추가
         db = DBConnector()
         while True:
             item = self.db_queue.get()
@@ -66,38 +64,63 @@ class ScanWorker(QThread):
             try:
                 msg_type, data = item
                 if msg_type == "ASSET":
-                    # Data Unpacking: (ip, hostname, os_type, ports_str, mac_addr)
-                    # 순서: 0=IP, 1=Host, 2=OS, 3=Ports, 4=Mac
+                    # Data: (ip, hostname, os_type, ports_str, mac_addr)
                     db.save_asset(
                         data[0], 
                         hostname=data[1], 
                         os_type=data[2], 
-                        open_ports=data[3],  # [수정] 포트 정보 전달
+                        open_ports=data[3],
                         mac_addr=data[4]
                     )
                     
                 elif msg_type == "SCAN_RESULT":
-                    # data = (ip, code, name, risk, status, desc, remediation)
-                    asset_id = db.get_asset_id(data[0])
+                    # [확장] Data: (ip, code, name, risk, status, desc, remediation, raw_output, kisa_code)
+                    # Inspector 결과는 9개 요소, Port Scan 결과는 7개 요소일 수 있음 (유연성 처리)
+                    
+                    ip = data[0]
+                    asset_id = db.get_asset_id(ip)
+                    
                     if asset_id:
-                        db.save_result(asset_id, data[1], data[2], data[3], data[4], data[5], data[6])
+                        if len(data) >= 9:
+                            # [KISA Inspector Result] 증적 포함
+                            # (ip, code, name, risk, status, detail, remediation, raw_output, kisa_code)
+                            db.save_result(
+                                asset_id, 
+                                data[1], # code (내부 ID)
+                                data[2], # name
+                                data[3], # risk
+                                data[4], # status
+                                data[5], # detail (요약)
+                                data[6], # remediation
+                                raw_output=data[7], # [NEW] 증적
+                                kisa_code=data[8]   # [NEW] KISA 코드 (W-01 등)
+                            )
+                        else:
+                            # [Port Scan / Legacy Result] 증적 없음 (기존 방식 유지)
+                            # (ip, code, name, risk, status, detail, remediation)
+                            db.save_result(
+                                asset_id, 
+                                data[1], data[2], data[3], data[4], data[5], data[6],
+                                raw_output="", # 기본값
+                                kisa_code=""   # 기본값
+                            )
+
             except Exception as e:
                 AppLogger.log_error("DB Writer Error", e)
             finally:
                 self.db_queue.task_done()
 
     def parse_targets(self):
-        #IP 대역 파싱 (CIDR, Range, Single IP)
         targets = []
         try:
             raw_list = self.target_input.split(',')
             for raw in raw_list:
                 raw = raw.strip()
-                if '/' in raw: # CIDR (192.168.1.0/24)
+                if '/' in raw:
                     net = ipaddress.ip_network(raw, strict=False)
                     for ip in net.hosts():
                         targets.append(str(ip))
-                elif '-' in raw: # Range (192.168.0.1-10)
+                elif '-' in raw:
                     parts = raw.split('-')
                     start_ip = parts[0]
                     end_part = parts[1]
@@ -118,92 +141,61 @@ class ScanWorker(QThread):
         return sorted(list(set(targets)))
 
     def scan_target(self, ip):
-        #[개별 IP 스캔 작업]
         if self.stop_flag: return
         
-        # 스레드마다 독립적인 스캐너 인스턴스 생성 (Thread-Safe)
         scanner = AdvancedScanner()
-        
-        # 0. 호스트 상세 정보 재확인 (OS, MAC)
         is_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
         
         if not is_alive and self.mode != "CUSTOM":
-            # 로그에 남기고 종료
-            # (Ping 차단 방화벽이 있는 경우라면 이 로직 때문에 스캔이 안 될 수 있으나, 
-            #  일반적인 네트워크 스캔에서는 이렇게 해야 속도가 나옵니다.)
             return
         
         hostname = "Unknown"
         if vendor != "Unknown":
             hostname = f"({vendor}) Device"
         
-        # ----------------------------------------------------
-        # [Phase 1] TCP Port Scan & Service Analysis
-        # (구조 유지하되, DB 저장 전에 포트를 구하기 위해 순서만 위로 올림)
-        # ----------------------------------------------------
-        
-        # [Fix 1] Full Scan 시 리스트 대신 range 사용 (메모리/에러 해결)
+        # [Phase 1] TCP Port Scan
         if self.mode == "FULL" and self.ports is None:
             target_ports = range(1, 65536)
-        elif self.ports: # __init__에서 받은 ports 사용
+        elif self.ports:
             target_ports = self.ports
-        elif self.custom_ports: # 호환성 유지
+        elif self.custom_ports:
             target_ports = scanner.parse_ports(self.custom_ports)
         else:
             target_ports = scanner.default_ports
             
-        # 실제 스캔 수행
         open_ports = []
-        chunk_size = 500  # 5000개씩 끊어서 확인
+        chunk_size = 500
         
-        # target_ports가 리스트인지 확인
         if not isinstance(target_ports, list):
             target_ports = list(target_ports)
 
         total_len = len(target_ports)
-        
         for i in range(0, total_len, chunk_size):
-            # [중단 체크 포인트] 500개 할 때마다 검사 -> 반응 속도 비약적 상승
-            if self.stop_flag: 
-                return # 즉시 스레드 종료
-
+            if self.stop_flag: return
             chunk = target_ports[i : i + chunk_size]
             found = scanner.tcp_scan(ip, ports=chunk)
             open_ports.extend(found)
 
-        # [Fix 2] DB 저장을 위해 리스트 -> 문자열 변환
         ports_str = ""
         if open_ports:
             ports_str = ", ".join(map(str, open_ports))
 
-        # ----------------------------------------------------
-        # [자산 정보 업데이트]
-        # 포트 정보(ports_str)를 포함하여 DB에 저장
-        # ----------------------------------------------------
         self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}")
-        
-        # [Fix 3] ports_str 추가 (받는 쪽 db_writer에서 인자 5개로 맞춰야 함)
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
 
-        # ----------------------------------------------------
-        # [스캔 결과 분석 및 저장]
-        # ----------------------------------------------------
         if not open_ports:
-            # 포트가 없으면 Ping만 되는 장비 (정보 기록)
+            # 포트 없음 (7개 요소 전송)
             self.db_queue.put(("SCAN_RESULT", (ip, "INFO-00", "Host Alive", "Info", "Safe", "ICMP Ping Response Only", "-")))
         
         for port in open_ports:
             if self.stop_flag: break
-            
-            # 배너 수집 (Nmap -sV 기능)
             banner = scanner.grab_banner(ip, port)
-            
-            # 취약점 DB 매칭
             match_res = VulnMatcher.match(port, banner)
             
             status = "VULNERABLE" if match_res.get('risk') in ['High', 'Critical'] else "WARNING"
             if match_res.get('risk') == 'Info': status = "Safe"
             
+            # 포트 스캔 결과 (7개 요소 전송)
             self.db_queue.put(("SCAN_RESULT", (
                 ip, 
                 f"TCP-{port}", 
@@ -214,16 +206,12 @@ class ScanWorker(QThread):
                 match_res.get('remediation', '-')
             )))
 
-        # ----------------------------------------------------
-        # [Phase 2] UDP Service Scan (Nmap -sU 기능)
-        # ----------------------------------------------------
-        # FAST 모드가 아닐 때만 수행 (시간 소요 방지)
+        # [Phase 2] UDP Scan
         if self.mode != "FAST" and not self.stop_flag:
-            udp_results = scanner.udp_scan(ip) # Default UDP ports (53, 161 etc)
-            
+            udp_results = scanner.udp_scan(ip)
             for u_port, u_msg, u_len in udp_results:
                 udp_desc = f"UDP Port {u_port} is Open/Response. Payload Size: {u_len} bytes"
-                
+                # UDP 결과 (7개 요소 전송)
                 self.db_queue.put(("SCAN_RESULT", (
                     ip,
                     f"UDP-{u_port}",
@@ -234,54 +222,52 @@ class ScanWorker(QThread):
                     "불필요한 경우 해당 UDP 서비스를 비활성화하십시오."
                 )))
 
-        # ----------------------------------------------------
         # [Phase 3] Deep Inspection (Authenticated Audit)
-        # ----------------------------------------------------
-        # 인증 정보가 있는 경우 내부 설정 진단 수행
         if self.user_info.get(ip) and not self.stop_flag:
             creds = self.user_info[ip]
             username = creds['user']
             
-            # Windows (SMB 445 or RPC 135 Open)
+            # [수정됨] Inspector 호출 및 결과 처리 (6개 Unpacking -> 9개 Packing)
+            
+            # Windows (SMB 445 or RPC 135)
             if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
                 inspector = WindowsInspector(ip, username)
                 if inspector.connect():
                     results = inspector.run_all_checks()
-                    for code, (status, detail, name, remediation) in results.items():
+                    for code, (status, detail, name, remediation, raw_output, kisa_code) in results.items():
                         risk = "High" if status == "VULNERABLE" else "Info"
-                        self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
+                        # [중요] 9개 요소를 튜플로 묶어서 큐에 넣음
+                        self.db_queue.put(("SCAN_RESULT", (
+                            ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
+                        )))
 
-            # Linux (SSH 22 Open)
+            # Linux (SSH 22)
             elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
                 inspector = SSHInspector(ip, username)
                 if inspector.connect():
                     results = inspector.run_all_checks()
-                    for code, (status, detail, name, remediation) in results.items():
+                    for code, (status, detail, name, remediation, raw_output, kisa_code) in results.items():
                         risk = "High" if status == "VULNERABLE" else "Info"
-                        self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
+                        # [중요] 9개 요소를 튜플로 묶어서 큐에 넣음
+                        self.db_queue.put(("SCAN_RESULT", (
+                            ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
+                        )))
 
     def run(self):
         if self._security_token != REAL_KEY:
             self.log_signal.emit("[CRITICAL] Unauthorized Access Detected.")
-            AppLogger.log_critical("Core Engine Security Violation: Invalid Caller.")
             self.finish_signal.emit("Security Error")
             return
         
-        # DB 쓰기 스레드 시작
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
         try:
-            # 1. 타겟 파싱
             target_ips = self.parse_targets()
-            
-            # 타겟이 없으면 조용히 종료 (로그 X)
             if not target_ips:
                 self.finish_signal.emit("No Targets")
                 return
 
-            # 2. 호스트 활성 여부 확인 (ICMP Ping)
-            # CUSTOM 모드가 아닐 때만 Discovery 수행
             live_hosts = target_ips
             if self.mode != "CUSTOM": 
                 discovery = HostDiscovery()
@@ -291,19 +277,14 @@ class ScanWorker(QThread):
                 if dead_count > 0:
                     self.log_signal.emit(f"[-] {dead_count} hosts seem down. Skipping.")
 
-            # [핵심] 최종적으로 살아있는 호스트 수 계산
             real_total_count = len(live_hosts)
-            
-            # [Fix] 여기서 딱 한 번만 시작 신호를 보냅니다. (중복 로그 해결)
             self.started_signal.emit(real_total_count) 
             
-            # 살아있는 호스트가 없으면 종료
             if real_total_count == 0:
                 self.log_signal.emit("[!] No live hosts found.")
                 self.finish_signal.emit("No Live Hosts")
                 return
 
-            # 3. 스레드풀 스캔 시작
             max_workers = 10 if self.mode == "FULL" else 30 
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -312,34 +293,27 @@ class ScanWorker(QThread):
                 processed_count = 0
                 for future in as_completed(futures):
                     ip = futures[future]
-                    # 중단 요청 확인
                     if self.stop_flag:
                         executor.shutdown(wait=False, cancel_futures=True)
-                        self.log_signal.emit("[!] 사용자 요청에 의해 스캔 중단됨.")
                         break
-                    
                     try:
                         future.result()
                     except Exception as e:
                         AppLogger.log_error(f"[Thread Error] {ip}", e)
                     
                     processed_count += 1
-                    
                     if real_total_count > 0:
                         progress = int((processed_count / real_total_count) * 100)
                         self.progress_signal.emit(progress, processed_count)
 
-            # 정상 완료 시 100% 찍기
             if not self.stop_flag:
                 self.progress_signal.emit(100, real_total_count)
             
         except Exception as e:
-            critical_msg = f"[Critical] 엔진 실행 중 오류 발생: {str(e)}"
-            self.log_signal.emit(critical_msg)
-            AppLogger.log_critical(critical_msg)
+            self.log_signal.emit(f"[Critical] Error: {str(e)}")
+            AppLogger.log_critical(f"Worker Error: {e}")
         
         finally:
-            # DB 스레드 정리 및 종료 신호
             self.db_queue.put(None)
             if self.writer_thread:
                 self.writer_thread.join(timeout=3)
