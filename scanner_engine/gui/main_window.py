@@ -638,8 +638,7 @@ class ScannerApp(QMainWindow):
         if not ip:
             QMessageBox.warning(self, "Input Error", "Target IP를 입력해주세요.")
             self.ip_input.setFocus()
-            self.btn_scan.setEnabled(True)
-            self.btn_audit.setEnabled(True)
+            self.set_ui_busy(False)
             return
 
         mode_idx = self.port_mode_combo.currentIndex()
@@ -649,10 +648,12 @@ class ScannerApp(QMainWindow):
             p_str = self.port_input.text().strip()
             if not p_str:
                 QMessageBox.warning(self, "Input Error", "Custom 포트를 입력해주세요.")
+                self.set_ui_busy(False)
                 return
             target_ports = AdvancedScanner.parse_ports(p_str)
             if not target_ports:
                 QMessageBox.warning(self, "Error", "포트 형식이 올바르지 않습니다.")
+                self.set_ui_busy(False)
                 return
         elif mode_idx == 2: 
             msg = QMessageBox(self)
@@ -662,7 +663,9 @@ class ScannerApp(QMainWindow):
             msg.setInformativeText("시간이 매우 오래 걸리며 네트워크 부하가 발생할 수 있습니다.")
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg.setDefaultButton(QMessageBox.No)
-            if msg.exec() == QMessageBox.No: return
+            if msg.exec() == QMessageBox.No: 
+                self.set_ui_busy(False)
+                return
             target_ports = list(range(1, 65536))
         self.asset_table.setRowCount(0)
         
@@ -681,7 +684,6 @@ class ScannerApp(QMainWindow):
         except Exception as e:
             self.log_message(f"[Error] Failed to start scan: {e}")
             self.set_ui_busy(False)
-
 
     def start_audit(self):
         ip = self.ip_input.text().strip()
