@@ -35,7 +35,7 @@ class PDFGenerator:
             base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
             
         self.output_dir = os.path.join(base_path, 'reports')
-        
+        self.db_path = os.path.join(base_path, 'zvuln_scan.db')
         if not os.path.exists(self.output_dir):
             try:
                 os.makedirs(self.output_dir, exist_ok=True)
