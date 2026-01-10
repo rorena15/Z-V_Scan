@@ -28,17 +28,19 @@ from utils.oui_lookup import OUILookup
 class PDFGenerator:
     def __init__(self):
         if getattr(sys, 'frozen', False):
-            self.project_root = os.path.dirname(sys.executable)
+            base_path = os.path.dirname(sys.executable)
         else:
             current_file = os.path.abspath(__file__)
-            self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            # output -> scanner_engine -> Project Root (3단계 위)
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
             
-        self.db_path = os.path.join(self.project_root, 'zvuln_scan.db')
-        self.output_dir = os.path.join(self.project_root, 'reports')
+        self.output_dir = os.path.join(base_path, 'reports')
         
         if not os.path.exists(self.output_dir):
-            try: os.makedirs(self.output_dir, exist_ok=True)
-            except: self.output_dir = os.getcwd() 
+            try:
+                os.makedirs(self.output_dir, exist_ok=True)
+            except OSError:
+                pass
                 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = os.path.join(self.output_dir, f"Scan_Report_{timestamp}.pdf")
