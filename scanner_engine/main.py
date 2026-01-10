@@ -10,7 +10,6 @@ import sys
 import os
 import ctypes  # [추가] 윈도우 작업표시줄 아이콘 분리용
 import multiprocessing
-import time
 import traceback
 from datetime import datetime
 from PySide6.QtWidgets import QApplication, QDialog
