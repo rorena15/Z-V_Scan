@@ -11,6 +11,8 @@ import os
 import subprocess
 import re
 import ssl
+import json 
+import struct # UDP 패킷 구조체 생성용
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.os_utils import OSUtils
@@ -21,7 +23,7 @@ class AdvancedScanner:
     def __init__(self):
         self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
         
-        #Service Probes (트리거 패킷)
+        # [Strategy 1] TCP Service Probes (Service Trigger)
         self.PROBES = {
             80: b"HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
             8080: b"HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
@@ -30,26 +32,65 @@ class AdvancedScanner:
             25: b"EHLO z-vulnscan\r\n", 
         }
 
+        # [Strategy 3] UDP Payloads (Nmap Style)
+        # UDP는 연결 과정이 없으므로, 애플리케이션이 반응할 수 있는 '진짜 데이터'를 보내야 함
+        self.UDP_PROBES = {
+            53:  b"\xaa\xaa\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01", # DNS Query (Transaction ID aaaa)
+            123: b"\xe3\x00\x06\xec" + b"\x00"*44, # NTP v4 Client Request
+            137: b"\x80\x96\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x20\x43\x4b\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x00\x00\x21\x00\x01", # NetBIOS Status
+            161: b"\x30\x26\x02\x01\x01\x04\x06\x70\x75\x62\x6c\x69\x63\xa0\x19\x02\x04\x00\x00\x00\x00\x02\x01\x00\x02\x01\x00\x30\x0b\x30\x09\x06\x05\x2b\x06\x01\x02\x01\x05\x00", # SNMP v1 public get-next
+            1900: b"M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\nST: ssdp:all\r\nMan: \"ssdp:discover\"\r\nMX: 3\r\n\r\n" # SSDP (UPnP)
+        }
+
+        self.SIGNATURES = [] 
+        self.load_signatures()
+
         #Service Fingerprints (정규식 DB)
+    def load_signatures(self):
+        #[Hybrid Loader]
+        #1. 외부(External) rules 폴더에 파일이 있으면 우선 사용 (Custom/Update)
+        #2. 없으면 내부(Internal) _MEIPASS 리소스를 사용 (Default/Fallback)
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
+        external_path = os.path.join(base_dir, 'rules', 'signatures.json')
+        
+        internal_path = None
+        if hasattr(sys, '_MEIPASS'):
+            internal_path = os.path.join(sys._MEIPASS, 'rules', 'signatures.json')
+        else:
+            internal_path = external_path
+
+        # 외부 파일 우선 로드 정책
+        target_path = external_path if os.path.exists(external_path) else internal_path
+        
+        if target_path and os.path.exists(target_path):
+            try:
+                with open(target_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for item in data:
+                        if 'pattern' in item and 'service' in item:
+                            self.SIGNATURES.append((
+                                item['pattern'], 
+                                item['service'], 
+                                item.get('category', 'General')
+                            ))
+                AppLogger.log_info(f"[Config] Loaded {len(self.SIGNATURES)} signatures.")
+            except Exception as e:
+                AppLogger.log_error(f"[Config] Failed to parse signatures.json", e)
+                self._load_hardcoded_defaults()
+        else:
+            self._load_hardcoded_defaults()
+
+    def _load_hardcoded_defaults(self):
+        #파일 로드 실패 시 사용하는 비상용 데이터
         self.SIGNATURES = [
-            # SSH
             (r'^SSH-[\d.]+-OpenSSH_([\w.]+)', "OpenSSH", "SSH"),
-            (r'^SSH-[\d.]+-([\w.]+)', "Generic SSH", "SSH"),
-            # HTTP Server
             (r'Server:\s*Apache/([\d.]+)', "Apache httpd", "HTTP"),
             (r'Server:\s*nginx/([\d.]+)', "Nginx", "HTTP"),
-            (r'Server:\s*Microsoft-IIS/([\d.]+)', "Microsoft IIS", "HTTP"),
-            (r'Server:\s*([^\r\n]+)', "Generic Web Server", "HTTP"),
-            # FTP
-            (r'220\s+.*\s+vsFTPd\s+([\d.]+)', "vsftpd", "FTP"),
-            (r'220\s+.*\s+FileZilla Server\s+version\s+([\d.]+)', "FileZilla", "FTP"),
-            (r'220\s+Microsoft FTP Service', "Microsoft FTP", "FTP"),
-            # Database
             (r'.*(\d+\.\d+\.\d+-MariaDB).*', "MariaDB", "MySQL"),
-            (r'.*(\d+\.\d+\.\d+).*mysql_native_password', "MySQL", "MySQL"),
-            # Email
-            (r'220\s+.*ESMTP Postfix', "Postfix", "SMTP"),
-            (r'220\s+.*ESMTP Sendmail', "Sendmail", "SMTP"),
         ]
 
     @staticmethod
@@ -63,12 +104,10 @@ class AdvancedScanner:
             for part in parts:
                 part = part.strip()
                 if '-' in part:
-                    start, end = map(int, part.split('-'))
-                    for p in range(start, end + 1):
-                        if 1 <= p <= 65535: ports.add(p)
+                    s, e = map(int, part.split('-'))
+                    for p in range(s, e + 1): ports.add(p)
                 else:
-                    p = int(part)
-                    if 1 <= p <= 65535: ports.add(p)
+                    ports.add(int(part))
         except: pass
         return sorted(list(ports))
 
@@ -129,6 +168,40 @@ class AdvancedScanner:
             except: pass
         return open_ports
 
+    def udp_scan(self, ip, ports=None):
+        #UDP 포트 스캔: 연결이 없으므로 페이로드를 보내고 응답을 기다림.
+        #- 응답 있음 -> Open
+        #- ICMP Unreachable -> Closed (Python Socket에서 감지 어려움, 보통 Timeout으로 처리)
+        #- 응답 없음(Timeout) -> Open|Filtered (여기선 보수적으로 'Open?' 또는 무시)
+        # 기본 점검할 UDP 포트 (DNS, NTP, NetBIOS, SNMP, UPnP)
+        target_ports = ports if ports else [53, 123, 137, 161, 1900] 
+        open_ports = []
+        timeout = 1.0 # UDP는 패킷 손실 가능성이 있어 TCP보다 길게 설정
+        for port in target_ports:
+            # 해당 포트에 맞는 페이로드 가져오기 (없으면 빈 패킷)
+            payload = self.UDP_PROBES.get(port, b"")
+            
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.settimeout(timeout)
+                    s.sendto(payload, (ip, port))
+                    
+                    # 응답 대기
+                    try:
+                        data, _ = s.recvfrom(1024)
+                        # 데이터가 왔다는 건 확실히 열려있다는 뜻
+                        open_ports.append((port, "UDP-Open", len(data)))
+                    except socket.timeout:
+                        # UDP는 응답 없는게 정상이거나(Drop), 열려있는데 무시하는 경우임
+                        pass
+                    except ConnectionResetError:
+                        # Windows에서 ICMP Port Unreachable을 받으면 이 에러가 남 -> 확실히 Closed
+                        pass
+            except:
+                pass
+                
+        return open_ports
+    
     def analyze_banner(self, banner, port):
         #Hybrid Mode: 서명이 매칭되면 예쁘게 출력하고,
         #매칭되지 않으면 원본 배너를 보존하여 정보 손실을 방지합니다.
