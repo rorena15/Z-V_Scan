@@ -27,7 +27,7 @@ def get_engine_token():
         caller_filename = caller_frame.filename
         
         # 허용된 파일명 리스트
-        allow_list = ['worker.py', 'main.py', 'audit_runner.py', 'advanced_scanner.py']
+        allow_list = ['main_window.py', 'worker.py', 'main.py', 'audit_runner.py', 'advanced_scanner.py']
         
         # 호출자가 허용 리스트에 있거나, scanner_engine 패키지 내부라면 통과
         if "scanner_engine" in caller_filename or \

@@ -47,6 +47,8 @@ class ScanWorker(QThread):
         self.stop_flag = False
         self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
+        self.ports = ports
+        self._security_token = get_engine_token()
 
     def stop(self):
         #스캔 중단 요청
@@ -54,18 +56,25 @@ class ScanWorker(QThread):
         self.log_signal.emit("[-] Stopping scan worker...")
 
     def db_writer(self):
-        #DB 쓰기 전용 스레드 (락 경합 방지 및 UI 프리징 예방)
+        # DB 쓰기 전용 스레드
         db = DBConnector()
         while True:
             item = self.db_queue.get()
-            if item is None: # 종료 신호(Sentinel)
+            if item is None: # 종료 신호
                 break
             
             try:
                 msg_type, data = item
                 if msg_type == "ASSET":
-                    # data = (ip, hostname, os_type, mac)
-                    db.save_asset(data[0], hostname=data[1], os_type=data[2], mac_addr=data[3])
+                    # Data Unpacking: (ip, hostname, os_type, ports_str, mac_addr)
+                    # 순서: 0=IP, 1=Host, 2=OS, 3=Ports, 4=Mac
+                    db.save_asset(
+                        data[0], 
+                        hostname=data[1], 
+                        os_type=data[2], 
+                        open_ports=data[3],  # [수정] 포트 정보 전달
+                        mac_addr=data[4]
+                    )
                     
                 elif msg_type == "SCAN_RESULT":
                     # data = (ip, code, name, risk, status, desc, remediation)
@@ -122,19 +131,41 @@ class ScanWorker(QThread):
         if vendor != "Unknown":
             hostname = f"({vendor}) Device"
         
-        # 자산 정보 업데이트 알림
-        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}")
-        self.db_queue.put(("ASSET", (ip, hostname, os_type, mac_addr)))
-
         # ----------------------------------------------------
         # [Phase 1] TCP Port Scan & Service Analysis
+        # (구조 유지하되, DB 저장 전에 포트를 구하기 위해 순서만 위로 올림)
         # ----------------------------------------------------
-        target_ports = scanner.default_ports
-        if self.custom_ports:
-            target_ports = scanner.parse_ports(self.custom_ports)
-            
-        open_ports = scanner.tcp_scan(ip, ports=target_ports)
         
+        # [Fix 1] Full Scan 시 리스트 대신 range 사용 (메모리/에러 해결)
+        if self.mode == "FULL" and self.ports is None:
+            target_ports = range(1, 65536)
+        elif self.ports: # __init__에서 받은 ports 사용
+            target_ports = self.ports
+        elif self.custom_ports: # 호환성 유지
+            target_ports = scanner.parse_ports(self.custom_ports)
+        else:
+            target_ports = scanner.default_ports
+            
+        # 실제 스캔 수행
+        open_ports = scanner.tcp_scan(ip, ports=target_ports)
+
+        # [Fix 2] DB 저장을 위해 리스트 -> 문자열 변환
+        ports_str = ""
+        if open_ports:
+            ports_str = ", ".join(map(str, open_ports))
+
+        # ----------------------------------------------------
+        # [자산 정보 업데이트]
+        # 포트 정보(ports_str)를 포함하여 DB에 저장
+        # ----------------------------------------------------
+        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}")
+        
+        # [Fix 3] ports_str 추가 (받는 쪽 db_writer에서 인자 5개로 맞춰야 함)
+        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
+
+        # ----------------------------------------------------
+        # [스캔 결과 분석 및 저장]
+        # ----------------------------------------------------
         if not open_ports:
             # 포트가 없으면 Ping만 되는 장비 (정보 기록)
             self.db_queue.put(("SCAN_RESULT", (ip, "INFO-00", "Host Alive", "Info", "Safe", "ICMP Ping Response Only", "-")))
@@ -190,7 +221,7 @@ class ScanWorker(QThread):
             username = creds['user']
             
             # Windows (SMB 445 or RPC 135 Open)
-            if (445 in open_ports or 135 in open_ports) and os_type == "Windows":
+            if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
                 inspector = WindowsInspector(ip, username)
                 if inspector.connect():
                     results = inspector.run_all_checks()
@@ -199,7 +230,7 @@ class ScanWorker(QThread):
                         self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
 
             # Linux (SSH 22 Open)
-            elif 22 in open_ports and (os_type == "Linux/Unix" or os_type == "Unknown"):
+            elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
                 inspector = SSHInspector(ip, username)
                 if inspector.connect():
                     results = inspector.run_all_checks()
@@ -208,10 +239,9 @@ class ScanWorker(QThread):
                         self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
 
     def run(self):
-        token = get_engine_token()
-        if token != REAL_KEY:
-            self.log_signal.emit("[CRITICAL] Security Violation: Unauthorized execution detected.")
-            AppLogger.log_critical(f"Invalid Engine Token. Scan Aborted. (Token: {token})")
+        if self._security_token != REAL_KEY:
+            self.log_signal.emit("[CRITICAL] Unauthorized Access Detected.")
+            AppLogger.log_critical("Core Engine Security Violation: Invalid Caller.")
             self.finish_signal.emit("Security Error")
             return
         

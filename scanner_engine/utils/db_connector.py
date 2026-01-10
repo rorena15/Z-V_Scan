@@ -48,6 +48,7 @@ class DBConnector:
                     ip_addr TEXT UNIQUE NOT NULL,
                     hostname TEXT,
                     os_type TEXT,
+                    open_ports TEXT DEFAULT '', 
                     mac_addr TEXT,
                     last_seen DATETIME,
                     memo TEXT DEFAULT ''
@@ -93,11 +94,14 @@ class DBConnector:
                     FOREIGN KEY(asset_id) REFERENCES TBL_ASSETS(asset_id)
                 )
             ''')
-
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN open_ports TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
             conn.close()
 
-    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", mac_addr="-"):
+    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", open_ports="", mac_addr="-"):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
@@ -108,19 +112,24 @@ class DBConnector:
                 
                 if row:
                     asset_id = row[0]
+                    # 포트 정보와 시간 갱신
                     if mac_addr and mac_addr not in ["-", "Unknown"]:
                         cursor.execute("""
-                            UPDATE TBL_ASSETS SET last_seen=?, hostname=?, os_type=?, mac_addr=? WHERE asset_id=?
-                        """, (now, hostname, os_type, mac_addr, asset_id))
+                            UPDATE TBL_ASSETS 
+                            SET last_seen=?, hostname=?, os_type=?, open_ports=?, mac_addr=? 
+                            WHERE asset_id=?
+                        """, (now, hostname, os_type, open_ports, mac_addr, asset_id))
                     else:
                         cursor.execute("""
-                            UPDATE TBL_ASSETS SET last_seen=?, hostname=?, os_type=? WHERE asset_id=?
-                        """, (now, hostname, os_type, asset_id))
+                            UPDATE TBL_ASSETS 
+                            SET last_seen=?, hostname=?, os_type=?, open_ports=? 
+                            WHERE asset_id=?
+                        """, (now, hostname, os_type, open_ports, asset_id))
                 else:
                     cursor.execute("""
-                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, mac_addr, last_seen, memo)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (ip, hostname, os_type, mac_addr, now, ""))
+                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, last_seen, memo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (ip, hostname, os_type, open_ports, mac_addr, now, ""))
                     asset_id = cursor.lastrowid
                 conn.commit()
                 return asset_id

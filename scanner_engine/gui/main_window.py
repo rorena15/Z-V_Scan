@@ -231,7 +231,7 @@ class ScannerApp(QMainWindow):
         self.ip_input.setPlaceholderText("Target IP Address (e.g., 192.168.1.1 or 192.168.1.0/24)")
         self.ip_input.setStyleSheet("font-size: 11pt; padding: 8px;") # 중요하니까 조금 크게
         
-        lbl_mode = QLabel("Mode:")
+        lbl_mode = QLabel("Port Scan Mode:")
         lbl_mode.setStyleSheet("color: #ccc; font-weight: bold;")
         
         self.port_mode_combo = QComboBox()
@@ -345,7 +345,7 @@ class ScannerApp(QMainWindow):
         
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(4)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr", "OS / Type", "Ports", "Memo"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname" "OS / Type","mac_addr", "Ports", "Memo"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
@@ -436,7 +436,6 @@ class ScannerApp(QMainWindow):
         main_layout.addWidget(docked_status_container)
 
         central_widget.setLayout(main_layout)
-
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
     def add_asset_to_table(self, ip, os_type, ports, memo_text=None):
@@ -674,10 +673,15 @@ class ScannerApp(QMainWindow):
             self.scanned_ip_cache = set()
 
         self.set_ui_busy(True)
-        token = get_engine_token()
-        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
-        self.connect_worker()
-        self.worker.start()
+        try:
+            # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
+            self.connect_worker()
+            self.worker.start()
+        except Exception as e:
+            self.log_message(f"[Error] Failed to start scan: {e}")
+            self.set_ui_busy(False)
+
 
     def start_audit(self):
         ip = self.ip_input.text().strip()
@@ -702,8 +706,7 @@ class ScannerApp(QMainWindow):
                 return
 
         self.set_ui_busy(True)
-        token = get_engine_token()
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, auth_token=token)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user)
         self.connect_worker()
         self.worker.start()
 
@@ -804,22 +807,15 @@ class ScannerApp(QMainWindow):
         event.accept()
 
     def toggle_port_input(self, index):
+        # 1. 인덱스가 1(Custom Range)일 때만 입력창 활성화
         is_custom = (index == 1)
         self.port_input.setEnabled(is_custom)
-        if is_custom: self.port_input.setFocus()
 
-        if index == 2:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Full Scan Warning")
-            msg.setText("<b>Full Port Scan (1-65535)</b>")
-            msg.setInformativeText("매우 오래 걸릴 수 있습니다. 계속하시겠습니까?")
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.No)
-            if msg.exec() == QMessageBox.No:
-                self.port_mode_combo.blockSignals(True)
-                self.port_mode_combo.setCurrentIndex(0)
-                self.port_mode_combo.blockSignals(False)
+        # 2. 편의성: Custom 모드면 포트 입력창에 바로 포커스, 아니면 내용 지우기
+        if is_custom:
+            self.port_input.setFocus()
+        else:
+            self.port_input.clear()
 
     def load_saved_assets(self):
         # History 로드 시에는 Buffer가 아닌 즉시 등록 사용 (DB 내용이니까)
