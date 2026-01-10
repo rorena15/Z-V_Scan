@@ -214,22 +214,22 @@ class ScanWorker(QThread):
             AppLogger.log_critical(f"Invalid Engine Token. Scan Aborted. (Token: {token})")
             self.finish_signal.emit("Security Error")
             return
-
-        AppLogger.log_info(f"Scan Started. Mode: {self.mode}")
-        self.started_signal.emit(0)
         
+        # DB 쓰기 스레드 시작
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
         try:
+            # 1. 타겟 파싱
             target_ips = self.parse_targets()
-            real_total_count = len(target_ips)
-            self.started_signal.emit(real_total_count)
             
-            if real_total_count == 0:
-                self.log_signal.emit("[!] No valid targets found.")
+            # 타겟이 없으면 조용히 종료 (로그 X)
+            if not target_ips:
+                self.finish_signal.emit("No Targets")
                 return
 
+            # 2. 호스트 활성 여부 확인 (ICMP Ping)
+            # CUSTOM 모드가 아닐 때만 Discovery 수행
             live_hosts = target_ips
             if self.mode != "CUSTOM": 
                 discovery = HostDiscovery()
@@ -239,9 +239,19 @@ class ScanWorker(QThread):
                 if dead_count > 0:
                     self.log_signal.emit(f"[-] {dead_count} hosts seem down. Skipping.")
 
+            # [핵심] 최종적으로 살아있는 호스트 수 계산
             real_total_count = len(live_hosts)
+            
+            # [Fix] 여기서 딱 한 번만 시작 신호를 보냅니다. (중복 로그 해결)
             self.started_signal.emit(real_total_count) 
             
+            # 살아있는 호스트가 없으면 종료
+            if real_total_count == 0:
+                self.log_signal.emit("[!] No live hosts found.")
+                self.finish_signal.emit("No Live Hosts")
+                return
+
+            # 3. 스레드풀 스캔 시작
             max_workers = 10 if self.mode == "FULL" else 30 
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -250,10 +260,12 @@ class ScanWorker(QThread):
                 processed_count = 0
                 for future in as_completed(futures):
                     ip = futures[future]
+                    # 중단 요청 확인
                     if self.stop_flag:
                         executor.shutdown(wait=False, cancel_futures=True)
                         self.log_signal.emit("[!] 사용자 요청에 의해 스캔 중단됨.")
                         break
+                    
                     try:
                         future.result()
                     except Exception as e:
@@ -265,6 +277,7 @@ class ScanWorker(QThread):
                         progress = int((processed_count / real_total_count) * 100)
                         self.progress_signal.emit(progress, processed_count)
 
+            # 정상 완료 시 100% 찍기
             if not self.stop_flag:
                 self.progress_signal.emit(100, real_total_count)
             
@@ -274,6 +287,7 @@ class ScanWorker(QThread):
             AppLogger.log_critical(critical_msg)
         
         finally:
+            # DB 스레드 정리 및 종료 신호
             self.db_queue.put(None)
             if self.writer_thread:
                 self.writer_thread.join(timeout=3)

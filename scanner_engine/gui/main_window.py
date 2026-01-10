@@ -632,10 +632,15 @@ class ScannerApp(QMainWindow):
         SecureStorage.delete_credential(target_ip, user)
 
     def start_network_scan(self):
+        self.btn_scan.setEnabled(False) 
+        self.btn_audit.setEnabled(False)
+        
         ip = self.ip_input.text().strip()
         if not ip:
             QMessageBox.warning(self, "Input Error", "Target IP를 입력해주세요.")
             self.ip_input.setFocus()
+            self.btn_scan.setEnabled(True)
+            self.btn_audit.setEnabled(True)
             return
 
         mode_idx = self.port_mode_combo.currentIndex()
