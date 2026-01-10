@@ -12,18 +12,16 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
     QHeaderView, QProgressBar, QComboBox, QMessageBox, 
-    QSplitter, QTextEdit, QMenu, QInputDialog, QFileDialog,
+    QSplitter, QTextEdit, QMenu,
     QGroupBox,
-    QToolBar,
-    QTabWidget,
     QAbstractItemView
 )
 
 # [PySide6 핵심 기능]
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer
 
 # [PySide6 그래픽 및 액션]
-from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QDesktopServices
+from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -672,7 +670,7 @@ class ScannerApp(QMainWindow):
 
         self.set_ui_busy(True)
         token = get_engine_token()
-        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, auth_token=token)
+        self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
         self.connect_worker()
         self.worker.start()
 

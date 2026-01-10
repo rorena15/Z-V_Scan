@@ -8,6 +8,7 @@
 
 import threading
 import ipaddress
+import queue
 import os
 import sys
 
@@ -44,7 +45,7 @@ class ScanWorker(QThread):
         self.user_info = user if user else {}
         self.custom_ports = ports
         self.stop_flag = False
-        self.db_queue = db_queue # 메인 스레드와 공유하는 DB 큐
+        self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
 
     def stop(self):
@@ -207,9 +208,6 @@ class ScanWorker(QThread):
                         self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
 
     def run(self):
-        #메인 스캔 로직 (스레드 진입점)
-        # [Critical Security Check] 엔진 무결성 검증
-        # 외부 스크립트에서 이 클래스를 무단 호출하면 Fake Key가 반환되어 즉시 종료됨
         token = get_engine_token()
         if token != REAL_KEY:
             self.log_signal.emit("[CRITICAL] Security Violation: Unauthorized execution detected.")
@@ -220,12 +218,10 @@ class ScanWorker(QThread):
         AppLogger.log_info(f"Scan Started. Mode: {self.mode}")
         self.started_signal.emit(0)
         
-        # 1. DB Writer 스레드 시작
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
         try:
-            # 2. 타겟 파싱
             target_ips = self.parse_targets()
             real_total_count = len(target_ips)
             self.started_signal.emit(real_total_count)
@@ -234,7 +230,6 @@ class ScanWorker(QThread):
                 self.log_signal.emit("[!] No valid targets found.")
                 return
 
-            # 3. Host Discovery (살아있는 호스트 선별)
             live_hosts = target_ips
             if self.mode != "CUSTOM": 
                 discovery = HostDiscovery()
@@ -244,12 +239,9 @@ class ScanWorker(QThread):
                 if dead_count > 0:
                     self.log_signal.emit(f"[-] {dead_count} hosts seem down. Skipping.")
 
-            # 실제 스캔할 호스트 수로 UI 업데이트
             real_total_count = len(live_hosts)
             self.started_signal.emit(real_total_count) 
             
-            # 4. 멀티스레드 정밀 스캔 실행
-            # FULL 모드는 스레드 수를 줄여 부하 관리, 일반 모드는 속도 중시
             max_workers = 10 if self.mode == "FULL" else 30 
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -269,7 +261,6 @@ class ScanWorker(QThread):
                     
                     processed_count += 1
                     
-                    # 진행률 전송
                     if real_total_count > 0:
                         progress = int((processed_count / real_total_count) * 100)
                         self.progress_signal.emit(progress, processed_count)
@@ -283,10 +274,7 @@ class ScanWorker(QThread):
             AppLogger.log_critical(critical_msg)
         
         finally:
-            # 종료 시 DB 스레드 정리
             self.db_queue.put(None)
-            
             if self.writer_thread:
                 self.writer_thread.join(timeout=3)
-            
             self.finish_signal.emit("Scan Process Terminated")
