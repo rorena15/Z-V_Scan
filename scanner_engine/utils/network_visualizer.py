@@ -73,14 +73,12 @@ class NetworkVisualizer:
                 elif "unknown" in os_lower:
                     color = "#777777" # 회색
 
-                tooltip = f"<b>IP:</b> {ip}<br><b>OS:</b> {os_type}<br><b>MAC:</b> {mac}<br><b>Memo:</b> {memo_display}"
+                tooltip = f"IP: {ip} OS: {os_type} MAC: {mac} Memo: {memo}"
                 
                 net.add_node(ip, label=ip, title=tooltip, color=color, shape=shape, size=15)
                 net.add_edge("Gateway", ip, color="#555555", width=1)
 
             # 4. [핵심] 물리 엔진 최적화 옵션
-            # smooth: false (직선 연결로 렉 감소)
-            # stabilization: 미리 계산해서 튕김 방지
             options = """
             var options = {
                 "nodes": {
@@ -123,11 +121,135 @@ class NetworkVisualizer:
             """
             net.set_options(options)
 
-            # 5. 저장
+            # 5. [수정] HTML 직접 생성 방식으로 인코딩 문제 회피
             full_path = os.path.join(self.output_dir, output_filename)
-            net.save_graph(full_path)
+            
+            # PyVis의 HTML 템플릿을 직접 생성
+            html_content = net.generate_html()
+            
+            # UTF-8로 강제 저장
+            try:
+                with open(full_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+            except Exception as write_error:
+                # 혹시 generate_html()이 없는 구버전이면 기존 방식 사용
+                try:
+                    # 환경변수로 UTF-8 강제 설정
+                    import locale
+                    original_locale = locale.getpreferredencoding()
+                    
+                    # Python의 기본 인코딩을 UTF-8로 변경
+                    if sys.platform.startswith('win'):
+                        # Windows에서 UTF-8 모드 활성화
+                        import io
+                        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+                    
+                    net.save_graph(full_path)
+                    
+                except Exception as fallback_error:
+                    # 최후의 수단: HTML 수동 생성
+                    AppLogger.log_error("[Visualizer] Using manual HTML generation", fallback_error)
+                    self._save_manual_html(net, full_path)
+            
             return full_path
 
         except Exception as e:
             AppLogger.log_error(f"[Visualizer Error]", e)
             return None
+    
+    def _save_manual_html(self, net, filepath):
+        """수동으로 HTML 파일 생성 (인코딩 문제 완전 회피)"""
+        try:
+            # vis.js CDN을 사용한 간단한 HTML 템플릿
+            nodes_data = []
+            edges_data = []
+            
+            # 노드 데이터 추출
+            for node in net.nodes:
+                node_dict = {
+                    'id': str(node['id']),
+                    'label': str(node.get('label', node['id'])),
+                    'title': str(node.get('title', '')),
+                    'color': str(node.get('color', '#97c2fc')),
+                    'shape': str(node.get('shape', 'dot')),
+                    'size': int(node.get('size', 15))
+                }
+                nodes_data.append(node_dict)
+            
+            # 엣지 데이터 추출
+            for edge in net.edges:
+                edge_dict = {
+                    'from': str(edge['from']),
+                    'to': str(edge['to']),
+                    'color': str(edge.get('color', '#555555')),
+                    'width': int(edge.get('width', 1))
+                }
+                edges_data.append(edge_dict)
+            
+            # HTML 템플릿
+            html_template = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Z-VulnScan Network Topology</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style type="text/css">
+        body {{ margin: 0; padding: 0; background-color: #1e1e1e; }}
+        #mynetwork {{ width: 100%; height: 100vh; }}
+    </style>
+</head>
+<body>
+<div id="mynetwork"></div>
+<script type="text/javascript">
+    var nodes = new vis.DataSet({str(nodes_data).replace("'", '"')});
+    var edges = new vis.DataSet({str(edges_data).replace("'", '"')});
+    
+    var container = document.getElementById('mynetwork');
+    var data = {{ nodes: nodes, edges: edges }};
+    var options = {{
+        nodes: {{
+            font: {{ size: 14, face: "Tahoma", color: "#ffffff" }},
+            borderWidth: 2,
+            shadow: true
+        }},
+        edges: {{
+            color: {{ inherit: true }},
+            smooth: false,
+            width: 1
+        }},
+        physics: {{
+            enabled: true,
+            barnesHut: {{
+                gravitationalConstant: -8000,
+                centralGravity: 0.3,
+                springLength: 200,
+                springConstant: 0.04,
+                damping: 0.09,
+                avoidOverlap: 0.2
+            }},
+            stabilization: {{
+                enabled: true,
+                iterations: 1000,
+                updateInterval: 50
+            }},
+            minVelocity: 0.75,
+            solver: "barnesHut"
+        }},
+        interaction: {{
+            hover: true,
+            navigationButtons: true,
+            keyboard: true,
+            zoomView: true
+        }}
+    }};
+    
+    var network = new vis.Network(container, data, options);
+</script>
+</body>
+</html>"""
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(html_template)
+                
+        except Exception as e:
+            AppLogger.log_error("[Manual HTML Generation Error]", e)
