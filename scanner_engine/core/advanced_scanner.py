@@ -14,42 +14,51 @@ import ssl
 import json 
 import struct # UDP 패킷 구조체 생성용
 
+# 상위 디렉토리(프로젝트 루트)를 시스템 경로에 추가
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
 from utils.os_utils import OSUtils
 from utils.logger import AppLogger
 from utils.oui_lookup import OUILookup
 
 class AdvancedScanner:
+    #[Z-VulnScan Pro Advanced Scanner Engine]
+    #Features:
+    #1. TCP Connect Scan & Service Fingerprinting
+    #2. UDP Payload Scan (Nmap -sU Style)
+    #3. HTTP Title Extraction (Asset Identification)
+    #4. Passive OS Fingerprinting (TTL)
+    
     def __init__(self):
+        # 기본 스캔 대상 포트
         self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
         
-        # [Strategy 1] TCP Service Probes (Service Trigger)
+        # [Strategy 1] TCP Service Probes
+        # [Update v4.4] HTTP Title 수집을 위해 HEAD -> GET 변경
         self.PROBES = {
-            80: b"HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            8080: b"HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            443: b"HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            21: None, 22: None, 23: None, 
+            80: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
+            8080: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
+            443: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
+            21: None, 
+            22: None, 
+            23: None, 
             25: b"EHLO z-vulnscan\r\n", 
         }
 
-        # [Strategy 3] UDP Payloads (Nmap Style)
-        # UDP는 연결 과정이 없으므로, 애플리케이션이 반응할 수 있는 '진짜 데이터'를 보내야 함
+        # [Strategy 3] UDP Payloads
         self.UDP_PROBES = {
-            53:  b"\xaa\xaa\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01", # DNS Query (Transaction ID aaaa)
-            123: b"\xe3\x00\x06\xec" + b"\x00"*44, # NTP v4 Client Request
-            137: b"\x80\x96\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x20\x43\x4b\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x00\x00\x21\x00\x01", # NetBIOS Status
-            161: b"\x30\x26\x02\x01\x01\x04\x06\x70\x75\x62\x6c\x69\x63\xa0\x19\x02\x04\x00\x00\x00\x00\x02\x01\x00\x02\x01\x00\x30\x0b\x30\x09\x06\x05\x2b\x06\x01\x02\x01\x05\x00", # SNMP v1 public get-next
-            1900: b"M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\nST: ssdp:all\r\nMan: \"ssdp:discover\"\r\nMX: 3\r\n\r\n" # SSDP (UPnP)
+            53:  b"\xaa\xaa\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01", 
+            123: b"\xe3\x00\x06\xec" + b"\x00"*44, 
+            137: b"\x80\x96\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x20\x43\x4b\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x41\x00\x00\x21\x00\x01", 
+            161: b"\x30\x26\x02\x01\x01\x04\x06\x70\x75\x62\x6c\x69\x63\xa0\x19\x02\x04\x00\x00\x00\x00\x02\x01\x00\x02\x01\x00\x30\x0b\x30\x09\x06\x05\x2b\x06\x01\x02\x01\x05\x00", 
+            1900: b"M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\nST: ssdp:all\r\nMan: \"ssdp:discover\"\r\nMX: 3\r\n\r\n" 
         }
 
         self.SIGNATURES = [] 
         self.load_signatures()
 
-        #Service Fingerprints (정규식 DB)
     def load_signatures(self):
-        #[Hybrid Loader]
-        #1. 외부(External) rules 폴더에 파일이 있으면 우선 사용 (Custom/Update)
-        #2. 없으면 내부(Internal) _MEIPASS 리소스를 사용 (Default/Fallback)
+        #[Hybrid Loader] 외부 JSON 룰 우선, 없으면 내부 기본값
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
         else:
@@ -63,7 +72,6 @@ class AdvancedScanner:
         else:
             internal_path = external_path
 
-        # 외부 파일 우선 로드 정책
         target_path = external_path if os.path.exists(external_path) else internal_path
         
         if target_path and os.path.exists(target_path):
@@ -85,19 +93,17 @@ class AdvancedScanner:
             self._load_hardcoded_defaults()
 
     def _load_hardcoded_defaults(self):
-        #파일 로드 실패 시 사용하는 비상용 데이터
         self.SIGNATURES = [
             (r'^SSH-[\d.]+-OpenSSH_([\w.]+)', "OpenSSH", "SSH"),
             (r'Server:\s*Apache/([\d.]+)', "Apache httpd", "HTTP"),
             (r'Server:\s*nginx/([\d.]+)', "Nginx", "HTTP"),
+            (r'Server:\s*Microsoft-IIS/([\d.]+)', "Microsoft IIS", "HTTP"),
             (r'.*(\d+\.\d+\.\d+-MariaDB).*', "MariaDB", "MySQL"),
         ]
-
+    
     @staticmethod
     def parse_ports(port_str):
-        if not re.match(r'^[\d,-]+$', port_str):
-            AppLogger.log_error(f"Invalid port format: {port_str}")
-            return []
+        if not re.match(r'^[\d,-]+$', port_str): return []
         ports = set()
         try:
             parts = port_str.split(',')
@@ -119,8 +125,7 @@ class AdvancedScanner:
             elif ttl <= 128: return "Windows"
             elif ttl > 128: return "Network Device"
             else: return "Unknown"
-        except:
-            return "Unknown"
+        except: return "Unknown"
 
     def get_mac_address(self, ip):
         if ip in ["127.0.0.1", "localhost", "0.0.0.0"]: return "Localhost"
@@ -128,10 +133,12 @@ class AdvancedScanner:
         try:
             cmd = f"arp -a {ip}" if OSUtils.is_windows() else f"arp -n {ip}"
             kwargs = OSUtils.get_hidden_kwargs() if OSUtils.is_windows() else {}
+            
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, shell=True, **kwargs)
             if proc.returncode == 0:
                 mac_match = re.search(r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", proc.stdout)
-                if mac_match: mac_address = mac_match.group(0).upper().replace("-", ":")
+                if mac_match: 
+                    mac_address = mac_match.group(0).upper().replace("-", ":")
         except: pass
         return mac_address
 
@@ -164,86 +171,92 @@ class AdvancedScanner:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(timeout)
-                    if s.connect_ex((ip, port)) == 0: open_ports.append(port)
+                    if s.connect_ex((ip, port)) == 0: 
+                        open_ports.append(port)
             except: pass
         return open_ports
 
     def udp_scan(self, ip, ports=None):
-        #UDP 포트 스캔: 연결이 없으므로 페이로드를 보내고 응답을 기다림.
-        #- 응답 있음 -> Open
-        #- ICMP Unreachable -> Closed (Python Socket에서 감지 어려움, 보통 Timeout으로 처리)
-        #- 응답 없음(Timeout) -> Open|Filtered (여기선 보수적으로 'Open?' 또는 무시)
-        # 기본 점검할 UDP 포트 (DNS, NTP, NetBIOS, SNMP, UPnP)
         target_ports = ports if ports else [53, 123, 137, 161, 1900] 
         open_ports = []
-        timeout = 1.0 # UDP는 패킷 손실 가능성이 있어 TCP보다 길게 설정
+        timeout = 1.0
+
         for port in target_ports:
-            # 해당 포트에 맞는 페이로드 가져오기 (없으면 빈 패킷)
             payload = self.UDP_PROBES.get(port, b"")
-            
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.settimeout(timeout)
                     s.sendto(payload, (ip, port))
-                    
-                    # 응답 대기
                     try:
                         data, _ = s.recvfrom(1024)
-                        # 데이터가 왔다는 건 확실히 열려있다는 뜻
                         open_ports.append((port, "UDP-Open", len(data)))
-                    except socket.timeout:
-                        # UDP는 응답 없는게 정상이거나(Drop), 열려있는데 무시하는 경우임
-                        pass
-                    except ConnectionResetError:
-                        # Windows에서 ICMP Port Unreachable을 받으면 이 에러가 남 -> 확실히 Closed
+                    except (socket.timeout, ConnectionResetError):
                         pass
             except:
                 pass
-                
         return open_ports
-    
+
+    def extract_http_title(self, banner):
+        #HTML 본문에서 <title> 태그 내용 추출
+        try:
+            # 정규식: <title>...</title> (대소문자 무시, 줄바꿈 포함)
+            match = re.search(r'<title[^>]*>(.*?)</title>', banner, re.IGNORECASE | re.DOTALL)
+            if match:
+                title = match.group(1).strip()
+                # HTML 엔티티 제거 및 길이 제한
+                title = re.sub(r'<[^>]+>', '', title) # 태그 제거
+                title = title.replace("\n", "").replace("\r", "")
+                return title[:50] # 너무 길면 자름
+        except:
+            pass
+        return None
+
     def analyze_banner(self, banner, port):
-        #Hybrid Mode: 서명이 매칭되면 예쁘게 출력하고,
-        #매칭되지 않으면 원본 배너를 보존하여 정보 손실을 방지합니다.
         service = "Unknown"
         version = ""
         is_matched = False
         
-        # 1. 정규식 매칭 시도
+        # 1. 정규식 매칭
         for pattern, product_name, category in self.SIGNATURES:
-            match = re.search(pattern, banner, re.IGNORECASE)
-            if match:
-                service = product_name
-                if match.lastindex and match.lastindex >= 1:
-                    version = match.group(1)
-                is_matched = True
-                break
+            try:
+                match = re.search(pattern, banner, re.IGNORECASE)
+                if match:
+                    service = product_name
+                    if match.lastindex and match.lastindex >= 1:
+                        version = match.group(1)
+                    is_matched = True
+                    break
+            except re.error:
+                continue 
         
-        # 2. [보완점] 매칭 실패 시 원본 정보 보존
+        #HTTP 서비스인 경우 Title 추출 시도
+        extra_info = ""
+        if port in [80, 8080, 443] or "HTTP" in service.upper():
+            title = self.extract_http_title(banner)
+            if title:
+                extra_info = f" | Title: {title}"
+
+        # 2. 매칭 실패 시 원본 보존
         if not is_matched:
-            # 원본 배너가 너무 길면 자름
             raw_info = banner[:40] + "..." if len(banner) > 40 else banner
-            # 포트별 기본 서비스명 가져오기
             common_ports = {21:'FTP', 22:'SSH', 23:'Telnet', 80:'HTTP', 443:'HTTPS', 3306:'MySQL', 8080:'HTTP-Proxy'}
             base_service = common_ports.get(port, 'TCP')
-            
-            # "HTTP (Server: Apache/2.4)" 형태로 원본 보존
-            return f"{base_service} ({raw_info})"
+            return f"{base_service} ({raw_info}){extra_info}"
 
-        # 3. 매칭 성공 시 깔끔한 포맷
+        # 3. 매칭 성공 시
         final_info = f"{service}"
         if version:
             final_info += f" {version}"
-            
-        return final_info
+        
+        return final_info + extra_info
 
     def grab_banner(self, ip, port):
         banner_raw = ""
         probe_data = self.PROBES.get(port, b"\r\n") 
-        
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2.0)
+            
             if port == 443:
                 context = ssl.create_default_context()
                 context.check_hostname = False
@@ -254,8 +267,14 @@ class AdvancedScanner:
             sock.connect((ip, port))
             if probe_data: sock.send(probe_data)
             
-            raw_data = sock.recv(2048)
-            banner_raw = raw_data.decode('utf-8', errors='ignore').strip()
+            #Title 추출을 위해 읽는 바이트 수 증가
+            raw_data = sock.recv(4096)
+            
+            # 인코딩 처리 (한글 타이틀 지원)
+            try:
+                banner_raw = raw_data.decode('utf-8', errors='strict').strip()
+            except UnicodeDecodeError:
+                banner_raw = raw_data.decode('cp949', errors='ignore').strip()
             
         except: pass
         finally: sock.close()
