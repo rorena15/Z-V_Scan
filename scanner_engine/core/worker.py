@@ -35,13 +35,16 @@ class ScanWorker(QThread):
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
     started_signal = Signal(int)
-    asset_found_signal = Signal(str, str, str) # IP, Hostname, Memo
+    asset_found_signal = Signal(str, str, str, str) # IP, Hostname, Memo
 
     def __init__(self, mode, target_input, user=None, ports=None, db_queue=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
-        self.user_info = user if user else {}
+        if user and isinstance(user, dict):
+            self.user_info = user
+        else:
+            self.user_info = {}
         self.custom_ports = ports
         self.stop_flag = False
         self.db_queue = db_queue if db_queue else queue.Queue()
@@ -180,7 +183,7 @@ class ScanWorker(QThread):
         if open_ports:
             ports_str = ", ".join(map(str, open_ports))
 
-        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}")
+        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}",f"Ports: {ports_str}")
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
 
         if not open_ports:
@@ -192,6 +195,12 @@ class ScanWorker(QThread):
             banner = scanner.grab_banner(ip, port)
             match_res = VulnMatcher.match(port, banner)
             
+            if isinstance(match_res, str):
+                match_res = {'name': match_res, 'risk': 'Info', 'desc': banner, 'remediation': '-'}
+                # [Fix] 딕셔너리가 아니면 빈 딕셔너리 처리
+            if not isinstance(match_res, dict):
+                match_res = {}
+
             status = "VULNERABLE" if match_res.get('risk') in ['High', 'Critical'] else "WARNING"
             if match_res.get('risk') == 'Info': status = "Safe"
             
@@ -223,12 +232,12 @@ class ScanWorker(QThread):
                 )))
 
         # [Phase 3] Deep Inspection (Authenticated Audit)
-        if self.user_info.get(ip) and not self.stop_flag:
+        if isinstance(self.user_info, dict) and self.user_info.get(ip) and not self.stop_flag:
             creds = self.user_info[ip]
-            username = creds['user']
+            # creds도 딕셔너리인지 확인하고 .get 사용
+            username = creds.get('user', '') if isinstance(creds, dict) else ''
             
             # [수정됨] Inspector 호출 및 결과 처리 (6개 Unpacking -> 9개 Packing)
-            
             # Windows (SMB 445 or RPC 135)
             if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
                 inspector = WindowsInspector(ip, username)
