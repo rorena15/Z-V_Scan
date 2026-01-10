@@ -238,3 +238,66 @@ class DBConnector:
                 return True
             except: return False
             finally: conn.close()
+    
+    def get_assets_for_manager(self):
+        """DB Manager용 전체 데이터 조회 (수정/삭제를 위해 ID 포함)"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                # db_manager.py가 기대하는 컬럼 순서: id, ip, host, os, mac, last, memo
+                # (주의: db_manager.py의 load_data 메서드 루프 구조와 맞춰야 함)
+                # open_ports 컬럼은 매니저 테이블에 표시하지 않는 것 같으니 제외하거나 필요시 추가
+                cursor.execute("""
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, last_seen, memo 
+                    FROM TBL_ASSETS 
+                    ORDER BY last_seen DESC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Manager Load Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def update_asset_field(self, asset_id, field_name, new_value):
+        """DB Manager에서 셀 수정 시 호출됨"""
+        # SQL Injection 방지를 위해 필드명 검증 (허용된 필드만)
+        allowed_fields = ["hostname", "os_type", "mac_addr", "memo"]
+        if field_name not in allowed_fields:
+            return False
+
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                # 필드명은 바인딩 변수(?)로 쓸 수 없어서 f-string 사용하되, 위에서 검증함
+                sql = f"UPDATE TBL_ASSETS SET {field_name} = ? WHERE asset_id = ?"
+                cursor.execute(sql, (new_value, asset_id))
+                conn.commit()
+                return True
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Update Field Error ({field_name})", e)
+                return False
+            finally:
+                conn.close()
+
+    def delete_asset_by_id(self, asset_id):
+        """DB Manager에서 삭제 시 호출됨"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                # 연관된 데이터 먼저 삭제 (참조 무결성)
+                cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=?", (asset_id,))
+                cursor.execute("DELETE FROM TBL_OPEN_PORTS WHERE asset_id=?", (asset_id,))
+                
+                # 본체 삭제
+                cursor.execute("DELETE FROM TBL_ASSETS WHERE asset_id=?", (asset_id,))
+                conn.commit()
+                return True
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Delete Asset {asset_id} Failed", e)
+                return False
+            finally:
+                conn.close()

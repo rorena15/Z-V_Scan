@@ -345,7 +345,7 @@ class ScannerApp(QMainWindow):
         
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(4)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname" "OS / Type","mac_addr", "Ports", "Memo"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","mac_addr", "Ports", "Memo"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
