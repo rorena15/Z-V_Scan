@@ -127,6 +127,12 @@ class ScanWorker(QThread):
         # 0. 호스트 상세 정보 재확인 (OS, MAC)
         is_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
         
+        if not is_alive and self.mode != "CUSTOM":
+            # 로그에 남기고 종료
+            # (Ping 차단 방화벽이 있는 경우라면 이 로직 때문에 스캔이 안 될 수 있으나, 
+            #  일반적인 네트워크 스캔에서는 이렇게 해야 속도가 나옵니다.)
+            return
+        
         hostname = "Unknown"
         if vendor != "Unknown":
             hostname = f"({vendor}) Device"
@@ -147,7 +153,23 @@ class ScanWorker(QThread):
             target_ports = scanner.default_ports
             
         # 실제 스캔 수행
-        open_ports = scanner.tcp_scan(ip, ports=target_ports)
+        open_ports = []
+        chunk_size = 500  # 5000개씩 끊어서 확인
+        
+        # target_ports가 리스트인지 확인
+        if not isinstance(target_ports, list):
+            target_ports = list(target_ports)
+
+        total_len = len(target_ports)
+        
+        for i in range(0, total_len, chunk_size):
+            # [중단 체크 포인트] 500개 할 때마다 검사 -> 반응 속도 비약적 상승
+            if self.stop_flag: 
+                return # 즉시 스레드 종료
+
+            chunk = target_ports[i : i + chunk_size]
+            found = scanner.tcp_scan(ip, ports=chunk)
+            open_ports.extend(found)
 
         # [Fix 2] DB 저장을 위해 리스트 -> 문자열 변환
         ports_str = ""
