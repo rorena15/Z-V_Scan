@@ -5,8 +5,6 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
-import getpass
-import platform
 import os
 import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -16,10 +14,12 @@ sys.path.append(parent_dir)
 from datetime import datetime
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-    QTextEdit, QCheckBox, QPushButton
+    QTextEdit, QCheckBox, QPushButton,QMessageBox,QLineEdit
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
+from core.license_validator import LicenseValidator
+
 class LegalDisclaimerDialog(QDialog): 
     def __init__(self):
         super().__init__()
@@ -138,3 +138,83 @@ class LegalDisclaimerDialog(QDialog):
             
         # 부모 클래스의 accept 호출 (창 닫기 및 결과 반환)
         super().accept()
+
+class LicenseDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Product Activation")
+        self.setFixedSize(450, 220)
+        self.setStyleSheet("background-color: #252526; color: white;")
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(25, 25, 25, 25)
+        
+        # 안내 문구
+        lbl_info = QLabel("제품 키를 입력하여 잠금을 해제하십시오.\n(Format: ZV3-TIER-XXXX-XXXX)")
+        lbl_info.setStyleSheet("color: #ccc; font-size: 10pt; font-weight: bold;")
+        layout.addWidget(lbl_info)
+        
+        # 입력창
+        self.input_key = QLineEdit()
+        self.input_key.setPlaceholderText("Paste your License Key here...")
+        self.input_key.setStyleSheet("""
+            QLineEdit { 
+                padding: 10px; 
+                font-size: 11pt; 
+                border: 1px solid #007acc; 
+                border-radius: 4px;
+                background-color: #333;
+                color: #fff;
+            }
+            QLineEdit:focus { border: 1px solid #0098ff; background-color: #3a3a3a; }
+        """)
+        layout.addWidget(self.input_key)
+        
+        # 버튼 영역
+        btn_layout = QHBoxLayout()
+        
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setStyleSheet("""
+            QPushButton { background-color: #333; color: #aaa; border: 1px solid #555; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: #444; color: white; }
+        """)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        self.btn_activate = QPushButton("Activate License")
+        self.btn_activate.setCursor(Qt.PointingHandCursor)
+        self.btn_activate.setStyleSheet("""
+            QPushButton { 
+                background-color: #007acc; 
+                color: white; 
+                padding: 10px; 
+                font-weight: bold; 
+                border-radius: 4px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #005f9e; }
+        """)
+        self.btn_activate.clicked.connect(self.check_license)
+
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_activate)
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+        self.verified_tier = None 
+
+    def check_license(self):
+        key = self.input_key.text().strip()
+        
+        is_valid, tier = LicenseValidator.validate_key(key)
+        
+        if is_valid:
+            if LicenseValidator.save_license(key):
+                self.verified_tier = tier
+                QMessageBox.information(self, "Activation Successful", 
+                                        f"✅ 정품 인증이 완료되었습니다.\n\n[Active Tier]: {tier}")
+                self.accept()
+            else:
+                QMessageBox.warning(self, "System Error", "라이선스 파일을 저장할 수 없습니다.\n권한을 확인하세요.")
+        else:
+            QMessageBox.warning(self, "Invalid Key", "⛔ 유효하지 않은 라이선스 키입니다.\n입력한 내용을 다시 확인해주세요.")

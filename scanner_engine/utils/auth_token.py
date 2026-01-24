@@ -8,14 +8,13 @@
 import inspect
 import sys
 import secrets
-
+from core.config import AppConfig
 # 실제 정품 키
-REAL_KEY = "ZVulnScan_V3_Pro_Secure_Engine_Key_2026_!@#"
 
 def get_engine_token():
     
     if getattr(sys, 'frozen', False):
-        return REAL_KEY
+        return AppConfig.ENGINE_ACCESS_TOKEN
 
     # 2. 개발 환경(.py) 검증 로직
     try:
@@ -32,7 +31,7 @@ def get_engine_token():
         # 호출자가 허용 리스트에 있거나, scanner_engine 패키지 내부라면 통과
         if "scanner_engine" in caller_filename or \
             any(name in caller_filename for name in allow_list):
-            return REAL_KEY
+            return AppConfig.ENGINE_ACCESS_TOKEN
             
         return _generate_fake_token()
 
