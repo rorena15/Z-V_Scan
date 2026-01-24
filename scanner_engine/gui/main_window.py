@@ -96,7 +96,7 @@ class ScannerApp(QMainWindow):
 
     # -- UI 세팅 --
     def initUI(self):
-        self.setWindowTitle('Z-Vuln Scan v3.0.0 Professional Edition [Evaluation Copy]')
+        self.setWindowTitle('Z-Vuln Scan')
         self.resize(1200, 850)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         
@@ -159,11 +159,11 @@ class ScannerApp(QMainWindow):
         
         self.title_label = QLabel("Z-Vuln Scan Standard")
         self.title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
-        self.ver_label = QLabel(CURRENT_VERSION)
-        self.ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
+        #self.ver_label = QLabel(CURRENT_VERSION)
+        #self.ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
         
         title_layout.addWidget(self.title_label)
-        title_layout.addWidget(self.ver_label)
+        #title_layout.addWidget(self.ver_label)
         header_layout.addWidget(title_widget)
         
         header_layout.addStretch()
@@ -177,11 +177,11 @@ class ScannerApp(QMainWindow):
         self.lbl_stats_assets = QLabel("Assets: 0")
         self.lbl_stats_assets.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11pt; border: none;")
         
-        self.lbl_stats_vulns = QLabel("Issues: 0")
-        self.lbl_stats_vulns.setStyleSheet("color: #ff6b6b; font-weight: bold; font-size: 11pt; border: none; margin-left: 15px;")
+        #self.lbl_stats_vulns = QLabel("Issues: 0")
+        #self.lbl_stats_vulns.setStyleSheet("color: #ff6b6b; font-weight: bold; font-size: 11pt; border: none; margin-left: 15px;")
         
         stats_layout.addWidget(self.lbl_stats_assets)
-        stats_layout.addWidget(self.lbl_stats_vulns)
+        #stats_layout.addWidget(self.lbl_stats_vulns)
         
         header_layout.addWidget(stats_container)
         main_layout.addLayout(header_layout)
@@ -315,7 +315,7 @@ class ScannerApp(QMainWindow):
         lbl_list.setStyleSheet("font-weight: bold; color: #ddd; font-size: 10pt;")
         
         self.btn_clear_assets = QPushButton("Clear List")
-        self.btn_clear_assets.setFixedSize(90, 30)
+        self.btn_clear_assets.setFixedSize(90, 40)
         self.btn_clear_assets.setStyleSheet("""
             QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
             QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
@@ -328,7 +328,7 @@ class ScannerApp(QMainWindow):
         left_layout.addLayout(list_header)
         
         self.asset_table = QTableWidget()
-        self.asset_table.setColumnCount(4)
+        self.asset_table.setColumnCount(6)
         self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","mac_addr", "Ports", "Memo"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -360,7 +360,7 @@ class ScannerApp(QMainWindow):
         lbl_log.setStyleSheet("font-weight: bold; color: #4ec9b0; font-size: 10pt;")
         
         self.btn_clear_logs = QPushButton("Clear Log")
-        self.btn_clear_logs.setFixedSize(90, 30)
+        self.btn_clear_logs.setFixedSize(90, 40)
         self.btn_clear_logs.setStyleSheet("""
             QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
             QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
