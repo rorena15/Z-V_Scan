@@ -46,6 +46,7 @@ from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
 from core.license_validator import LicenseValidator
 from core.config import AppConfig
+from gui.dialogs import LicenseDialog
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -141,11 +142,24 @@ class ScannerApp(QMainWindow):
         self.action_xls = QAction("📊 Excel", self)
         self.action_xls.triggered.connect(self.generate_excel)
         self.toolbar.addAction(self.action_xls)
+        
+        self.action_cloud = QAction("☁️ Cloud Sync", self)
+        self.action_cloud.triggered.connect(self.sync_to_cloud)
+        self.toolbar.addAction(self.action_cloud)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.toolbar.addWidget(spacer)
         
+        # ------------------------------------------------------------------
+        # [TODO] 나중에 배포 시 주석 해제 (라이선스 인증 버튼)
+        # ------------------------------------------------------------------
+        # self.action_license = QAction("Activate License", self)
+        # self.action_license.triggered.connect(self.open_license_dialog)
+        # self.toolbar.addAction(self.action_license) 
+        # ------------------------------------------------------------------
+        
+        # [임시] 개발용 데모 버튼 (나중에 위 코드를 풀면 이건 삭제)
         self.action_license_switch = QAction("Change License (Demo)", self)
         self.action_license_switch.triggered.connect(self.demo_toggle_license)
         self.toolbar.addAction(self.action_license_switch)
@@ -949,10 +963,29 @@ class ScannerApp(QMainWindow):
                     # 비활성 느낌의 회색 적용
                     btn_widget.setStyleSheet("color: #7f8c8d;")
 
-    # [NEW] 데모용 라이선스 토글 함수
+    # 데모용 라이선스 토글 함수
     def demo_toggle_license(self):
         new_tier = self.license_mgr.toggle_tier()
         self.update_ui_by_license()
         
         msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
         QMessageBox.information(self, "License Change", msg)
+        
+    # ----------------------------------------------------------------------
+    # [TODO] 나중에 주석 해제하여 사용 (라이선스 다이얼로그 연동)
+    # ----------------------------------------------------------------------
+    def open_license_dialog(self):
+        pass # 주석 처리된 동안 에러 방지용
+        # dlg = LicenseDialog(self)
+        # if dlg.exec():
+        #     if dlg.verified_tier:
+        #         self.license_mgr.current_tier = dlg.verified_tier
+        #         self.update_ui_by_license()
+        #         self.log_message(f"[System] License Activated: {dlg.verified_tier}")
+        
+    def sync_to_cloud(self):
+        # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도
+        QMessageBox.information(self, "Enterprise Feature", 
+            "☁️ [Cloud Sync]\n\n"
+            "자산 데이터를 중앙 관제 대시보드(SaaS)로 전송합니다.\n"
+            "(현재 데모 버전에서는 시뮬레이션만 수행됩니다.)")
