@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
     QHeaderView, QProgressBar, QComboBox, QMessageBox, 
     QSplitter, QTextEdit, QMenu,
     QGroupBox,
-    QAbstractItemView
+    QAbstractItemView,
+    QSizePolicy
 )
 
 # [PySide6 핵심 기능]
@@ -26,6 +27,7 @@ from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
+CURRENT_VERSION = "v3.0"
 
 def resource_path(relative_path): 
     if hasattr(sys, '_MEIPASS'):
@@ -42,8 +44,40 @@ from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
-from utils.auth_token import get_engine_token
 
+class LicenseManager:
+    #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
+    #- Standard: PDF 리포트만 가능, 윈도우 타이틀에 제한 표시
+    #- Professional: Excel 리포트 가능, 전체 기능 활성화
+    #
+    TIER_STANDARD = "STANDARD"
+    TIER_PROFESSIONAL = "PROFESSIONAL"
+
+    def __init__(self):
+        # 기본값은 STANDARD로 시작 (데모 시연 시 극적인 효과를 위해)
+        self.current_tier = self.TIER_STANDARD
+
+    def toggle_tier(self):
+        #"""데모 시연용: 등급 스위칭 (Standard <-> Pro)"""
+        if self.current_tier == self.TIER_STANDARD:
+            self.current_tier = self.TIER_PROFESSIONAL
+        else:
+            self.current_tier = self.TIER_STANDARD
+        return self.current_tier
+
+    def get_window_title(self):
+        #"""라이선스에 따른 윈도우 제목 반환"""
+        base_title = f"Z-Vuln Scan {CURRENT_VERSION}"
+        if self.current_tier == self.TIER_STANDARD:
+            return f"{base_title} Standard"
+        elif self.current_tier == self.TIER_PROFESSIONAL:
+            return f"{base_title} Professional"
+        return base_title
+
+    def can_export_excel(self):
+        #"""Professional 등급 이상만 엑셀 내보내기 허용"""
+        return self.current_tier == self.TIER_PROFESSIONAL
+    
 class ScannerApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -57,7 +91,8 @@ class ScannerApp(QMainWindow):
         self.scan_result_buffer = []
         
         self.initUI()
-        self.refresh_dashboard()
+        self.license_mgr = LicenseManager()
+        self.update_ui_by_license()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -66,71 +101,12 @@ class ScannerApp(QMainWindow):
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
         
         # [테마] 전체 스타일시트 (Deep Dark 모드 + 가독성 개선)
-        self.setStyleSheet("""
-            QMainWindow { background-color: #1e1e1e; }
-            QWidget { color: #d4d4d4; font-size: 10pt; font-family: 'Segoe UI', sans-serif; }
-            QToolTip { color: #ffffff; background-color: #2b2b2b; border: 1px solid #767676; }
-            
-            /* [공통] 입력창 스타일 */
-            QLineEdit {
-                background-color: #2d2d30;
-                color: #ffffff;
-                border: 1px solid #3e3e42;
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QLineEdit:focus { border: 1px solid #555555; background-color: #1e1e1e; }
-            QLineEdit:disabled { background-color: #333333; color: #888888; }
-            
-            /* [공통] 콤보박스 스타일 (투명화 해결 포함) */
-            QComboBox {
-                background-color: #2d2d30;
-                border: 1px solid #3e3e42;
-                border-radius: 4px;
-                padding: 5px;
-                color: #ffffff;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox::down-arrow { image: none; border-left: 2px solid #555; width: 0; height: 0; }
-            QComboBox QAbstractItemView {
-                background-color: #2d2d30;
-                color: #ffffff;
-                border: 1px solid #3e3e42;
-                selection-background-color: #3e3e42;
-                selection-color: #ffffff;
-            }
-
-            /* 알림창(QMessageBox) & 입력창(QInputDialog) 테마 적용 */
-            QMessageBox, QInputDialog {
-                background-color: #252526;
-                color: #d4d4d4;
-            }
-            QMessageBox QLabel, QInputDialog QLabel {
-                color: #d4d4d4;
-                font-weight: normal;
-            }
-            /* 다이얼로그 내부 버튼 스타일 */
-            QMessageBox QPushButton, QInputDialog QPushButton {
-                background-color: #3e3e42;
-                color: white;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 6px 20px;
-                min-width: 60px;
-            }
-            QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
-                background-color: #4e4e52;
-                border-color: #777;
-            }
-            QMessageBox QPushButton:pressed, QInputDialog QPushButton:pressed {
-                background-color: #2d2d30;
-            }
-        """)
+        self.setStyleSheet(STYLESHEET)
 
         # [1. 상단 툴바]
-        toolbar = self.addToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        toolbar.setStyleSheet("""
+        self.toolbar = self.addToolBar("Main Toolbar")
+        self.toolbar.setMovable(False)
+        self.toolbar.setStyleSheet("""
             QToolBar { background: #252526; border-bottom: 1px solid #333; spacing: 10px; padding: 5px; }
             QToolButton { color: #cccccc; background: transparent; padding: 6px; border-radius: 4px; font-weight: bold; }
             QToolButton:hover { background: #3e3e42; color: white; }
@@ -139,23 +115,31 @@ class ScannerApp(QMainWindow):
         # 툴바 액션
         self.action_db = QAction("📂 DB Manager", self)
         self.action_db.triggered.connect(self.open_db_manager)
-        toolbar.addAction(self.action_db)
+        self.toolbar.addAction(self.action_db)
         
-        toolbar.addSeparator()
+        self.toolbar.addSeparator()
         
         self.action_map = QAction("🗺️ Topology", self)
         self.action_map.triggered.connect(self.show_topology)
-        toolbar.addAction(self.action_map)
+        self.toolbar.addAction(self.action_map)
         
-        toolbar.addSeparator()
+        self.toolbar.addSeparator()
 
         self.action_pdf = QAction("📄 PDF", self)
         self.action_pdf.triggered.connect(self.generate_pdf)
-        toolbar.addAction(self.action_pdf)
+        self.toolbar.addAction(self.action_pdf)
         
         self.action_xls = QAction("📊 Excel", self)
         self.action_xls.triggered.connect(self.generate_excel)
-        toolbar.addAction(self.action_xls)
+        self.toolbar.addAction(self.action_xls)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.toolbar.addWidget(spacer)
+        
+        self.action_license_switch = QAction("Change License (Demo)", self)
+        self.action_license_switch.triggered.connect(self.demo_toggle_license)
+        self.toolbar.addAction(self.action_license_switch)
 
         # --- 메인 컨텐츠 ---
         central_widget = QWidget()
@@ -173,13 +157,13 @@ class ScannerApp(QMainWindow):
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(15, 8, 15, 8)
         
-        title_label = QLabel("🛡️ Z-Vuln Scan Professional Trial Version")
-        title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
-        ver_label = QLabel("v3.0.0")
-        ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
+        self.title_label = QLabel("Z-Vuln Scan Standard")
+        self.title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
+        self.ver_label = QLabel(CURRENT_VERSION)
+        self.ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
         
-        title_layout.addWidget(title_label)
-        title_layout.addWidget(ver_label)
+        title_layout.addWidget(self.title_label)
+        title_layout.addWidget(self.ver_label)
         header_layout.addWidget(title_widget)
         
         header_layout.addStretch()
@@ -572,7 +556,10 @@ class ScannerApp(QMainWindow):
         
         # [핵심] 이제 self.action_XXX 로 접근 가능
         if hasattr(self, 'action_pdf'): self.action_pdf.setEnabled(not busy)
-        if hasattr(self, 'action_xls'): self.action_xls.setEnabled(not busy)
+        if hasattr(self, 'action_xls'): 
+            # 바쁠 때는 무조건 비활성, 안 바쁠 때는 라이선스 체크
+            should_enable = (not busy) and self.license_mgr.can_export_excel()
+            self.action_xls.setEnabled(should_enable)
         if hasattr(self, 'action_map'): self.action_map.setEnabled(not busy)
         if hasattr(self, 'action_db'):  self.action_db.setEnabled(not busy)
 
@@ -726,6 +713,9 @@ class ScannerApp(QMainWindow):
             QMessageBox.warning(self, "Error", str(e))
 
     def generate_excel(self):
+        if not self.license_mgr.can_export_excel():
+            QMessageBox.warning(self, "License Restricted", "이 기능은 Professional 라이선스 전용입니다.\n(데모: 툴바의 열쇠 버튼을 눌러보세요)")
+            return
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             generator = ExcelGenerator()
@@ -918,3 +908,42 @@ class ScannerApp(QMainWindow):
         self.asset_table.setSortingEnabled(True)
         
         self.log_message(f"[System] Dashboard Refreshed. (Assets: {stats['total_assets']})")
+        
+    def update_ui_by_license(self):
+        # 1. 윈도우 제목 변경
+        new_title = self.license_mgr.get_window_title()
+        self.setWindowTitle(new_title)
+        
+        # (선택사항) 헤더 라벨도 있다면 같이 변경
+        if hasattr(self, 'title_label'):
+            self.title_label.setText(new_title)
+
+        # 2. 엑셀 버튼 활성화/비활성화 (Feature Flag)
+        can_excel = self.license_mgr.can_export_excel()
+        if hasattr(self, 'action_xls') and hasattr(self, 'toolbar'):
+            self.action_xls.setEnabled(can_excel)
+            
+            # 툴바에서 실제 버튼 위젯 가져오기
+            btn_widget = self.toolbar.widgetForAction(self.action_xls)
+            
+            if btn_widget:
+                if can_excel:
+                    # [Pro 모드] 활성 상태: 흰색 (기존 스타일 유지)
+                    self.action_xls.setText("📊 Excel Export")
+                    self.action_xls.setToolTip("Export Scan Results to Excel (Professional)")
+                    # 기본 텍스트 색상(흰색)으로 복구
+                    btn_widget.setStyleSheet("color: #ffffff; font-weight: bold;")
+                else:
+                    # [Standard 모드] 비활성 상태: 회색 (#7f8c8d)
+                    self.action_xls.setText("📊 Excel Export") # 텍스트도 그대로 유지 (잠금 아이콘 X)
+                    self.action_xls.setToolTip("🔒 Locked (Requires Professional License)")
+                    # 비활성 느낌의 회색 적용
+                    btn_widget.setStyleSheet("color: #7f8c8d;")
+
+    # [NEW] 데모용 라이선스 토글 함수
+    def demo_toggle_license(self):
+        new_tier = self.license_mgr.toggle_tier()
+        self.update_ui_by_license()
+        
+        msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
+        QMessageBox.information(self, "License Change", msg)
