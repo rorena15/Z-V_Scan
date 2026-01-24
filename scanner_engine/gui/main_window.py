@@ -145,13 +145,16 @@ class ScannerApp(QMainWindow):
         self.action_xls.triggered.connect(self.generate_excel)
         self.toolbar.addAction(self.action_xls)
         
-        self.toolbar.addSeparator()
+        #self.toolbar.addSeparator()
         
-        self.action_cloud = QAction("☁️ Cloud Sync", self)
-        self.action_cloud.triggered.connect(self.sync_to_cloud)
-        self.toolbar.addAction(self.action_cloud)
-        self.toolbar.addSeparator()
-
+        # ------------------------------------------------------------------
+        # [TODO] 나중에 배포 시 주석 해제 (클라우드 연동 버튼)
+        # ------------------------------------------------------------------
+        #self.action_cloud = QAction("☁️ Cloud Sync", self)
+        #self.action_cloud.triggered.connect(self.sync_to_cloud)
+        #self.toolbar.addAction(self.action_cloud)
+        #self.toolbar.addSeparator()
+        # ------------------------------------------------------------------
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.toolbar.addWidget(spacer)
