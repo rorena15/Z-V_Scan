@@ -139,13 +139,18 @@ class ScannerApp(QMainWindow):
         self.action_pdf.triggered.connect(self.generate_pdf)
         self.toolbar.addAction(self.action_pdf)
         
+        self.toolbar.addSeparator()
+        
         self.action_xls = QAction("📊 Excel", self)
         self.action_xls.triggered.connect(self.generate_excel)
         self.toolbar.addAction(self.action_xls)
         
+        self.toolbar.addSeparator()
+        
         self.action_cloud = QAction("☁️ Cloud Sync", self)
         self.action_cloud.triggered.connect(self.sync_to_cloud)
         self.toolbar.addAction(self.action_cloud)
+        self.toolbar.addSeparator()
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -159,11 +164,13 @@ class ScannerApp(QMainWindow):
         # self.toolbar.addAction(self.action_license) 
         # ------------------------------------------------------------------
         
+        self.toolbar.addSeparator()
+        
         # [임시] 개발용 데모 버튼 (나중에 위 코드를 풀면 이건 삭제)
         self.action_license_switch = QAction("Change License (Demo)", self)
         self.action_license_switch.triggered.connect(self.demo_toggle_license)
         self.toolbar.addAction(self.action_license_switch)
-
+        
         # --- 메인 컨텐츠 ---
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
