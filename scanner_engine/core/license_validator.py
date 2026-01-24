@@ -11,18 +11,12 @@ import base64
 from core.config import AppConfig
 
 class LicenseValidator:
-    """
-    [라이선스 키 구조]
-    Format: ZV3-[TIER]-[RANDOM]-[HASH]
-    Example: ZV3-ENT-X9A2-B7F1
-    """
     LICENSE_FILE = "license.dat"
 
     @staticmethod
     def validate_key(license_key):
-        """
-        입력된 키를 검증하고 유효하면 (True, Tier)를 반환합니다.
-        """
+        #입력된 키를 검증하고 유효하면 (True, Tier)를 반환합니다.
+        
         try:
             parts = license_key.strip().upper().split('-')
             if len(parts) != 4:
@@ -58,7 +52,7 @@ class LicenseValidator:
 
     @staticmethod
     def save_license(key):
-        """인증 성공한 키를 파일에 암호화(Base64)하여 저장"""
+        #인증 성공한 키를 파일에 암호화(Base64)하여 저장
         try:
             encoded = base64.b64encode(key.encode()).decode()
             with open(LicenseValidator.LICENSE_FILE, 'w') as f:
@@ -69,7 +63,7 @@ class LicenseValidator:
 
     @staticmethod
     def load_license():
-        """프로그램 시작 시 저장된 라이선스 로드"""
+        #프로그램 시작 시 저장된 라이선스 로드
         if not os.path.exists(LicenseValidator.LICENSE_FILE):
             return None
         try:
