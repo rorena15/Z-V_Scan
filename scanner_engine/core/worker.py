@@ -28,7 +28,8 @@ from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
 from core.discovery import HostDiscovery
-from utils.auth_token import get_engine_token, REAL_KEY
+from utils.auth_token import get_engine_token
+from core.config import AppConfig
 
 class ScanWorker(QThread):
     # UI 업데이트를 위한 시그널 정의
@@ -261,7 +262,7 @@ class ScanWorker(QThread):
                         self.db_queue.put(("SCAN_RESULT", (ip, code, name, risk, status, detail, remediation)))
 
     def run(self):
-        if self._security_token != REAL_KEY:
+        if self._security_token != AppConfig.ENGINE_ACCESS_TOKEN:
             self.log_signal.emit("[CRITICAL] Unauthorized Access Detected.")
             AppLogger.log_critical("Core Engine Security Violation: Invalid Caller.")
             self.finish_signal.emit("Security Error")
