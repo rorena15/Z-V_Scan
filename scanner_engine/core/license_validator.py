@@ -8,6 +8,7 @@
 import hashlib
 import os
 import base64
+from core.config import AppConfig
 
 class LicenseValidator:
     """
@@ -15,8 +16,6 @@ class LicenseValidator:
     Format: ZV3-[TIER]-[RANDOM]-[HASH]
     Example: ZV3-ENT-X9A2-B7F1
     """
-    # 해커가 절대 알면 안 되는 비밀 소금(Salt)
-    SECRET_SALT = "Z-Vuln-Secret-Salt-2026-DoNotShare" 
     LICENSE_FILE = "license.dat"
 
     @staticmethod
@@ -46,7 +45,7 @@ class LicenseValidator:
 
             # 3. 해시(Checksum) 무결성 검증
             # 키 생성기와 동일한 로직으로 해시를 다시 계산해서 비교
-            raw_str = f"{tier_code}{random_val}{LicenseValidator.SECRET_SALT}"
+            raw_str = f"{tier_code}{random_val}{AppConfig.LICENSE_SALT}"
             calculated_hash = hashlib.md5(raw_str.encode()).hexdigest()[:4].upper()
             
             if checksum == calculated_hash:

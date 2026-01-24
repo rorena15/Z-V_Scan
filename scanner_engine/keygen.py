@@ -9,9 +9,10 @@
 import hashlib
 import random
 import string
-
-# Validator와 똑같은 비밀 키 사용
-SECRET_SALT = "Z-Vuln-Secret-Salt-2026-DoNotShare" 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from core.config import AppConfig
 
 def generate_key(tier_code):
     """
@@ -21,7 +22,7 @@ def generate_key(tier_code):
     random_val = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
     
     # 2. 해시 계산 (Tier + Random + Salt)
-    raw_str = f"{tier_code}{random_val}{SECRET_SALT}"
+    raw_str = f"{tier_code}{random_val}{AppConfig.LICENSE_SALT}"
     checksum = hashlib.md5(raw_str.encode()).hexdigest()[:4].upper()
     
     # 3. 키 조합

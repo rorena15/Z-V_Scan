@@ -27,7 +27,7 @@ from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
-CURRENT_VERSION = "v3.0"
+
 
 def resource_path(relative_path): 
     if hasattr(sys, '_MEIPASS'):
@@ -45,6 +45,7 @@ from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
 from core.license_validator import LicenseValidator
+from core.config import AppConfig
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -68,7 +69,7 @@ class LicenseManager:
 
     def get_window_title(self):
         #"""라이선스에 따른 윈도우 제목 반환"""
-        base_title = f"Z-Vuln Scan {CURRENT_VERSION}"
+        base_title = f"Z-Vuln Scan {AppConfig.VERSION}"
         if self.current_tier == self.TIER_STANDARD:
             return f"{base_title} Standard"
         elif self.current_tier == self.TIER_PROFESSIONAL:
@@ -167,7 +168,7 @@ class ScannerApp(QMainWindow):
         
         self.title_label = QLabel("Z-Vuln Scan Standard")
         self.title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
-        #self.ver_label = QLabel(CURRENT_VERSION)
+        #self.ver_label = QLabel(AppConfig.VERSION)
         #self.ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
         
         title_layout.addWidget(self.title_label)
