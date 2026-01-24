@@ -44,6 +44,7 @@ from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
+from core.license_validator import LicenseValidator
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -93,6 +94,13 @@ class ScannerApp(QMainWindow):
         self.initUI()
         self.license_mgr = LicenseManager()
         self.update_ui_by_license()
+        saved_key = LicenseValidator.load_license()
+        if saved_key:
+            is_valid, tier = LicenseValidator.validate_key(saved_key)
+            if is_valid:
+                # 3. 유효하면 해당 등급으로 즉시 적용 (Standard -> Pro/Ent)
+                self.license_mgr.current_tier = tier
+                print(f"[System] Valid License Found: {tier}")
 
     # -- UI 세팅 --
     def initUI(self):
