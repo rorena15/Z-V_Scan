@@ -245,62 +245,51 @@ class ExcelGenerator:
             
             ws.column_dimensions[get_column_letter(col_idx)].width = 20
 
-    def _create_detail_sheet(self, wb, scan_data):
-        ws = wb.create_sheet("2.상세점검결과")
+    def _create_detail_sheet(self, wb, data):
+        """[Detail] 상세 취약점 목록 (KISA 스타일 + 32k 방어 적용)"""
+        ws = wb.create_sheet("📄 Vulnerability Details")
         
-        headers = [
-            ("A", "No", 5), ("B", "자산 IP", 15), ("C", "호스트명", 20),
-            ("D", "진단코드", 12), ("E", "항목명", 30), ("F", "중요도", 10),
-            ("G", "진단결과", 10), ("H", "현황(요약)", 30), ("I", "상세 증적 (Evidence)", 60),
-            ("J", "조치 방안", 40), ("K", "예외 사유", 20)
-        ]
+        # KISA 스타일 헤더
+        headers = ["IP", "Hostname", "OS", "Code", "Vulnerability Name", "Risk", "Status", "Details", "Remediation", "Scan Date"]
+        ws.append(headers)
         
-        for col, title, width in headers:
-            cell = ws[f'{col}1']
-            cell.value = title
-            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
-            cell.font = self.FONT_HEADER
+        # 헤더 스타일 적용
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = self.HEADER_FILL
+            cell.font = self.HEADER_FONT
             cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = self.BORDER_ALL
-            ws.column_dimensions[col].width = width
-            
-        ws.row_dimensions[1].height = 25
-        ws.freeze_panes = 'A2'
-
-        for idx, row in enumerate(scan_data, 1):
-            ip, hostname = row[0], row[1]
-            kisa_code = row[2] if row[2] else row[3]
-            name = row[4]
-            risk = row[5]
-            status = row[6]
-            summary = row[7]
-            evidence = row[8]
-            remediation = row[9]
-            is_waived = row[10]
-            waiver_reason = row[11]
-
-            final_status = "양호"
-            if is_waived == 1: final_status = "예외"
-            elif status == "VULNERABLE": final_status = "취약"
-            
-            row_vals = [idx, ip, hostname, kisa_code, name, risk, final_status, summary, evidence, remediation, waiver_reason]
-            
-            r_idx = idx + 1
-            for c_idx, val in enumerate(row_vals, 1):
-                cell = ws.cell(row=r_idx, column=c_idx)
-                cell.value = str(val) if val else "-"
-                cell.font = self.FONT_NORMAL
-                cell.border = self.BORDER_ALL
+            cell.border = self.BORDER_THIN
+        
+        # 데이터 입력
+        for row_idx, row_data in enumerate(data, 2):
+            for col_idx, val in enumerate(row_data, 1):
+                
+                # [핵심] 32k 글자 수 제한 방어 로직 (Excel Crash 방지)
+                cell_text = str(val) if val is not None else "-"
+                if len(cell_text) > 32000:
+                    cell_text = cell_text[:32000] + "\n...[증적 내용이 너무 길어 엑셀 제한에 의해 잘렸습니다. DB를 확인하세요.]"
+                
+                cell = ws.cell(row=row_idx, column=col_idx, value=cell_text)
+                cell.border = self.BORDER_THIN
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
                 
-                if c_idx in [1, 2, 4, 6, 7]: 
-                    cell.alignment = Alignment(horizontal='center', vertical='top')
-                
-                if c_idx == 7: 
-                    cell.font = self.FONT_BOLD
-                    if final_status == "취약": cell.fill = PatternFill(start_color=self.COLOR_CRITICAL, fill_type='solid')
-                    elif final_status == "양호": cell.fill = PatternFill(start_color=self.COLOR_GOOD, fill_type='solid')
-                    elif final_status == "예외": cell.fill = PatternFill(start_color=self.COLOR_WAIVER, fill_type='solid')
+                # Risk 컬럼 스타일링 (High/Medium/Low 색상)
+                if col_idx == 6 and val in self.RISK_COLORS:
+                    icon = self.RISK_ICONS.get(val, '')
+                    cell.value = f"{icon} {val}"
+                    cell.fill = PatternFill(start_color=self.RISK_COLORS[val], 
+                                            end_color=self.RISK_COLORS[val], fill_type='solid')
+                    cell.font = Font(bold=True, color='FFFFFF')
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # 열 너비 설정
+        widths = [14, 18, 10, 10, 35, 12, 10, 40, 40, 18]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+        
+        ws.auto_filter.ref = ws.dimensions
+        ws.freeze_panes = 'A2'
 
     def _create_asset_sheet(self, wb, asset_data):
         ws = wb.create_sheet("3.자산목록")
