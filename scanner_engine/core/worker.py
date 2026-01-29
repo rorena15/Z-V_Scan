@@ -25,11 +25,11 @@ from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
 from core.windows_inspector import WindowsInspector
 from core.vuln_matcher import VulnMatcher
+from core.discovery import HostDiscovery
+from core.config import AppConfig
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
-from core.discovery import HostDiscovery
 from utils.auth_token import get_engine_token
-from core.config import AppConfig
 
 class ScanWorker(QThread):
     # UI 업데이트를 위한 시그널 정의
