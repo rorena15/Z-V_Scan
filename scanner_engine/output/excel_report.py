@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
-
+import core.vuln_matcher as Vuln
 class ExcelGenerator:
     # --- KISA 스타일 상수 정의 ---
     COLOR_HEADER_BG = 'E7E6E6'   # 헤더 배경 (연한 회색)
@@ -80,6 +80,8 @@ class ExcelGenerator:
         try:
             wb = Workbook()
             
+            Vuln.VulnMatcher.sync_kisa_code_on_db(self.db.db_path)
+            
             scan_data = self._fetch_scan_result()
             asset_data = self._fetch_asset_list()
             
@@ -104,6 +106,7 @@ class ExcelGenerator:
             AppLogger.log_error("Excel Generation Error", e)
             raise e
 
+        
     def _fetch_scan_result(self):
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
