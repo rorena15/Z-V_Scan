@@ -115,7 +115,7 @@ class ScanWorker(QThread):
                     net = ipaddress.ip_network(raw, strict=False)
                     for ip in net.hosts():
                         targets.append(str(ip))
-                elif '-' in raw: # Range (192.168.0.1-10)
+                elif '-' in raw:
                     parts = raw.split('-')
                     start_ip = parts[0]
                     end_part = parts[1]
@@ -347,7 +347,6 @@ class ScanWorker(QThread):
                     if self.stop_flag:
                         executor.shutdown(wait=False, cancel_futures=True)
                         break
-                    
                     try:
                         future.result()
                     except Exception as e:

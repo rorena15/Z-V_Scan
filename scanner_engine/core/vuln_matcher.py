@@ -230,5 +230,4 @@ class VulnMatcher:
             print(f"[VulnMatcher] Sync Error: {e}")
         finally:
             conn.close()
-
 VulnMatcher.load_rules()

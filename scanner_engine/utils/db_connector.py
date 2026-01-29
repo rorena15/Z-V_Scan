@@ -5,6 +5,8 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
+# [FINAL FIXED] utils/db_connector.py
+# get_asset_id 메서드 복구 및 KISA 증적 저장 기능 통합 버전
 
 import sqlite3
 import os
@@ -130,7 +132,6 @@ class DBConnector:
                 
                 if row:
                     asset_id = row[0]
-                    # 포트 정보와 시간 갱신
                     if mac_addr and mac_addr not in ["-", "Unknown"]:
                         cursor.execute("""
                             UPDATE TBL_ASSETS 
@@ -157,6 +158,7 @@ class DBConnector:
             finally:
                 conn.close()
 
+    # [복구됨] 이 메서드가 없어서 에러가 발생했습니다.
     def get_asset_id(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -215,7 +217,10 @@ class DBConnector:
                 row = cursor.fetchone()
                 if row: stats["total_assets"] = row[0]
 
-                cursor.execute("SELECT COUNT(*) FROM TBL_SCAN_RESULT WHERE risk_level IN ('Critical', 'High')")
+                cursor.execute("""
+                    SELECT COUNT(*) FROM TBL_SCAN_RESULT 
+                    WHERE risk_level IN ('Critical', 'High') AND waiver_status = 0
+                """)
                 row = cursor.fetchone()
                 if row: stats["vuln_critical"] = row[0]
 
@@ -247,7 +252,7 @@ class DBConnector:
                 return True
             except: return False
             finally: conn.close()
-
+            
     def delete_all_assets(self):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -261,7 +266,7 @@ class DBConnector:
                 return True
             except: return False
             finally: conn.close()
-    
+            
     def get_assets_for_manager(self):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
