@@ -387,11 +387,20 @@ class ExcelGenerator:
         
         for row_idx, row_data in enumerate(data, 2):
             for col_idx, val in enumerate(row_data, 1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=str(val))
+                
+                #데이터 문자열 변환 및 32k 길이 제한 방어 로직
+                cell_text = str(val) if val is not None else "-"
+                
+                if len(cell_text) > 32000:
+                    cell_text = cell_text[:32000] + "\n...[증적 내용이 너무 길어 엑셀 제한에 의해 잘렸습니다. DB를 확인하세요.]"
+                
+                #가공된 cell_text를 값으로 사용
+                cell = ws.cell(row=row_idx, column=col_idx, value=cell_text)
+                
                 cell.border = self.BORDER_THIN
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
                 
-                # Risk 컬럼
+                # Risk 컬럼 스타일링
                 if col_idx == 6 and val in self.RISK_COLORS:
                     icon = self.RISK_ICONS.get(val, '')
                     cell.value = f"{icon} {val}"
