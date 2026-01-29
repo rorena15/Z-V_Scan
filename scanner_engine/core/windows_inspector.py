@@ -118,7 +118,6 @@ class WindowsInspector:
         results = {}
         rules = []
         
-        # 룰 파일 로드 (예외 처리 강화)
         if os.path.exists(self.rules_path):
             try:
                 with open(self.rules_path, 'r', encoding='utf-8') as f:
@@ -130,28 +129,33 @@ class WindowsInspector:
 
         for rule in rules:
             code = rule['code']
+            # [추가 1] KISA 코드
+            kisa_code = rule.get('kisa_code', rule.get('code', ''))
+            
             cmd = rule['command']
-            output = self.execute_ps(cmd)
+            # [추가 2] 증적 확보
+            full_output = self.execute_ps(cmd)
 
             status = "SAFE"
-            detail = "점검 완료"
+            detail = "양호 (설정 확인됨)"
 
-            # 키워드 매칭 로직 (취약/양호 판단)
             if "vulnerable_keyword" in rule:
-                if rule['vulnerable_keyword'] in output:
+                if rule['vulnerable_keyword'] in full_output:
                     status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {output[:30]}..."
+                    detail = f"취약 설정 발견: {full_output[:40]}..."
             elif "safe_keyword" in rule:
-                if not output or rule['safe_keyword'] not in output:
+                if not full_output or rule['safe_keyword'] not in full_output:
                     status = "VULNERABLE"
                     detail = f"안전 설정 미흡"
 
-            # 결과 저장 (4개 튜플 포맷 유지: status, detail, name, remediation)
+            # [핵심 수정] 6개 튜플 반환
             results[code] = (
                 status, 
                 detail, 
                 rule.get('name', code), 
-                rule.get('remediation', '')
+                rule.get('remediation', ''),
+                full_output, # Raw Output
+                kisa_code    # KISA Code
             )
             
         return results

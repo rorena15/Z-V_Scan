@@ -8,6 +8,7 @@
 import os
 import sys
 import json
+import sqlite3
 
 class VulnMatcher:
     #[Hybrid Loader]
@@ -193,4 +194,41 @@ class VulnMatcher:
         
         return {"found": False}
     
+    @staticmethod
+    def sync_kisa_code_on_db(db_path):
+        #[NEW] DB를 직접 순회하며 누락된 KISA 코드를 업데이트하는 로직 (엑셀 리포트에서 호출)
+        if not os.path.exists(db_path):
+            return
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        try:
+            # 1. KISA 코드가 비어있는 항목만 조회
+            cursor.execute("SELECT result_id, vuln_code FROM TBL_SCAN_RESULT WHERE kisa_code IS NULL OR kisa_code = ''")
+            rows = cursor.fetchall()
+            
+            updates = []
+            for r_id, v_code in rows:
+                # v_code(예: TCP-80)에서 숫자(80)만 추출
+                port_str = ''.join(filter(str.isdigit, str(v_code)))
+                
+                if port_str:
+                    port_num = int(port_str)
+                    # VulnMatcher(정답지)에서 코드 조회
+                    match = VulnMatcher.VULN_DB.get(port_num)
+                    if match and 'kisa' in match:
+                        kisa_code = match['kisa']
+                        updates.append((kisa_code, r_id))
+            
+            # 2. DB 일괄 업데이트
+            if updates:
+                cursor.executemany("UPDATE TBL_SCAN_RESULT SET kisa_code = ? WHERE result_id = ?", updates)
+                conn.commit()
+                # print(f"[VulnMatcher] Auto-synced {len(updates)} records to KISA codes.")
+                
+        except Exception as e:
+            print(f"[VulnMatcher] Sync Error: {e}")
+        finally:
+            conn.close()
+
 VulnMatcher.load_rules()

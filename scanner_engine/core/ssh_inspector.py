@@ -144,7 +144,7 @@ class SSHInspector:
         results = {}
         rules = []
         
-        # 룰 파일 로드 (예외 처리 추가)
+        # 룰 파일 로드
         if os.path.exists(self.rules_path):
             try:
                 with open(self.rules_path, 'r', encoding='utf-8') as f:
@@ -156,30 +156,35 @@ class SSHInspector:
         
         for rule in rules:
             code = rule['code']
+            # [추가 1] KISA 코드 매핑 (없으면 내부 코드 사용)
+            kisa_code = rule.get('kisa_code', rule.get('code', ''))
+            
             cmd = rule['command']
-            output = self.execute_command(cmd)
+            
+            # [추가 2] 증적 확보 (명령어 실행 전체 결과)
+            full_output = self.execute_command(cmd)
             
             status = "SAFE"
-            detail = "점검 완료"
+            detail = "양호 (점검 완료)"
 
-            # 1. 취약 키워드 체크 (키워드가 있으면 취약)
+            # 판정 로직
             if "vulnerable_keyword" in rule:
-                if rule['vulnerable_keyword'] in output:
+                if rule['vulnerable_keyword'] in full_output:
                     status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {output[:30]}..."
-            
-            # 2. 안전 키워드 체크 (키워드가 없으면 취약)
+                    detail = f"취약 설정 발견: {full_output[:40]}..."
             elif "safe_keyword" in rule:
-                if not output or rule['safe_keyword'] not in output:
+                if not full_output or rule['safe_keyword'] not in full_output:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
             
-            # 결과 저장 (4개 튜플: status, detail, name, remediation)
+            # [핵심 수정] 4개 -> 6개 튜플 반환 (증적 포함)
             results[code] = (
                 status, 
                 detail, 
                 rule.get('name', code), 
-                rule.get('remediation', '')
+                rule.get('remediation', ''),
+                full_output,  # Raw Output (증적)
+                kisa_code     # KISA Code
             )
             
         return results
