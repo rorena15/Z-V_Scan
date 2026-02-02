@@ -56,6 +56,27 @@ class AdvancedScanner:
 
         self.SIGNATURES = [] 
         self.load_signatures()
+    
+    def get_system_vendor(self):
+        try:
+            # 윈도우가 아니면 실행 안 함
+            if not OSUtils.is_windows():
+                return None
+
+            # creationflags=0x08000000 : CMD 창 깜빡임 방지
+            cmd = "wmic csproduct get vendor"
+            output = subprocess.check_output(cmd, shell=True, creationflags=0x08000000).decode('utf-8', errors='ignore')
+            
+            lines = output.strip().splitlines()
+            for line in lines:
+                cleaned = line.strip()
+                if not cleaned or "Vendor" in cleaned:
+                    continue
+                return cleaned # 진짜 벤더 이름 반환 (예: innotek GmbH)
+                
+        except:
+            pass
+        return None
 
     def load_signatures(self):
         #[Hybrid Loader] 외부 JSON 룰 우선, 없으면 내부 기본값
@@ -160,6 +181,13 @@ class AdvancedScanner:
                 
                 mac_address = self.get_mac_address(ip)
                 vendor = OUILookup.lookup(mac_address)
+                
+                #만약 MAC으로 벤더를 못 찾았고, 내 로컬 PC(localhost)를 스캔 중이라면 wmic 시도
+                if vendor == "Unknown" and ip in ["127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())]:
+                    wmic_vendor = self.get_system_vendor()
+                    if wmic_vendor:
+                        vendor = wmic_vendor
+
         except: pass
         return is_alive, detected_os, mac_address, vendor
 

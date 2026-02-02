@@ -8,21 +8,18 @@
 
 import sys
 import os
-import ctypes  # [추가] 윈도우 작업표시줄 아이콘 분리용
+import ctypes
 import multiprocessing
 import traceback
 from datetime import datetime
 from PySide6.QtWidgets import QApplication, QDialog
-from PySide6.QtGui import QIcon  # [추가] 아이콘 설정용
+from PySide6.QtGui import QIcon
 
 # 분리된 UI 및 다이얼로그 import
 from gui.main_window import ScannerApp
 from gui.dialogs import LegalDisclaimerDialog
 from utils.logger import AppLogger
 
-# [추가] 빌드 시 리소스 경로 문제 해결 함수
-# PyInstaller나 난독화 툴로 빌드하면 파일들이 임시 폴더(_MEIPASS)에 풀리는데,
-# 그냥 상대 경로("assets/icon.ico")로 쓰면 그 파일을 못 찾아서 아이콘이 안 뜹니다.
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS

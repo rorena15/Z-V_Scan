@@ -980,7 +980,7 @@ class ScannerApp(QMainWindow):
         
         msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
         QMessageBox.information(self, "License Change", msg)
-        
+    
     # ----------------------------------------------------------------------
     # [TODO] 나중에 주석 해제하여 사용 (라이선스 다이얼로그 연동)
     # ----------------------------------------------------------------------

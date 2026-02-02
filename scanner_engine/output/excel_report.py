@@ -8,6 +8,7 @@
 import os
 import sys
 import sqlite3
+import re
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -59,6 +60,15 @@ class ExcelGenerator:
             except OSError:
                 pass
 
+    def clean_text(self, text):
+        #엑셀에서 허용하지 않는 특수문자 제거
+        if not text:
+            return "-"
+        text = str(text)
+        # 엑셀 허용 문자: 탭(\x09), 줄바꿈(\x0A), 캐리지리턴(\x0D) 제외한
+        # 나머지 0x00 ~ 0x1F 사이의 제어 문자를 모두 제거
+        return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
     def _style_range(self, ws, cell_range, border=None, fill=None, font=None, alignment=None):
         """
         [Fix] 단일 셀('A1')과 범위('A1:B2') 모두 처리하도록 개선
@@ -106,7 +116,6 @@ class ExcelGenerator:
             AppLogger.log_error("Excel Generation Error", e)
             raise e
 
-        
     def _fetch_scan_result(self):
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
@@ -288,7 +297,7 @@ class ExcelGenerator:
             r_idx = idx + 1
             for c_idx, val in enumerate(row_vals, 1):
                 cell = ws.cell(row=r_idx, column=c_idx)
-                cell.value = str(val) if val else "-"
+                cell.value = self.clean_text(val)
                 cell.font = self.FONT_NORMAL
                 cell.border = self.BORDER_ALL
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
