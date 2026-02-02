@@ -36,7 +36,8 @@ class ScanWorker(QThread):
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
     started_signal = Signal(int)
-    asset_found_signal = Signal(str, str, str, str) # IP, Hostname, Memo
+    # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
+    asset_found_signal = Signal(str, str, str, str, str)
 
     def __init__(self, mode, target_input, user=None, ports=None, db_queue=None):
         super().__init__()
@@ -271,7 +272,7 @@ class ScanWorker(QThread):
                 open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500]))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
-        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}", f"Ports: {ports_str}")
+        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
 
         if not open_ports:

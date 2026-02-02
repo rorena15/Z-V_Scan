@@ -362,12 +362,13 @@ class ScannerApp(QMainWindow):
         
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(6)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","mac_addr", "Ports", "Memo"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Memo", "Vender"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.asset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.asset_table.setAlternatingRowColors(False)
         self.asset_table.setStyleSheet("""
             QTableWidget { background-color: #1e1e1e; gridline-color: #333; border: 1px solid #444; border-radius: 4px; }
@@ -455,55 +456,68 @@ class ScannerApp(QMainWindow):
         central_widget.setLayout(main_layout)
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
-    def add_asset_to_table(self, ip, os_type, ports, memo_text=None):
+    def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor):
         """테이블에 자산을 추가합니다. (DB 로드 / 스캔 결과 공용)"""
         
-        # 1. 중복 검사 (Cache 확인 -> 빠름)
+        # 1. 중복 검사 (Cache 확인 -> 속도 최적화)
         if not hasattr(self, 'scanned_ip_cache'):
             self.scanned_ip_cache = set()
             
-        # 이미 캐시에 있으면 건너뛰거나(스캔중), 업데이트를 위해 행을 찾음
+        # 테이블에서 IP로 이미 존재하는 행이 있는지 찾기
         items = self.asset_table.findItems(ip, Qt.MatchExactly)
         row = -1
         
         if items:
-            row = items[0].row() # 이미 존재하면 업데이트
+            row = items[0].row() # 이미 존재하면 해당 줄(Row) 업데이트
         else:
-            row = self.asset_table.rowCount()
-            self.asset_table.insertRow(row) # 없으면 추가
+            row = self.asset_table.rowCount() # 없으면 맨 아래에 새 줄 추가
+            self.asset_table.insertRow(row)
             self.scanned_ip_cache.add(ip)
 
-        # 2. 메모 데이터 처리
-        # 스캔 결과(None)라면 DB에서 조회, 히스토리 로드라면 전달된 값 사용
-        if memo_text is None:
-            # 실시간 스캔 시 DB 조회를 하면 느려질 수 있으니,
-            # 여기서는 빈 칸으로 두고 나중에 필요하면 로드하는 게 좋습니다.
-            # 하지만 사용자 편의를 위해 DB에 메모가 있다면 가져옵니다.
+        # 2. 메모 데이터 가져오기 (DB 연동)
+        # 스캔 결과에는 메모가 없으므로 DB에서 기존에 저장된 메모를 불러옵니다.
+        memo_text = ""
+        try:
             db = DBConnector()
-            memo_text = db.get_memo(ip)
+            memo_text = db.get_memo(ip) # DB에 저장된 메모가 있으면 가져옴
+        except Exception:
+            memo_text = ""
 
-        # 3. 아이템 생성 및 스타일링
-        c_ip = QTableWidgetItem(ip)
-        c_os = QTableWidgetItem(os_type)
-        c_port = QTableWidgetItem(ports)
-        c_memo = QTableWidgetItem(memo_text if memo_text else "")
+        # 3. 아이템 생성 (순서: IP -> Host -> OS -> MAC -> Memo -> Vendor)
+        item_ip = QTableWidgetItem(ip)
+        item_host = QTableWidgetItem(hostname)
+        item_os = QTableWidgetItem(os_type)
+        item_mac = QTableWidgetItem(mac_addr)
+        item_memo = QTableWidgetItem(memo_text if memo_text else "")
+        item_vendor = QTableWidgetItem(vendor)
         
-        # 색상 설정 (다크 테마 최적화)
-        c_ip.setForeground(QBrush(QColor("#ffffff")))
-        c_port.setForeground(QBrush(QColor("#aaaaaa")))
-        c_memo.setForeground(QBrush(QColor("#00ff00"))) # 메모 강조
+        # 4. 스타일링 (다크 테마 & 가독성 최적화)
+        # 기본 텍스트 색상 (흰색/회색)
+        item_ip.setForeground(QBrush(QColor("#ffffff")))      # IP: 밝은 흰색
+        item_host.setForeground(QBrush(QColor("#dddddd")))    # Host: 연한 회색
+        item_mac.setForeground(QBrush(QColor("#aaaaaa")))     # MAC: 회색
+        item_vendor.setForeground(QBrush(QColor("#aaaaaa")))  # Vendor: 회색
+        item_memo.setForeground(QBrush(QColor("#00ff00")))    # Memo: 형광 초록 (강조)
         
-        if "Linux" in os_type:
-            c_os.setForeground(QBrush(QColor("#ff9900"))) # 오렌지
+        # OS별 색상 구분 (직관성 강화)
+        if "Linux" in os_type or "Ubuntu" in os_type or "CentOS" in os_type:
+            item_os.setForeground(QBrush(QColor("#ff9900"))) # 리눅스: 오렌지
         elif "Windows" in os_type:
-            c_os.setForeground(QBrush(QColor("#00bfff"))) # 하늘색
+            item_os.setForeground(QBrush(QColor("#00bfff"))) # 윈도우: 하늘색
         else:
-            c_os.setForeground(QBrush(QColor("#777777"))) # 회색
+            item_os.setForeground(QBrush(QColor("#777777"))) # 기타: 짙은 회색
 
-        self.asset_table.setItem(row, 0, c_ip)
-        self.asset_table.setItem(row, 1, c_os)
-        self.asset_table.setItem(row, 2, c_port)
-        self.asset_table.setItem(row, 3, c_memo)
+        # 텍스트 정렬 (가운데 정렬이 보기 좋음)
+        for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
+            item.setTextAlignment(Qt.AlignCenter)
+
+        # 5. 테이블에 아이템 배치 (인덱스 중요!)
+        self.asset_table.setItem(row, 0, item_ip)     # Col 0: IP
+        self.asset_table.setItem(row, 1, item_host)   # Col 1: Hostname
+        self.asset_table.setItem(row, 2, item_os)     # Col 2: OS
+        self.asset_table.setItem(row, 3, item_mac)    # Col 3: MAC
+        self.asset_table.setItem(row, 4, item_memo)   # Col 4: Memo
+        self.asset_table.setItem(row, 5, item_vendor) # Col 5: Vendor
 
     def clear_asset_table(self):
         if self.asset_table.rowCount() == 0:
@@ -617,10 +631,10 @@ class ScannerApp(QMainWindow):
             self.timer.stop()
             self.pbar.setValue(100)
 
-    def update_asset_table(self, ip, os_type, open_ports):
+    def update_asset_table(self, ip, hostname, os_type, mac_addr, vendor):
         """[Optimized] 실시간 테이블 렌더링 대신 버퍼에 저장"""
         # 로그는 이미 실시간으로 뜨므로, 테이블 데이터는 모아둡니다.
-        self.scan_result_buffer.append((ip, os_type, open_ports))
+        self.scan_result_buffer.append((ip, hostname, os_type, mac_addr, vendor))
 
     def scan_finished(self, msg):
         self.timer.stop()
@@ -634,8 +648,8 @@ class ScannerApp(QMainWindow):
             self.asset_table.setSortingEnabled(False) # 속도 향상
             
             for data in self.scan_result_buffer:
-                ip, os, ports = data
-                self.add_asset_to_table(ip, os, ports)
+                ip, hostname, os_type, mac_addr, vendor = data
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
                 
             self.asset_table.setSortingEnabled(True) # 정렬 복구
             self.log_message("[System] Table update completed.")
@@ -687,7 +701,8 @@ class ScannerApp(QMainWindow):
                 self.set_ui_busy(False)
                 return
             target_ports = list(range(1, 65536))
-        self.asset_table.setRowCount(0)
+        #self.asset_table.setRowCount(0)
+        self.log_message("--- New Scan Started ---")
         
         # 중복 방지 캐시 초기화
         if hasattr(self, 'scanned_ip_cache'):
@@ -935,8 +950,8 @@ class ScannerApp(QMainWindow):
             if mac_addr: 
                 display_os = f"{os_type} | {mac_addr}"
             
-            # 기존에 만드신 add_asset_to_table 재활용
-            self.add_asset_to_table(ip, display_os, "History", memo_text=memo)
+            
+            self.add_asset_to_table(ip, "-", display_os, "-", "-")
             
         self.asset_table.setSortingEnabled(True)
         
@@ -980,7 +995,7 @@ class ScannerApp(QMainWindow):
         
         msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
         QMessageBox.information(self, "License Change", msg)
-    
+
     # ----------------------------------------------------------------------
     # [TODO] 나중에 주석 해제하여 사용 (라이선스 다이얼로그 연동)
     # ----------------------------------------------------------------------

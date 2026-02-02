@@ -5,7 +5,6 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
-import sys
 from PySide6.QtWidgets import (
                                 QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                                 QTableWidget, QTableWidgetItem, QHeaderView, 
@@ -76,7 +75,7 @@ class DatabaseManagerDialog(QDialog):
         
         # 선택 모드 (행 단위 선택)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         
         # 수정 감지 이벤트 연결
         self.table.cellChanged.connect(self.on_cell_changed)
@@ -146,24 +145,41 @@ class DatabaseManagerDialog(QDialog):
                 self.load_data() # 원복
 
     def delete_selected_row(self):
-        """선택된 행 삭제"""
-        current_row = self.table.currentRow()
-        if current_row < 0:
+        """선택된 여러 행을 한꺼번에 삭제"""
+        selection = self.table.selectedIndexes()
+        if not selection:
             QMessageBox.warning(self, "Warning", "삭제할 자산을 선택해주세요.")
             return
-            
-        ip = self.table.item(current_row, 1).text()
-        asset_id = int(self.table.item(current_row, 0).text())
-        
+        # 중복된 행 번호를 제거하고, 뒤에서부터 지우기 위해 내림차순 정렬 (중요!)
+        # (앞에서부터 지우면 인덱스가 밀려서 엉뚱한 게 지워짐)
+        selected_rows = sorted(list(set(index.row() for index in selection)), reverse=True)
+        count = len(selected_rows)
         reply = QMessageBox.question(
             self, "삭제 확인", 
-            f"정말로 삭제하시겠습니까?\nTarget: {ip}\n\n(관련된 모든 스캔 기록이 함께 삭제됩니다.)",
+            f"선택한 {count}개 항목을 정말로 삭제하시겠습니까?\n\n(관련된 모든 스캔 기록이 함께 영구 삭제됩니다.)",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         
-        if reply == QMessageBox.Yes:
-            if self.db.delete_asset_by_id(asset_id):
-                self.table.removeRow(current_row)
-                QMessageBox.information(self, "Success", "삭제되었습니다.")
-            else:
-                QMessageBox.critical(self, "Error", "DB 삭제 중 오류가 발생했습니다.")
+        if reply != QMessageBox.Yes:
+            return
+        success_count = 0
+        # 선택된 행들을 하나씩 순회하며 삭제
+        for row in selected_rows:
+            try:
+                # 0번 컬럼(ID) 값 가져오기
+                asset_id_item = self.table.item(row, 0)
+                if not asset_id_item: continue
+                    
+                asset_id = int(asset_id_item.text())
+                
+                # DB에서 삭제 성공 시 UI 테이블에서도 제거
+                if self.db.delete_asset_by_id(asset_id): #
+                    self.table.removeRow(row)
+                    success_count += 1
+            except Exception as e:
+                print(f"[Delete Error] Row {row}: {e}")
+
+        if success_count > 0:
+            QMessageBox.information(self, "Success", f"{success_count}개 항목이 삭제되었습니다.")
+        else:
+            QMessageBox.warning(self, "Fail", "삭제에 실패했습니다.")
