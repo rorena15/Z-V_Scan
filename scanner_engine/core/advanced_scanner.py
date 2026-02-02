@@ -194,7 +194,7 @@ class AdvancedScanner:
     def tcp_scan(self, ip, ports=None):
         target_ports = ports if ports else self.default_ports
         open_ports = []
-        timeout = 0.2
+        timeout = 1
         for port in target_ports:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

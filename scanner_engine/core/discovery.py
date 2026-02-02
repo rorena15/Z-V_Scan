@@ -15,7 +15,7 @@ class HostDiscovery:
         # 우선순위 변경: 445(Win) -> 22(Linux) -> 80(Web) -> 135(RPC)
         # 이유: 445/22번이 열려있을 확률이 가장 높으므로 먼저 확인하여 루프 탈출 유도
         self.check_ports = [445, 22, 80, 135] 
-        self.timeout = 0.3 # 0.3초 (Local Network 최적화)
+        self.timeout = 1
 
     def check_host(self, ip):
         #단일 호스트 생존 확인 (TCP Connect 방식 - Non-Root 가능)
