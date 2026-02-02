@@ -65,13 +65,14 @@ class DatabaseManagerDialog(QDialog):
 
         # 2. 데이터 테이블
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["ID", "IP Address", "Hostname", "OS Type", "MAC Addr", "Last Seen", "Memo"])
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels(["ID", "IP Address", "Hostname", "OS Type", "MAC Addr","Port", "Last Seen", "Memo"])
         
         # 헤더 설정
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents) # ID는 좁게
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents) # port는 길수도 있으니
         
         # 선택 모드 (행 단위 선택)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -96,7 +97,6 @@ class DatabaseManagerDialog(QDialog):
         cursor = conn.cursor()
         try:
             # UI 테이블 순서에 맞춰서 데이터 조회 (IP, Host, OS, MAC, Vendor)
-            # 주의: vendor 컬럼이 없는 구형 DB라면 에러가 날 수 있으니 DB파일을 새로 만드는 게 좋습니다.
             query = "SELECT ip_addr, hostname, os_type, mac_addr, vendor FROM TBL_ASSETS ORDER BY asset_id ASC"
             cursor.execute(query)
             return cursor.fetchall() # 리스트 반환: [(ip, host, os, mac, vendor), ...]
@@ -115,21 +115,23 @@ class DatabaseManagerDialog(QDialog):
         
         for row_idx, row_data in enumerate(assets):
             self.table.insertRow(row_idx)
-            # row_data: (id, ip, host, os, mac, last, memo)
+            # row_data: (id, ip, host, os, PORTS, mac, last, memo)
             
             for col_idx, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value) if value is not None else "")
+                val_str = str(value) if value is not None else ""
+                item = QTableWidgetItem(val_str)
                 
-                # ID와 IP, LastSeen은 수정 불가능하게 설정 (Read Only)
-                if col_idx in [0, 1, 5]: 
-                    item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                    item.setForeground(QColor("#888888")) # 회색 처리
+                # 수정 불가 컬럼: ID(0), IP(1), Ports(4), LastSeen(6)
+                if col_idx in [0, 1, 4, 6]: 
+                    # 플래그를 조작해서 '수정 가능(ItemIsEditable)' 속성을 끕니다.
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    item.setForeground(QColor("#888888")) # 회색 (비활성 느낌)
                 else:
                     item.setForeground(QColor("#ffffff"))
                 
-                # ID 컬럼에 실제 Asset ID 저장 (숨겨진 데이터)
+                # ID 저장 (나중에 수정/삭제할 때 씀)
                 if col_idx == 0:
-                    item.setData(Qt.UserRole, value) 
+                    item.setData(Qt.UserRole, value)
 
                 self.table.setItem(row_idx, col_idx, item)
                 
@@ -138,18 +140,20 @@ class DatabaseManagerDialog(QDialog):
     def on_cell_changed(self, row, column):
         """셀 내용이 변경되면 DB에 즉시 반영"""
         item = self.table.item(row, column)
+        if not item: return
         new_value = item.text()
         
-        # Asset ID 가져오기 (0번 컬럼에 저장됨)
+        # 0번 컬럼에 숨겨둔 asset_id 가져오기
         asset_id_item = self.table.item(row, 0)
-        asset_id = int(asset_id_item.text())
+        asset_id = int(asset_id_item.data(Qt.UserRole))
         
-        # 컬럼 인덱스를 DB 필드명으로 매핑
+        # [수정] 변경된 컬럼 인덱스 매핑 (Ports가 4번으로 들어오면서 뒤로 한 칸씩 밀림)
         col_map = {
-            2: "hostname",
-            3: "os_type",
-            4: "mac_addr",
-            6: "memo"
+            2: "hostname",  # Hostname
+            3: "os_type",   # OS
+            # 4: Ports (수정 불가이므로 매핑 없음)
+            5: "mac_addr",  # MAC 주소는 이제 5번입니다!
+            7: "memo"       # Memo는 7번
         }
         
         if column in col_map:
@@ -158,7 +162,8 @@ class DatabaseManagerDialog(QDialog):
             
             if not success:
                 QMessageBox.warning(self, "Error", "수정에 실패했습니다.")
-                self.load_data() # 원복
+                # 실패하면 다시 로드해서 원복
+                self.load_data()
 
     def delete_selected_row(self):
         """선택된 여러 행을 한꺼번에 삭제"""

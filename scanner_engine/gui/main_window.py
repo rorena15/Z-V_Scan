@@ -458,33 +458,42 @@ class ScannerApp(QMainWindow):
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
     def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor):
-        """테이블에 자산을 추가합니다. (DB 로드 / 스캔 결과 공용)"""
-        
-        # 1. 중복 검사 (Cache 확인 -> 속도 최적화)
+        # 1. 중복 검사 (Cache 확인 -> 빠름)
         if not hasattr(self, 'scanned_ip_cache'):
             self.scanned_ip_cache = set()
             
-        # 테이블에서 IP로 이미 존재하는 행이 있는지 찾기
         items = self.asset_table.findItems(ip, Qt.MatchExactly)
         row = -1
         
         if items:
-            row = items[0].row() # 이미 존재하면 해당 줄(Row) 업데이트
+            row = items[0].row() 
         else:
-            row = self.asset_table.rowCount() # 없으면 맨 아래에 새 줄 추가
+            row = self.asset_table.rowCount()
             self.asset_table.insertRow(row)
             self.scanned_ip_cache.add(ip)
 
-        # 2. 메모 데이터 가져오기 (DB 연동)
-        # 스캔 결과에는 메모가 없으므로 DB에서 기존에 저장된 메모를 불러옵니다.
+        # 2. 메모 가져오기
         memo_text = ""
         try:
             db = DBConnector()
-            memo_text = db.get_memo(ip) # DB에 저장된 메모가 있으면 가져옴
-        except Exception:
-            memo_text = ""
+            memo_text = db.get_memo(ip)
+        except: pass
 
-        # 3. 아이템 생성 (순서: IP -> Host -> OS -> MAC -> Memo -> Vendor)
+        # --- [핵심 수정] 강제 빈칸 처리 로직 ---
+        # 입력된 값이 None이거나 "-" (대시)라면 무조건 빈 문자열("")로 바꿈
+        def clean_text(text):
+            if text is None: return ""
+            s = str(text).strip()
+            if s == "-": return ""  # 범인 제거!
+            return s
+
+        hostname = clean_text(hostname)
+        os_type  = clean_text(os_type)
+        mac_addr = clean_text(mac_addr)
+        vendor   = clean_text(vendor)
+        # ------------------------------------
+
+        # 3. 아이템 생성
         item_ip = QTableWidgetItem(ip)
         item_host = QTableWidgetItem(hostname)
         item_os = QTableWidgetItem(os_type)
@@ -492,33 +501,31 @@ class ScannerApp(QMainWindow):
         item_memo = QTableWidgetItem(memo_text if memo_text else "")
         item_vendor = QTableWidgetItem(vendor)
         
-        # 4. 스타일링 (다크 테마 & 가독성 최적화)
-        # 기본 텍스트 색상 (흰색/회색)
-        item_ip.setForeground(QBrush(QColor("#ffffff")))      # IP: 밝은 흰색
-        item_host.setForeground(QBrush(QColor("#dddddd")))    # Host: 연한 회색
-        item_mac.setForeground(QBrush(QColor("#aaaaaa")))     # MAC: 회색
-        item_vendor.setForeground(QBrush(QColor("#aaaaaa")))  # Vendor: 회색
-        item_memo.setForeground(QBrush(QColor("#00ff00")))    # Memo: 형광 초록 (강조)
+        # 4. 스타일링 (색상 설정)
+        item_ip.setForeground(QBrush(QColor("#ffffff")))      
+        item_host.setForeground(QBrush(QColor("#dddddd")))    
+        item_mac.setForeground(QBrush(QColor("#aaaaaa")))     
+        item_vendor.setForeground(QBrush(QColor("#aaaaaa")))  
+        item_memo.setForeground(QBrush(QColor("#00ff00")))    
         
-        # OS별 색상 구분 (직관성 강화)
-        if "Linux" in os_type or "Ubuntu" in os_type or "CentOS" in os_type:
-            item_os.setForeground(QBrush(QColor("#ff9900"))) # 리눅스: 오렌지
+        if "Linux" in os_type or "Ubuntu" in os_type:
+            item_os.setForeground(QBrush(QColor("#ff9900"))) 
         elif "Windows" in os_type:
-            item_os.setForeground(QBrush(QColor("#00bfff"))) # 윈도우: 하늘색
+            item_os.setForeground(QBrush(QColor("#00bfff"))) 
         else:
-            item_os.setForeground(QBrush(QColor("#777777"))) # 기타: 짙은 회색
+            item_os.setForeground(QBrush(QColor("#777777"))) 
 
-        # 텍스트 정렬 (가운데 정렬이 보기 좋음)
+        # 가운데 정렬
         for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
             item.setTextAlignment(Qt.AlignCenter)
 
-        # 5. 테이블에 아이템 배치 (인덱스 중요!)
-        self.asset_table.setItem(row, 0, item_ip)     # Col 0: IP
-        self.asset_table.setItem(row, 1, item_host)   # Col 1: Hostname
-        self.asset_table.setItem(row, 2, item_os)     # Col 2: OS
-        self.asset_table.setItem(row, 3, item_mac)    # Col 3: MAC
-        self.asset_table.setItem(row, 4, item_memo)   # Col 4: Memo
-        self.asset_table.setItem(row, 5, item_vendor) # Col 5: Vendor
+        # 5. 테이블 배치
+        self.asset_table.setItem(row, 0, item_ip)     
+        self.asset_table.setItem(row, 1, item_host)   
+        self.asset_table.setItem(row, 2, item_os)     
+        self.asset_table.setItem(row, 3, item_mac)    
+        self.asset_table.setItem(row, 4, item_memo)   
+        self.asset_table.setItem(row, 5, item_vendor)
 
     def clear_asset_table(self):
         if self.asset_table.rowCount() == 0:
@@ -947,36 +954,56 @@ class ScannerApp(QMainWindow):
         self.refresh_dashboard() # (만약 이런 기능이 있다면)
         
     def refresh_dashboard(self):
-        #DB에서 최신 데이터를 읽어와 테이블과 통계를 갱신합니다.
-        # 1. 통계 데이터 갱신
-        stats = self.db.get_dashboard_stats()
-        if hasattr(self, 'lbl_stats_assets'):
-            self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
-        if hasattr(self, 'lbl_stats_vulns'):
-            self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
+        # [DB Sync] 최신 데이터로 화면 갱신
+        
+        # 1. 통계 갱신 (에러 방지 처리)
+        try:
+            stats = self.db.get_dashboard_stats()
+            if hasattr(self, 'lbl_stats_assets'):
+                self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
+            if hasattr(self, 'lbl_stats_vulns'):
+                self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
+        except: pass
             
-        # 2. 자산 리스트 갱신
-        # 기존 테이블 초기화
+        # 2. 테이블 초기화
         self.asset_table.setRowCount(0)
-        self.scanned_ip_cache = set() # 캐시 초기화
+        self.scanned_ip_cache = set()
         
-        # DB에서 전체 자산 가져오기
-        assets = self.db.get_all_assets() # [(ip, os, memo, mac), ...]
+        # 3. 데이터 가져오기 (5개 항목: IP, Host, OS, MAC, Vendor)
+        assets = self.db.get_all_assets() 
         
-        self.asset_table.setSortingEnabled(False) # 렌더링 속도 향상
+        # 화면 깜빡임 방지
+        self.asset_table.setSortingEnabled(False)
+        self.asset_table.setUpdatesEnabled(False)
         
-        for ip, os_type, memo, mac_addr in assets:
-            # OS 표기 처리 (MAC 주소 있으면 병기)
-            display_os = os_type
-            if mac_addr: 
-                display_os = f"{os_type} | {mac_addr}"
+        for data in assets:
+            try:
+                # [수정] 데이터 개수에 맞춰 변수 풀기 (이제 "-"를 강제로 넣지 않습니다!)
+                if len(data) == 5:
+                    ip, hostname, os_type, mac_addr, vendor = data
+                elif len(data) == 4:
+                    ip, hostname, os_type, mac_addr = data
+                    vendor = "" # 없을 때만 빈칸
+                else:
+                    continue
+
+                # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
+                # (실제 데이터가 있으면 그대로 유지됨)
+                hostname = "" if str(hostname) == "-" else hostname
+                os_type  = "" if str(os_type) == "-"  else os_type
+                mac_addr = "" if str(mac_addr) == "-" else mac_addr
+                vendor   = "" if str(vendor) == "-"   else vendor
+
+                # [수정] 5개 변수를 제 자리에 정확히 전달
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
+                
+            except Exception as e:
+                print(f"Error refreshing row: {e}")
             
-            
-            self.add_asset_to_table(ip, "-", display_os, "-", "-")
-            
+        self.asset_table.setUpdatesEnabled(True)
         self.asset_table.setSortingEnabled(True)
         
-        self.log_message(f"[System] Dashboard Refreshed. (Assets: {stats['total_assets']})")
+        self.log_message(f"[System] Dashboard Refreshed. (Assets: {len(assets)})")
         
     def update_ui_by_license(self):
         # 1. 윈도우 제목 변경

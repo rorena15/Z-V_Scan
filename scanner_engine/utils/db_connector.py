@@ -273,7 +273,7 @@ class DBConnector:
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, last_seen, memo 
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr,open_ports, last_seen, memo 
                     FROM TBL_ASSETS 
                     ORDER BY last_seen DESC
                 """)
