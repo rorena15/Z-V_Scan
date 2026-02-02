@@ -103,6 +103,7 @@ class ScannerApp(QMainWindow):
                 # 3. 유효하면 해당 등급으로 즉시 적용 (Standard -> Pro/Ent)
                 self.license_mgr.current_tier = tier
                 print(f"[System] Valid License Found: {tier}")
+        self.load_saved_data()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -638,28 +639,48 @@ class ScannerApp(QMainWindow):
 
     def scan_finished(self, msg):
         self.timer.stop()
-        self.pbar.setValue(100)
-        self.set_ui_busy(False)
+        self.pbar.setValue(100) # 일단 100% 찍기
+        self.set_ui_busy(False) # 버튼 잠금 해제
         
         # [Batch Update] 모아둔 결과를 한 번에 테이블에 등록
         if self.scan_result_buffer:
-            self.log_message(f"[System] Registering {len(self.scan_result_buffer)} assets to table...")
+            count = len(self.scan_result_buffer)
+            self.log_message(f"[System] Registering {count} assets to table...")
             
-            self.asset_table.setSortingEnabled(False) # 속도 향상
+            # [최적화] 대량 데이터 추가 시 테이블 정렬과 화면 갱신을 잠시 끕니다. (속도 10배 향상)
+            self.asset_table.setSortingEnabled(False) 
+            self.asset_table.setUpdatesEnabled(False) 
             
             for data in self.scan_result_buffer:
+                # 데이터 5개 풀기 (IP, Host, OS, MAC, Vendor)
                 ip, hostname, os_type, mac_addr, vendor = data
+                
+                # 테이블에 추가
                 self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
                 
-            self.asset_table.setSortingEnabled(True) # 정렬 복구
+            # [복구] 작업 끝났으니 다시 켭니다.
+            self.asset_table.setUpdatesEnabled(True) 
+            self.asset_table.setSortingEnabled(True) 
             self.log_message("[System] Table update completed.")
         
+        # 결과 알림창 띄우기
         QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)})")
+        
+        # --- [핵심 수정] UI 상태를 완벽하게 '대기(Ready)' 상태로 초기화 ---
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
+        
+        # 상태바 텍스트 복구
+        self.time_label.setText("Ready")
+        self.time_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #ddd;")
+        
+        # 진행바 초기화 (0으로 돌리기)
+        self.pbar.setValue(0) 
+        # -------------------------------------------------------------
+
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
         
-        # 보안 조치
+        # 보안 조치 (메모리에 남은 비번 삭제)
         target_ip = self.ip_input.text().strip()
         user = self.user_input.text().strip()
         SecureStorage.delete_credential(target_ip, user)
@@ -1014,3 +1035,42 @@ class ScannerApp(QMainWindow):
             "☁️ [Cloud Sync]\n\n"
             "자산 데이터를 중앙 관제 대시보드(SaaS)로 전송합니다.\n"
             "(현재 데모 버전에서는 시뮬레이션만 수행됩니다.)")
+        
+    def load_saved_data(self):
+        #[Startup] DB에 저장된 자산 정보를 불러와 테이블에 채웁니다.
+        self.log_message("[System] Loading saved assets from database...")
+        
+        db = DBConnector()
+        assets = db.get_all_assets()
+        
+        if not assets:
+            self.log_message("[System] No saved assets found.")
+            return
+
+        # 화면 깜빡임 방지 (대량 데이터 로드 시 필수)
+        self.asset_table.setSortingEnabled(False)
+        self.asset_table.setUpdatesEnabled(False)
+        
+        count = 0
+        for asset in assets:
+            try:
+                # [수정] 데이터 개수에 따라 유연하게 처리 (방어 코드)
+                if len(asset) == 5:
+                    # 정상 (5개)
+                    self.add_asset_to_table(*asset)
+                elif len(asset) == 4:
+                    # 구형 데이터 (Vendor 없음) -> "Unknown"으로 채움
+                    ip, host, os_type, mac = asset
+                    self.add_asset_to_table(ip, host, os_type, mac, "Unknown")
+                else:
+                    # 데이터가 이상하면 건너뜀
+                    continue
+            except Exception as e:
+                print(f"Error loading asset: {e}")
+        
+        self.asset_table.setUpdatesEnabled(True)
+        self.asset_table.setSortingEnabled(True)
+        
+        # 상태 업데이트
+        self.lbl_stats_assets.setText(f"Assets: {count}")
+        self.log_message(f"[System] Successfully loaded {count} assets.")

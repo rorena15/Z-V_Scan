@@ -51,6 +51,7 @@ class DBConnector:
                     os_type TEXT,
                     open_ports TEXT DEFAULT '', 
                     mac_addr TEXT,
+                    vendor TEXT,
                     last_seen DATETIME,
                     memo TEXT DEFAULT ''
                 )
@@ -139,7 +140,6 @@ class DBConnector:
             finally:
                 conn.close()
 
-    # [복구됨] 이 메서드가 없어서 에러가 발생했습니다.
     def get_asset_id(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
