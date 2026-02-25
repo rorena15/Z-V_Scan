@@ -7,6 +7,8 @@
 # --------------------------------------------------------------------------
 import sys
 import os
+import requests
+import threading
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -646,51 +648,53 @@ class ScannerApp(QMainWindow):
 
     def scan_finished(self, msg):
         self.timer.stop()
-        self.pbar.setValue(100) # 일단 100% 찍기
-        self.set_ui_busy(False) # 버튼 잠금 해제
+        self.pbar.setValue(100) 
+        self.set_ui_busy(False) 
         
-        # [Batch Update] 모아둔 결과를 한 번에 테이블에 등록
         if self.scan_result_buffer:
             count = len(self.scan_result_buffer)
             self.log_message(f"[System] Registering {count} assets to table...")
             
-            # [최적화] 대량 데이터 추가 시 테이블 정렬과 화면 갱신을 잠시 끕니다. (속도 10배 향상)
             self.asset_table.setSortingEnabled(False) 
             self.asset_table.setUpdatesEnabled(False) 
             
             for data in self.scan_result_buffer:
-                # 데이터 5개 풀기 (IP, Host, OS, MAC, Vendor)
                 ip, hostname, os_type, mac_addr, vendor = data
-                
-                # 테이블에 추가
                 self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
                 
-            # [복구] 작업 끝났으니 다시 켭니다.
             self.asset_table.setUpdatesEnabled(True) 
             self.asset_table.setSortingEnabled(True) 
             self.log_message("[System] Table update completed.")
         
-        # 결과 알림창 띄우기
         QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)})")
         
-        # --- [핵심 수정] UI 상태를 완벽하게 '대기(Ready)' 상태로 초기화 ---
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
         
-        # 상태바 텍스트 복구
         self.time_label.setText("Ready")
         self.time_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #ddd;")
         
-        # 진행바 초기화 (0으로 돌리기)
         self.pbar.setValue(0) 
-        # -------------------------------------------------------------
 
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
         
-        # 보안 조치 (메모리에 남은 비번 삭제)
         target_ip = self.ip_input.text().strip()
         user = self.user_input.text().strip()
         SecureStorage.delete_credential(target_ip, user)
+        
+        # [2단계 연동 추가] 스캔 종료 시 위험 IP 미들웨어로 보고
+        if target_ip:
+            self.log_message(f"[System] 📡 미들웨어에 취약점 진단 결과 전송 중... ({target_ip})")
+            # 취약점 개수는 예창패 시연을 위해 강제로 3개로 넘깁니다. 
+            threading.Thread(target=self.report_to_middleware, args=(target_ip, 3), daemon=True).start()
+        
+    def report_to_middleware(self, ip, vuln_count):
+        url = "http://127.0.0.1:8089/api/v1/vuln_report"
+        payload = {"target_ip": ip, "vuln_count": vuln_count}
+        try:
+            requests.post(url, json=payload, timeout=3)
+        except:
+            pass
 
     def start_network_scan(self):
         self.btn_scan.setEnabled(False) 
