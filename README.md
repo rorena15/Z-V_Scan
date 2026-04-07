@@ -3,9 +3,9 @@
 
 ![Version](https://img.shields.io/badge/Version-v3.0.0_Professional-blue?style=flat-square) ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-lightgrey?style=flat-square) ![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)
 
-**Z-VulnScan Professional Edition v3.0.0**은 기존 v2.2.0의 안정성을 계승함과 동시에, 대규모 네트워크 환경에서의 **가시성(Visibility)과 처리 성능을 극대화**한 메이저 업데이트 버전입니다. 새롭게 도입된 **Interactive Topology Map**과 **Batch Update Engine**을 통해 수백 대의 자산을 렉(Lag) 없이 실시간으로 시각화하며, 정밀한 보안 감사 환경을 제공합니다.
+**Z-VulnScan Professional Edition v3.0.0**은 기존 v2.2.0의 안정성을 계승함과 동시에, 대규모 네트워크 환경에서의 **가시성과 처리 성능을 극대화**한 메이저 업데이트 버전입니다. 새롭게 도입된 **Interactive Topology Map**과 **Batch Update Engine**을 통해 수백 대의 자산을 렉 없이 실시간으로 시각화하며, 정밀한 보안 감사 환경을 제공합니다.
 
-본 도구는 **침투 테스트(PT) 또는 공격 도구가 아니며**, 보안 정책 수립, 교육, 내부 점검, 감사 대응을 위한 **보조 수단**으로 설계되었습니다.
+본 도구는 **침투 테스트 또는 공격 도구가 아니며**, 보안 정책 수립, 교육, 내부 점검, 감사 대응을 위한 **보조 수단**으로 설계되었습니다.
 
 ---
 
@@ -28,7 +28,7 @@
 - 본 도구는 **네트워크 포트 스캔, 서비스 정보 수집, OS 설정 진단 기능**을 포함합니다.
 - 사전 허가 없이 제3자의 네트워크 또는 시스템을 스캔하는 행위는 **정보통신망법 등 관련 법률**에 의해 **형사·민사 책임**이 발생할 수 있습니다.
 - 사용자는 본 도구 사용에 따른 **모든 법적 책임을 스스로 부담**합니다.
-- **실행 절차:** 프로그램 최초 실행 시, 위 사항에 대한 **법적 고지 동의(Disclaimer Dialog)** 과정을 거쳐야만 기능이 활성화됩니다.
+- **실행 절차:** 프로그램 최초 실행 시, 위 사항에 대한 **법적 고지 동의** 과정을 거쳐야만 기능이 활성화됩니다.
 
 ---
 
@@ -38,11 +38,11 @@
 
 | ✅ 권장 용도 | ❌ 금지된 용도 |
 |---|---|
-| • 내부 네트워크 **자산 식별 및 현황 파악** | • 침투 테스트 (Exploit 기반 공격) |
-| • 서버/서비스 **노출 포트 및 배너 점검** | • 무차별 외부 네트워크 스캔 (Scanning) |
-| • 보안 감사 전 **사전 점검(Pre-audit Checklist)** | • 서비스 거부 공격 (DoS) 시뮬레이션 |
+| • 내부 네트워크 **자산 식별 및 현황 파악** | • 침투 테스트|
+| • 서버/서비스 **노출 포트 및 배너 점검** | • 무차별 외부 네트워크 스캔 |
+| • 보안 감사 전 **사전 점검** | • 서비스 거부 공격 시뮬레이션 |
 | • 보안 교육 및 실습 환경 구축 | • 타인 소유 자산에 대한 비인가 접근 |
-| • 점검 결과 **보고서(PDF/Excel) 자동화** | |
+| • 점검 결과 **보고서 자동화** | |
 
 ---
 
@@ -62,7 +62,7 @@
 ### 3. 🏷️ Service Banner Collection
 - 서비스 데몬의 배너 정보 수집 및 분석
 - 소프트웨어 버전 및 서비스 유형 식별
-- **Note:** CVE 직접 탐지 기능은 제공하지 않으며, 참고용 보안 정보(Reference)만 매핑합니다.
+- **Note:** CVE 직접 탐지 기능은 제공하지 않으며, 참고용 보안 정보만 매핑합니다.
 
 ### 4. 📊 Professional Reporting
 - **Excel Report (.xlsx):** 자산 목록, 포트 현황, 상세 진단 결과를 필터링 가능한 형태로 제공
@@ -71,12 +71,12 @@
 
 ### 5. 💻 Modern GUI Dashboard
 - **PySide6 기반 다크 모드 UI:** 장시간 분석 업무에 최적화
-- **Real-time Status:** 진행률(Progress Bar), 남은 시간(ETA) 제공
+- **Real-time Status:** 진행률, 남은 시간 제공
 - **Input Validation:** IP/Port 입력값 검증 및 오동작 방지 로직 적용
 - **Smart Log Console:** 실시간 로그 출력 및 1,000줄 자동 정리 기능을 통한 장시간 가동 안정성 확보
 ### 6. 🗺️ Interactive Topology Map (v3.0 New)
 - **Visual Visibility:** 스캔된 자산을 중앙 제어 도구 중심으로 시각화하여 네트워크 구조도 제공
-- **Dynamic Control:** 마우스 휠(Zoom) 및 드래그(Pan)를 지원하는 인터랙티브 다크 테마 맵
+- **Dynamic Control:** 마우스 휠 및 드래그를 지원하는 인터랙티브 다크 테마 맵
 - **Snapshot:** 현재 구성된 네트워크 맵을 고해상도 PNG 이미지로 즉시 저장 기능 지원
 
 ---
@@ -117,12 +117,12 @@
 
 ## 🛠 Technology Stack
 
-- **Language:** Python 3.13+ (Optimized with Cython)
-- **GUI Framework:** PySide6 (Qt for Python)
-- **Graph Engine:** NetworkX & Matplotlib (High-Performance Rendering)
+- **Language:** Python 3.13+
+- **GUI Framework:** PySide6 
+- **Graph Engine:** NetworkX & Matplotlib 
 - **Network Engine:** Python Native Socket (`socket`, `struct` Lib only)
 - **Reporting Engine:** ReportLab (PDF), OpenPyXL (Excel)
-- **Database:** SQLite (Embedded for Local Asset Management)
+- **Database:** SQLite
 
 ---
 
@@ -130,15 +130,15 @@
 
 ### ✅ v3.0.0 (Current - Professional Edition)
 - [x] **Visualization:** Interactive Topology Map (Dark Theme) 탑재
-- [x] **Performance:** Batch Update & Memory Caching 시스템 도입 (UI 렉 해결)
+- [x] **Performance:** Batch Update & Memory Caching 시스템 도입
 - [x] **GUI:** 로그 콘솔 최적화 및 3.0 전용 UI 리마스터
 - [x] **Stability:** PySide6 표준 문법 전면 적용 및 크래시 방지 로직 강화
 
 ### 🔮 v3.5.0 (Future - Enterprise)
-- [ ] **Headless Mode:** CLI 지원을 통한 스케줄러(Cron) 연동 및 자동화
+- [ ] **Headless Mode:** CLI 지원을 통한 스케줄러 연동 및 자동화
 - [ ] **SIEM Integration:** Syslog/CEF 포맷 로그 전송 기능
 - [ ] **Centralized DB:** 로컬 SQLite를 넘어 MySQL/PostgreSQL 중앙 저장소 연동
-- [ ] **Diff Report:** 지난 진단 결과와의 변동 사항(New/Fixed) 비교 리포트
+- [ ] **Diff Report:** 지난 진단 결과와의 변동 사항 비교 리포트
 
 ---
 
