@@ -347,8 +347,12 @@ class ScanWorker(QThread):
 
             if inspector and inspector.connect():
                 results = inspector.run_all_checks()
-                for code, (status, detail, name, remediation, raw_output, kisa_code) in results.items():
-                    risk = "High" if status == "VULNERABLE" else "Info"
+                for code, (status, detail, name, remediation, raw_output, kisa_code, importance) in results.items():
+                    if status == "VULNERABLE":
+                        # KISA 중요도(상/중/하)를 위험도로 변환하여 리포트 통계에 정확히 반영
+                        risk = {"상": "Critical", "중": "High", "하": "Medium"}.get(importance, "High")
+                    else:
+                        risk = "Info"
                     # [중요] 9개 요소 (증적 포함) 전송
                     self.db_queue.put(("SCAN_RESULT", (
                         ip, code, name, risk, status, detail, remediation, raw_output, kisa_code

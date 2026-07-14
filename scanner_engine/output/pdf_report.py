@@ -214,7 +214,7 @@ class PDFGenerator:
                 # 테이블 헤더 (양호/취약/경고를 명확히 구분하는 판정 컬럼 추가)
                 table_data = [['Code', '점검 항목', '판정', '위험도', '현황 요약', '조치 방안']]
 
-                status_label = {"VULNERABLE": "취약", "SAFE": "양호", "WARNING": "주의"}
+                status_label = {"VULNERABLE": "취약", "SAFE": "양호", "WARNING": "주의", "MANUAL": "검토필요"}
 
                 for r in rows:
                     code, name, risk, status, detail, rem = r

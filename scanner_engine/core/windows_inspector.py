@@ -134,15 +134,20 @@ class WindowsInspector:
                 if not full_output or rule['safe_keyword'] not in full_output:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
+            else:
+                # 판정 기준(키워드)이 없는 항목 = 조직 맥락 판단이 필요해 자동 판정하지 않는 항목
+                status = "MANUAL"
+                detail = "수동 검토 필요 (증적 확인)"
 
-            # [핵심 수정] 6개 튜플 반환
+            # [핵심 수정] 6개 -> 7개 튜플 반환 (중요도 포함)
             results[code] = (
-                status, 
-                detail, 
-                rule.get('name', code), 
+                status,
+                detail,
+                rule.get('name', code),
                 rule.get('remediation', ''),
                 full_output, # Raw Output
-                kisa_code    # KISA Code
+                kisa_code,   # KISA Code
+                rule.get('importance', '중')  # 중요도 (상/중/하)
             )
             
         return results

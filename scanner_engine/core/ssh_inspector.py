@@ -71,12 +71,15 @@ class SSHInspector:
             except: pass
             self.client = None
 
-    def execute_command(self, command):
+    def execute_command(self, command, timeout=25):
+        # [주의] find / 등 전체 파일시스템 탐색 명령이 룰셋에 포함되어 있어
+        # 타임아웃 없이는 응답 없는 호스트에서 스캔 스레드가 무한 대기할 수 있음
         if self.client and not self.is_simulation:
             try:
-                stdin, stdout, stderr = self.client.exec_command(command)
+                stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
                 return stdout.read().decode('utf-8').strip()
-            except: return ""
+            except Exception:
+                return ""
         else:
             return self.get_mock_data(command)
 
@@ -135,15 +138,21 @@ class SSHInspector:
                 if not full_output or rule['safe_keyword'] not in full_output:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
-            
-            # [핵심 수정] 4개 -> 6개 튜플 반환 (증적 포함)
+            else:
+                # 판정 기준(키워드)이 없는 항목 = 조직 맥락 판단이 필요해 자동 판정하지 않는 항목
+                # "양호"로 단정하지 않고 증적만 제공, 수동 검토가 필요함을 명시
+                status = "MANUAL"
+                detail = "수동 검토 필요 (증적 확인)"
+
+            # [핵심 수정] 6개 -> 7개 튜플 반환 (증적 + 중요도 포함)
             results[code] = (
-                status, 
-                detail, 
-                rule.get('name', code), 
+                status,
+                detail,
+                rule.get('name', code),
                 rule.get('remediation', ''),
                 full_output,  # Raw Output (증적)
-                kisa_code     # KISA Code
+                kisa_code,    # KISA Code
+                rule.get('importance', '중')  # 중요도 (상/중/하)
             )
             
         return results

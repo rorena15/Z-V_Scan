@@ -323,6 +323,7 @@ class ExcelGenerator:
             final_status = "양호"
             if is_waived == 1: final_status = "예외"
             elif status == "VULNERABLE": final_status = "취약"
+            elif status == "MANUAL": final_status = "검토필요"
             
             row_vals = [idx, ip, hostname, kisa_code, name, risk, final_status, summary, evidence, remediation, waiver_reason]
             
@@ -344,6 +345,7 @@ class ExcelGenerator:
                     if final_status == "취약": cell.fill = PatternFill(start_color=self.COLOR_CRITICAL, fill_type='solid')
                     elif final_status == "양호": cell.fill = PatternFill(start_color=self.COLOR_GOOD, fill_type='solid')
                     elif final_status == "예외": cell.fill = PatternFill(start_color=self.COLOR_WAIVER, fill_type='solid')
+                    elif final_status == "검토필요": cell.fill = PatternFill(start_color=self.COLOR_HIGH, fill_type='solid')
 
     def _create_asset_sheet(self, wb, asset_data):
         ws = wb.create_sheet("3.자산목록")
