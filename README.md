@@ -107,11 +107,11 @@
 
 | **Main Dashboard & Context Menu** | **Security Warning** |
 |:---:|:---:|
-| <img src="img/dashboard.png" width="400" alt="Main GUI"> | <img src="img/Warnning.png" width="400" alt="Warning GUI"> |
+| <img src="img/main.png" width="400" alt="Main GUI"> | <img src="img/Warnning.png" width="400" alt="Warning GUI"> |
 | **PDF Report (Remediation Included)** | **Excel Report** |
-| <img src="img/report.png" width="400" alt="PDF Report"> | <img src="img/report_excel.png" width="400" alt="Excel Report"> |
-| **Network Topology map** |
-| <img src="img/map.png" width="400" alt="PDF Report"> | 
+| <img src="img/report.png" width="400" alt="PDF Report"> | <img src="img/excel.png" width="400" alt="Excel Report"> |
+| **Network Topology map** | **DB Manager** |
+| <img src="img/map.png" width="400" alt="Topology Map"> | <img src="img/db_manager.png" width="400" alt="DB Manager"> |
 
 ---
 
