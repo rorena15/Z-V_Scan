@@ -1,41 +1,624 @@
 [
-  { "code": "W-01", "name": "Administrator 계정 이름 변경", "category": "Account", "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Administrator' -and $_.Enabled -eq $True}", "vulnerable_keyword": "Administrator", "description": "기본 관리자 계정 이름 사용 시 공격 대상이 됨", "remediation": "계정 이름 변경" },
-  { "code": "W-02", "name": "Guest 계정 비활성화", "category": "Account", "command": "Get-LocalUser | Where-Object {$_.Name -eq 'Guest' -and $_.Enabled -eq $True}", "vulnerable_keyword": "Guest", "description": "Guest 계정은 불필요한 접근 허용", "remediation": "Guest 계정 사용 안 함 설정" },
-  { "code": "W-03", "name": "불필요한 서비스(Telnet) 제거", "category": "Service", "command": "Get-Service -Name TlntSvr -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "Telnet은 평문 통신으로 위험", "remediation": "서비스 중지" },
-  { "code": "W-04", "name": "계정 잠금 임계값 설정", "category": "Account", "command": "net accounts", "vulnerable_keyword": "Never", "description": "로그인 실패 시 잠금 설정 필요", "remediation": "임계값 5회 설정" },
-  { "code": "W-05", "name": "해독 가능한 암호화 저장 안 함", "category": "Account", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa -Name ClearTextPassword", "vulnerable_keyword": "1", "description": "패스워드 평문 저장 금지", "remediation": "ClearTextPassword 0 설정" },
-  { "code": "W-06", "name": "관리자 그룹 멤버 점검", "category": "Account", "command": "net localgroup Administrators", "vulnerable_keyword": "Guest", "description": "관리자 그룹에 불필요 계정 포함 금지", "remediation": "Guest 등 제거" },
-  { "code": "W-07", "name": "Everyone 공유 권한 제거", "category": "Filesystem", "command": "Get-SmbShare | Get-SmbShareAccess | Where-Object AccountName -eq 'Everyone'", "vulnerable_keyword": "Everyone", "description": "Everyone 공유 시 정보 유출 위험", "remediation": "Everyone 권한 제거" },
-  { "code": "W-08", "name": "하드디스크 기본 공유 제거", "category": "Service", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters -Name AutoShareServer", "safe_keyword": "0", "description": "기본 공유(C$, Admin$) 제거 필요", "remediation": "AutoShareServer 0 설정" },
-  { "code": "W-09", "name": "불필요한 ODBC 데이터 원본 제거", "category": "System", "command": "Get-OdbcDsn", "vulnerable_keyword": "Excel", "description": "불필요한 ODBC 드라이버 및 DSN 제거", "remediation": "미사용 DSN 삭제" },
-  { "code": "W-10", "name": "패스워드 최대 사용 기간", "category": "Account", "command": "net accounts", "safe_keyword": "90", "description": "패스워드 주기적 변경 필요", "remediation": "최대 사용 기간 90일 설정" },
-  { "code": "W-11", "name": "Simple TCP/IP 서비스 차단", "category": "Service", "command": "Get-Service -Name SimpTcp -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "DoS 공격 취약 서비스", "remediation": "서비스 제거" },
-  { "code": "W-12", "name": "FTP 서비스 구동 시 주의", "category": "Service", "command": "Get-Service -Name MSFTPSVC -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "불필요한 FTP 서비스 중지", "remediation": "FTP 서비스 중지" },
-  { "code": "W-13", "name": "IIS 상위 디렉토리 이동 금지", "category": "Service", "command": "Get-WebConfigurationProperty -Filter /system.webServer/asp -Name enableParentPaths", "vulnerable_keyword": "True", "description": "상위 경로(../) 접근 허용 시 위험", "remediation": "enableParentPaths False 설정" },
-  { "code": "W-14", "name": "IIS 불필요한 파일 제거", "category": "Service", "command": "Get-ChildItem -Path C:\\inetpub\\wwwroot -Include *.bak,*.old,*.temp -Recurse", "vulnerable_keyword": ".bak", "description": "백업 파일 등 불필요 파일 제거", "remediation": "샘플 및 백업 파일 삭제" },
-  { "code": "W-15", "name": "IIS 디렉토리 리스팅 제거", "category": "Service", "command": "Get-WebConfigurationProperty -Filter /system.webServer/directoryBrowse -Name enabled", "vulnerable_keyword": "True", "description": "디렉토리 리스팅 시 파일 목록 노출", "remediation": "디렉토리 검색 비활성화" },
-  { "code": "W-17", "name": "IIS 서비스 배너 정보 숨김", "category": "Service", "command": "Get-WebConfigurationProperty -Filter /system.webServer/security/requestFiltering -Name removeServerHeader", "safe_keyword": "True", "description": "서버 배너 정보 노출 방지", "remediation": "removeServerHeader True 설정" },
-  { "code": "W-18", "name": "Anonymous SID/Name 변환 허용 안 함", "category": "Security", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa -Name TurnOffAnonymousLookup", "safe_keyword": "1", "description": "익명 사용자의 SID 조회 차단 필요", "remediation": "TurnOffAnonymousLookup 1 설정" },
-  { "code": "W-19", "name": "최근 암호 기억", "category": "Account", "command": "net accounts", "safe_keyword": "24", "description": "이전 암호 재사용 방지", "remediation": "최근 24개 암호 기억 설정" },
-  { "code": "W-20", "name": "SAM 파일 접근 통제", "category": "Filesystem", "command": "Get-Acl C:\\Windows\\System32\\config\\SAM | Format-List", "vulnerable_keyword": "Everyone", "description": "SAM 파일 권한 관리 필요", "remediation": "Administrator만 접근 허용" },
-  { "code": "W-22", "name": "공유 권한 및 사용자 그룹 설정", "category": "Filesystem", "command": "Get-SmbShare", "vulnerable_keyword": "Everyone", "description": "공유 폴더의 Everyone 권한 제거", "remediation": "접근 권한 최소화" },
-  { "code": "W-29", "name": "널 세션(Null Session) 제거", "category": "System", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters -Name RestrictNullSessAccess", "safe_keyword": "1", "description": "Null Session을 통한 정보 수집 차단", "remediation": "RestrictNullSessAccess 1 설정" },
-  { "code": "W-31", "name": "원격 레지스트리 서비스 차단", "category": "Service", "command": "Get-Service -Name RemoteRegistry -ErrorAction SilentlyContinue | Select-Object Status", "vulnerable_keyword": "Running", "description": "원격 레지스트리 접근 차단 필요", "remediation": "서비스 중지" },
-  { "code": "W-33", "name": "DNS Zone Transfer 설정", "category": "Service", "command": "Get-DnsServerZoneTransferPolicy -ErrorAction SilentlyContinue", "vulnerable_keyword": "Any", "description": "Zone Transfer 제한 필요", "remediation": "특정 IP만 허용" },
-  { "code": "W-34", "name": "DNS 재귀 쿼리 제한", "category": "Service", "command": "Get-DnsServerRecursion -ErrorAction SilentlyContinue", "vulnerable_keyword": "True", "description": "DNS 재귀 쿼리 악용 방지", "remediation": "재귀 쿼리 비활성화 또는 내부 IP만 허용" },
-  { "code": "W-36", "name": "NetBIOS 바인딩 서비스 제거", "category": "Network", "command": "Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.TcpipNetbiosOptions -eq 0}", "vulnerable_keyword": "True", "description": "NetBIOS 정보 노출 위험", "remediation": "NetBIOS 사용 안 함 설정" },
-  { "code": "W-40", "name": "터미널 서비스 암호화 수준", "category": "Service", "command": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Name MinEncryptionLevel", "safe_keyword": "3", "description": "RDP 암호화 수준 강화 필요", "remediation": "높음(3) 설정" },
-  { "code": "W-42", "name": "최신 서비스팩 적용", "category": "System", "command": "Get-WmiObject Win32_OperatingSystem | Select-Object CSDVersion", "vulnerable_keyword": "Service Pack 0", "description": "최신 서비스팩 및 보안 패치 적용", "remediation": "최신 업데이트 적용" },
-  { "code": "W-43", "name": "NTFS 파일 시스템 사용", "category": "Filesystem", "command": "Get-Volume | Where-Object FileSystem -ne 'NTFS'", "vulnerable_keyword": "FAT32", "description": "FAT32는 보안 기능 미지원", "remediation": "NTFS로 변환" },
-  { "code": "W-50", "name": "관리자 공유(Admin$) 제거", "category": "Service", "command": "Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters -Name AutoShareWks", "safe_keyword": "0", "description": "Admin$ 공유는 공격 통로", "remediation": "AutoShareWks 0 설정" },
-  { "code": "W-54", "name": "NTP 서버 동기화", "category": "System", "command": "w32tm /query /status", "vulnerable_keyword": "Local CMOS Clock", "description": "시간 동기화 미설정 시 로그 분석 어려움", "remediation": "NTP 서버 설정" },
-  { "code": "W-59", "name": "이벤트 로그 정책 설정", "category": "Log", "command": "auditpol /get /category:*", "vulnerable_keyword": "No Auditing", "description": "주요 감사 정책 활성화 필요", "remediation": "성공/실패 감사 설정" },
-  { "code": "W-60", "name": "최신 핫픽스 적용", "category": "System", "command": "Get-HotFix | Select-Object -Last 1", "vulnerable_keyword": "Cannot find", "description": "최신 보안 패치 미적용 위험", "remediation": "Windows Update 수행" },
-  { "code": "W-61", "name": "백신 프로그램 설치 및 실행", "category": "System", "command": "Get-MpComputerStatus", "vulnerable_keyword": "False", "description": "실시간 보호 비활성화 시 위험", "remediation": "Windows Defender 또는 서드파티 백신 활성화" },
-  { "code": "W-67", "name": "화면 보호기 설정", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaveActive", "safe_keyword": "1", "description": "자리를 비울 때 화면 보호기 필요", "remediation": "화면 보호기 활성화" },
-  { "code": "W-68", "name": "화면 보호기 암호 사용", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaverIsSecure", "safe_keyword": "1", "description": "화면 보호기 해제 시 암호 요구", "remediation": "암호 사용 설정" },
-  { "code": "W-69", "name": "화면 보호기 대기 시간", "category": "System", "command": "Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name ScreenSaveTimeOut", "safe_keyword": "600", "description": "대기 시간 10분 이하 권장", "remediation": "600초(10분) 설정" },
-  { "code": "W-70", "name": "자동 로그인 기능 해제", "category": "Account", "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon", "vulnerable_keyword": "1", "description": "자동 로그인 시 물리적 접근에 취약", "remediation": "AutoAdminLogon 0 설정" },
-  { "code": "W-72", "name": "원격 데스크톱 세션 타임아웃", "category": "System", "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name MaxIdleTime", "safe_keyword": "3600000", "description": "유휴 세션 자동 종료 설정", "remediation": "세션 타임아웃 1시간 설정" },
-  { "code": "W-75", "name": "시작 프로그램 관리", "category": "System", "command": "Get-CimInstance Win32_StartupCommand", "vulnerable_keyword": "unknown", "description": "불필요하거나 의심스러운 시작 프로그램 점검", "remediation": "의심 프로세스 제거" }
+  {
+    "code": "W-01",
+    "name": "Administrator 계정 이름 변경 등 보안성 강화",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "Get-LocalUser | Where-Object {$_.SID -like '*-500'} | Select-Object -ExpandProperty Name",
+    "vulnerable_keyword": "Administrator",
+    "description": "기본 Administrator 계정명을 그대로 사용하면 무차별 대입 공격의 대상이 되기 쉽습니다.",
+    "remediation": "Rename-LocalUser로 추측 불가능한 이름으로 변경"
+  },
+  {
+    "code": "W-02",
+    "name": "Guest 계정 비활성화",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "(Get-LocalUser -Name Guest).Enabled",
+    "vulnerable_keyword": "True",
+    "description": "Guest 계정이 활성화되어 있으면 익명 사용자의 시스템 접근이 가능합니다.",
+    "remediation": "Disable-LocalUser -Name Guest"
+  },
+  {
+    "code": "W-03",
+    "name": "불필요한 계정 제거",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-Table",
+    "description": "불필요한 계정이 남아있으면 관리되지 않는 침해 경로가 될 수 있습니다.",
+    "remediation": "미사용 계정을 비활성화 또는 삭제 (수동 검토 필요)"
+  },
+  {
+    "code": "W-04",
+    "name": "계정 잠금 임계값 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "net accounts",
+    "vulnerable_keyword": "Never",
+    "description": "계정 잠금 임계값이 없으면 무차별 대입 공격에 무방비로 노출됩니다.",
+    "remediation": "net accounts /lockoutthreshold:5"
+  },
+  {
+    "code": "W-05",
+    "name": "해독 가능한 암호화를 사용하여 암호 저장 해제",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v ClearTextPassword",
+    "vulnerable_keyword": "0x1",
+    "description": "암호를 해독 가능한 형태로 저장하면 평문 암호가 노출될 위험이 있습니다.",
+    "remediation": "ClearTextPassword 레지스트리 값을 0으로 설정"
+  },
+  {
+    "code": "W-06",
+    "name": "관리자 그룹에 최소한의 사용자 포함",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "net localgroup Administrators",
+    "description": "관리자 그룹에 불필요한 계정이 포함되면 권한 남용 위험이 있습니다.",
+    "remediation": "불필요한 계정을 Administrators 그룹에서 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-07",
+    "name": "Everyone 사용 권한을 익명 사용자에게 적용 해제",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v EveryoneIncludesAnonymous",
+    "vulnerable_keyword": "0x1",
+    "description": "Everyone 권한이 익명 사용자에게도 적용되면 인증 없이 자원에 접근할 수 있습니다.",
+    "remediation": "EveryoneIncludesAnonymous 레지스트리 값을 0으로 설정"
+  },
+  {
+    "code": "W-08",
+    "name": "계정 잠금 기간 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "net accounts",
+    "safe_keyword": "60",
+    "description": "계정 잠금 기간이 설정되지 않으면 잠금이 곧바로 해제되어 재시도 공격이 가능합니다.",
+    "remediation": "net accounts /lockoutduration:60 /lockoutwindow:60"
+  },
+  {
+    "code": "W-09",
+    "name": "비밀번호 관리정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "net accounts",
+    "safe_keyword": "90",
+    "description": "비밀번호 정책이 미흡하면 취약한 비밀번호 사용 및 장기 미변경으로 인한 노출 위험이 있습니다.",
+    "remediation": "net accounts /minpwlen:8 /maxpwage:90 /minpwage:1 /uniquepw:4"
+  },
+  {
+    "code": "W-10",
+    "name": "마지막 사용자 이름 표시 안 함",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v DontDisplayLastUserName",
+    "safe_keyword": "0x1",
+    "description": "마지막 로그온 사용자 이름이 표시되면 공격자에게 유효한 계정명을 제공하게 됩니다.",
+    "remediation": "DontDisplayLastUserName 값을 1로 설정"
+  },
+  {
+    "code": "W-11",
+    "name": "로컬 로그온 허용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "secedit /export /cfg C:\\secpol_tmp.cfg; Select-String 'SeInteractiveLogonRight' C:\\secpol_tmp.cfg; Remove-Item C:\\secpol_tmp.cfg -Force",
+    "description": "불필요한 계정에 로컬 로그온이 허용되면 물리적 접근을 통한 침해 위험이 있습니다.",
+    "remediation": "로컬 로그온 허용 대상을 Administrators 등으로 제한 (수동 검토 필요)"
+  },
+  {
+    "code": "W-12",
+    "name": "익명 SID/이름 변환 허용 해제",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "secedit /export /cfg C:\\secpol_tmp.cfg; Select-String 'LSAAnonymousNameLookup' C:\\secpol_tmp.cfg; Remove-Item C:\\secpol_tmp.cfg -Force",
+    "vulnerable_keyword": "1",
+    "description": "익명 SID/이름 변환이 허용되면 계정 정보 열거 공격에 노출됩니다.",
+    "remediation": "로컬 보안 정책에서 '익명 SID/이름 변환 허용'을 사용 안 함으로 설정"
+  },
+  {
+    "code": "W-13",
+    "name": "콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LimitBlankPasswordUse",
+    "safe_keyword": "0x1",
+    "description": "빈 암호 계정의 콘솔 로그온이 허용되면 인증 없이 시스템에 접근할 수 있습니다.",
+    "remediation": "LimitBlankPasswordUse 값을 1로 설정"
+  },
+  {
+    "code": "W-14",
+    "name": "원격터미널 접속 가능한 사용자 그룹 제한",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "Get-LocalGroupMember -Group 'Remote Desktop Users' | Select-Object Name, ObjectClass",
+    "description": "원격 데스크톱 접속 그룹에 불필요한 계정이 있으면 공격 표면이 늘어납니다.",
+    "remediation": "불필요한 계정을 Remote Desktop Users 그룹에서 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-15",
+    "name": "사용자 개인키 사용 시 암호 입력",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Cryptography\" /v ForceKeyProtection",
+    "safe_keyword": "0x2",
+    "description": "개인키 사용 시 암호 입력이 없으면 키가 탈취되어 악용될 수 있습니다.",
+    "remediation": "ForceKeyProtection 값을 2로 설정"
+  },
+  {
+    "code": "W-16",
+    "name": "공유 권한 및 사용자 그룹 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-SmbShare | Get-SmbShareAccess | Where-Object {$_.AccountName -like '*Everyone*'}",
+    "vulnerable_keyword": "Everyone",
+    "description": "공유 폴더에 Everyone 권한이 있으면 인가되지 않은 사용자도 자료에 접근할 수 있습니다.",
+    "remediation": "Revoke-SmbShareAccess로 Everyone 권한 제거 후 필요한 계정에만 권한 부여"
+  },
+  {
+    "code": "W-17",
+    "name": "하드디스크 기본 공유 제거",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoShareServer",
+    "vulnerable_keyword": "0x1",
+    "description": "기본 공유(C$, ADMIN$)가 활성화되어 있으면 원격 공격의 진입점이 될 수 있습니다.",
+    "remediation": "AutoShareServer, AutoShareWks 값을 0으로 설정 후 기본 공유 제거"
+  },
+  {
+    "code": "W-18",
+    "name": "불필요한 서비스 제거",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name, DisplayName",
+    "description": "불필요한 서비스가 실행 중이면 공격 표면이 확대됩니다.",
+    "remediation": "불필요한 서비스를 중지하고 시작 유형을 사용 안 함으로 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "W-19",
+    "name": "불필요한 IIS 서비스 구동 점검",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "(Get-Service -Name W3SVC -ErrorAction SilentlyContinue).Status",
+    "vulnerable_keyword": "Running",
+    "description": "불필요한 IIS 서비스는 웹 취약점을 통한 공격 표면을 늘립니다.",
+    "remediation": "불필요 시 W3SVC 서비스 중지 및 IIS 기능 제거"
+  },
+  {
+    "code": "W-20",
+    "name": "NetBIOS 바인딩 서비스 구동 점검",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-WmiObject Win32_NetworkAdapterConfiguration -Filter \"IPEnabled=true\" | Select-Object -ExpandProperty TcpipNetbiosOptions",
+    "safe_keyword": "2",
+    "description": "NetBIOS가 활성화되어 있으면 공유 자원 및 계정 정보가 노출될 수 있습니다.",
+    "remediation": "TcpipNetbiosOptions를 2(사용 안 함)로 설정"
+  },
+  {
+    "code": "W-21",
+    "name": "암호화되지 않는 FTP 서비스 비활성화",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "(Get-Service -Name FTPSVC -ErrorAction SilentlyContinue).Status",
+    "vulnerable_keyword": "Running",
+    "description": "암호화되지 않은 FTP는 계정정보 스니핑 공격에 취약합니다.",
+    "remediation": "FTPSVC 서비스 중지 후 SFTP/FTPS 사용"
+  },
+  {
+    "code": "W-22",
+    "name": "FTP 디렉토리 접근권한 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "icacls \"C:\\inetpub\\ftproot\" 2>$null",
+    "vulnerable_keyword": "Everyone",
+    "description": "FTP 루트 디렉터리에 과도한 권한이 부여되면 파일이 임의로 변조될 수 있습니다.",
+    "remediation": "icacls로 FTP 루트 디렉터리의 Everyone 권한 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-23",
+    "name": "공유 서비스에 대한 익명 접근 제한 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-WebConfigurationProperty -PSPath 'IIS:\\Sites\\Default FTP Site' -Filter '/system.ftpServer/security/authentication/anonymousAuthentication' -Name enabled -ErrorAction SilentlyContinue",
+    "vulnerable_keyword": "True",
+    "description": "익명 인증이 허용되면 인증 없이 FTP 서비스에 접근할 수 있습니다.",
+    "remediation": "FTP 익명 인증을 사용 안 함으로 설정"
+  },
+  {
+    "code": "W-24",
+    "name": "FTP 접근 제어 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-WebConfiguration -Filter '/system.ftpServer/security/ipSecurity' -PSPath 'IIS:\\Sites\\Default FTP Site' -ErrorAction SilentlyContinue",
+    "description": "FTP 접근 제어가 없으면 임의의 IP에서 접속을 시도할 수 있습니다.",
+    "remediation": "IIS FTP IP 제한 설정으로 허용 IP만 등록 (수동 검토 필요)"
+  },
+  {
+    "code": "W-25",
+    "name": "DNS Zone Transfer 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "Get-DnsServerZone -ErrorAction SilentlyContinue | Select-Object ZoneName, ZoneType",
+    "description": "Zone Transfer가 제한되지 않으면 내부 네트워크 구조가 노출됩니다.",
+    "remediation": "SecureSecondaries를 TransferToSecureServers로 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "W-26",
+    "name": "RDS(Remote Data Services) 제거",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\W3SVC\\Parameters\\ADCLaunch\" 2>$null",
+    "vulnerable_keyword": "RDSServer",
+    "description": "RDS(Remote Data Services)는 알려진 원격 코드 실행 취약점이 존재합니다.",
+    "remediation": "RDS 관련 레지스트리 키 및 MSADC 가상 디렉터리 제거"
+  },
+  {
+    "code": "W-27",
+    "name": "최신 Windows OS Build 버전 적용",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion').CurrentBuild",
+    "description": "오래된 OS 빌드는 알려진 보안 취약점이 패치되지 않았을 수 있습니다.",
+    "remediation": "Windows Update로 최신 빌드 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "W-28",
+    "name": "터미널 서비스 암호화 수준 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v MinEncryptionLevel",
+    "safe_keyword": "0x3",
+    "description": "RDP 암호화 수준이 낮으면 세션 데이터가 도청될 위험이 있습니다.",
+    "remediation": "MinEncryptionLevel 값을 3(높음) 이상으로 설정"
+  },
+  {
+    "code": "W-29",
+    "name": "불필요한 SNMP 서비스 구동 점검",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "(Get-Service -Name SNMP -ErrorAction SilentlyContinue).Status",
+    "vulnerable_keyword": "Running",
+    "description": "불필요한 SNMP 서비스는 시스템 정보 노출의 원인이 됩니다.",
+    "remediation": "불필요 시 SNMP 서비스 중지"
+  },
+  {
+    "code": "W-30",
+    "name": "SNMP Community String 복잡성 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\ValidCommunities\" 2>$null",
+    "vulnerable_keyword": "public",
+    "description": "기본 Community String(public/private) 사용 시 SNMP 정보가 쉽게 노출됩니다.",
+    "remediation": "기본 Community String 제거 후 복잡한 문자열로 변경"
+  },
+  {
+    "code": "W-31",
+    "name": "SNMP Access Control 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\PermittedManagers\" 2>$null",
+    "safe_keyword": "REG_",
+    "description": "SNMP 접근 제어가 없으면 모든 호스트에서 SNMP 조회가 가능합니다.",
+    "remediation": "PermittedManagers에 허용 호스트 등록"
+  },
+  {
+    "code": "W-32",
+    "name": "DNS 서비스 구동 점검",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "(Get-Service -Name DNS -ErrorAction SilentlyContinue).Status",
+    "description": "불필요한 DNS 서비스가 구동 중이면 DNS 관련 취약점에 노출될 수 있습니다.",
+    "remediation": "미사용 시 DNS 서비스 중지, 사용 시 동적 업데이트 제한 (수동 검토 필요)"
+  },
+  {
+    "code": "W-33",
+    "name": "HTTP/FTP/SMTP 배너 차단",
+    "category": "서비스 관리",
+    "importance": "하",
+    "command": "Get-WebConfigurationProperty -PSPath 'IIS:\\Sites\\Default Web Site' -Filter 'system.webServer/httpProtocol/customHeaders' -Name '.' -ErrorAction SilentlyContinue",
+    "description": "서비스 배너에 버전정보가 노출되면 표적 공격에 활용될 수 있습니다.",
+    "remediation": "X-Powered-By 등 배너 헤더 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-34",
+    "name": "Telnet 서비스 비활성화",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "(Get-Service -Name TlntSvr -ErrorAction SilentlyContinue).Status",
+    "vulnerable_keyword": "Running",
+    "description": "Telnet은 평문 통신으로 계정정보 노출 위험이 있습니다.",
+    "remediation": "TlntSvr 서비스 중지 및 사용 안 함으로 설정"
+  },
+  {
+    "code": "W-35",
+    "name": "불필요한 ODBC/OLE-DB 데이터 소스와 드라이브 제거",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-OdbcDsn -DsnType System -ErrorAction SilentlyContinue",
+    "description": "불필요한 ODBC 데이터 소스는 DB 접근 경로 노출의 원인이 될 수 있습니다.",
+    "remediation": "불필요한 ODBC 데이터 소스 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-36",
+    "name": "원격터미널 접속 타임아웃 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\" /v MaxIdleTime 2>$null",
+    "safe_keyword": "0x",
+    "description": "유휴 세션 타임아웃이 없으면 방치된 원격 세션이 침해 경로가 될 수 있습니다.",
+    "remediation": "MaxIdleTime을 1800000(30분) 이하로 설정"
+  },
+  {
+    "code": "W-37",
+    "name": "예약된 작업에 의심스러운 명령이 등록되어 있는지 점검",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-ScheduledTask | Where-Object {$_.State -ne 'Disabled'} | Select-Object TaskName, TaskPath",
+    "description": "예약된 작업에 의심스러운 명령이 등록되면 지속적인 침해 유지에 악용될 수 있습니다.",
+    "remediation": "의심스러운 예약 작업 확인 후 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-38",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+    "description": "보안 패치가 최신 상태로 유지되지 않으면 알려진 취약점에 노출됩니다.",
+    "remediation": "Windows Update로 최신 패치 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "W-39",
+    "name": "백신 프로그램 업데이트",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "(Get-MpComputerStatus).AntivirusEnabled",
+    "safe_keyword": "True",
+    "description": "백신이 최신 상태로 업데이트되지 않으면 최신 악성코드 탐지가 불가능합니다.",
+    "remediation": "Update-MpSignature로 백신 정의 업데이트"
+  },
+  {
+    "code": "W-40",
+    "name": "정책에 따른 시스템 로깅 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "auditpol /get /category:*",
+    "description": "감사 정책이 미흡하면 침해사고 발생 시 원인 분석이 어렵습니다.",
+    "remediation": "주요 이벤트(로그온, 계정관리 등) 감사 정책 활성화 (수동 검토 필요)"
+  },
+  {
+    "code": "W-41",
+    "name": "NTP 및 시각 동기화 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "w32tm /query /status",
+    "vulnerable_keyword": "Local CMOS Clock",
+    "description": "시각 동기화가 되지 않으면 로그 상관분석 및 침해사고 추적이 어려워집니다.",
+    "remediation": "w32tm /config로 신뢰할 수 있는 NTP 서버와 동기화 설정"
+  },
+  {
+    "code": "W-42",
+    "name": "이벤트 로그 관리 설정",
+    "category": "로그 관리",
+    "importance": "하",
+    "command": "Get-EventLog -List | Where-Object {$_.Log -eq 'Security'} | Select-Object -ExpandProperty MaximumKilobytes",
+    "description": "이벤트 로그 크기가 작으면 로그가 조기에 순환되어 증적이 유실될 수 있습니다.",
+    "remediation": "Limit-EventLog로 로그 최대 크기를 10240KB 이상으로 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "W-43",
+    "name": "이벤트 로그 파일 접근 통제 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "icacls \"C:\\Windows\\System32\\config\"",
+    "vulnerable_keyword": "Everyone",
+    "description": "로그 디렉터리에 Everyone 권한이 있으면 비인가자가 로그를 열람·변조할 수 있습니다.",
+    "remediation": "icacls로 로그 디렉터리의 Everyone 권한 제거"
+  },
+  {
+    "code": "W-44",
+    "name": "원격으로 액세스할 수 있는 레지스트리 경로",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-Service -Name RemoteRegistry).Status",
+    "vulnerable_keyword": "Running",
+    "description": "원격 레지스트리 서비스가 활성화되어 있으면 원격에서 레지스트리 정보를 열람·변조할 수 있습니다.",
+    "remediation": "RemoteRegistry 서비스 중지 및 사용 안 함으로 설정"
+  },
+  {
+    "code": "W-45",
+    "name": "백신 프로그램 설치",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-MpComputerStatus).AntivirusEnabled",
+    "safe_keyword": "True",
+    "description": "백신 프로그램이 없으면 악성코드 감염에 취약합니다.",
+    "remediation": "Windows Defender 활성화 또는 백신 프로그램 설치"
+  },
+  {
+    "code": "W-46",
+    "name": "SAM 파일 접근 통제 설정",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "icacls \"C:\\Windows\\System32\\config\\SAM\"",
+    "vulnerable_keyword": "Everyone",
+    "description": "SAM 파일에 과도한 접근 권한이 있으면 계정 해시가 유출되어 크래킹에 악용될 수 있습니다.",
+    "remediation": "icacls로 Administrators/SYSTEM만 접근 가능하도록 설정"
+  },
+  {
+    "code": "W-47",
+    "name": "화면보호기 설정",
+    "category": "보안 관리",
+    "importance": "하",
+    "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive",
+    "safe_keyword": "1",
+    "description": "화면보호기가 설정되지 않으면 자리 비움 시 무단 접근 위험이 있습니다.",
+    "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600, ScreenSaverIsSecure=1 설정"
+  },
+  {
+    "code": "W-48",
+    "name": "로그온하지 않고 시스템 종료 허용",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v ShutdownWithoutLogon",
+    "vulnerable_keyword": "0x1",
+    "description": "로그온 없이 시스템 종료가 가능하면 물리적 접근을 통한 서비스 거부가 쉬워집니다.",
+    "remediation": "ShutdownWithoutLogon 값을 0으로 설정"
+  },
+  {
+    "code": "W-49",
+    "name": "원격 시스템에서 강제로 시스템 종료",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "secedit /export /cfg C:\\secpol_tmp.cfg; Select-String 'SeRemoteShutdownPrivilege' C:\\secpol_tmp.cfg; Remove-Item C:\\secpol_tmp.cfg -Force",
+    "description": "관리자 외 계정이 원격 종료 권한을 가지면 서비스 거부 공격에 악용될 수 있습니다.",
+    "remediation": "해당 권한 보유자를 Administrators로 제한 (수동 검토 필요)"
+  },
+  {
+    "code": "W-50",
+    "name": "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v CrashOnAuditFail",
+    "vulnerable_keyword": "0x1",
+    "description": "이 옵션이 활성화되면 로그 저장 실패 시 시스템이 강제 종료되어 가용성 문제가 발생할 수 있습니다.",
+    "remediation": "CrashOnAuditFail 값을 0으로 설정"
+  },
+  {
+    "code": "W-51",
+    "name": "SAM 계정과 공유의 익명 열거 허용 안 함",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RestrictAnonymous",
+    "safe_keyword": "0x1",
+    "description": "익명 열거가 허용되면 계정/공유 목록이 노출되어 공격 정찰에 악용될 수 있습니다.",
+    "remediation": "RestrictAnonymous, RestrictAnonymousSAM 값을 1로 설정"
+  },
+  {
+    "code": "W-52",
+    "name": "Autologon 기능 제어",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v AutoAdminLogon",
+    "vulnerable_keyword": "0x1",
+    "description": "자동 로그온이 설정되면 물리적 접근만으로 시스템에 접근할 수 있습니다.",
+    "remediation": "AutoAdminLogon 값을 0으로 설정하고 DefaultPassword 제거"
+  },
+  {
+    "code": "W-53",
+    "name": "이동식 미디어 포맷 및 꺼내기 허용",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v AllocateDASD",
+    "safe_keyword": "0",
+    "description": "일반 사용자도 이동식 미디어를 포맷·제거할 수 있으면 데이터 유출·손실 위험이 있습니다.",
+    "remediation": "AllocateDASD 값을 0(Administrators만 허용)으로 설정"
+  },
+  {
+    "code": "W-54",
+    "name": "DoS 공격 방어 레지스트리 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v SynAttackProtect",
+    "safe_keyword": "0x1",
+    "description": "SYN Flood 등 DoS 공격에 대한 방어 설정이 없으면 서비스 가용성이 저해될 수 있습니다.",
+    "remediation": "SynAttackProtect 값을 1 이상으로 설정"
+  },
+  {
+    "code": "W-55",
+    "name": "사용자가 프린터 드라이버를 설치할 수 없게 함",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Providers\\LanMan Print Services\\Servers\" /v AddPrinterDrivers",
+    "safe_keyword": "0x1",
+    "description": "일반 사용자가 프린터 드라이버를 설치할 수 있으면 악성 드라이버 설치에 악용될 수 있습니다.",
+    "remediation": "AddPrinterDrivers 값을 1로 설정"
+  },
+  {
+    "code": "W-56",
+    "name": "SMB 세션 중단 관리 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoDisconnect",
+    "safe_keyword": "0x",
+    "description": "SMB 유휴 세션이 자동 종료되지 않으면 방치된 세션이 침해 경로가 될 수 있습니다.",
+    "remediation": "AutoDisconnect를 15(분) 이하로 설정"
+  },
+  {
+    "code": "W-57",
+    "name": "로그온 시 경고 메시지 설정",
+    "category": "보안 관리",
+    "importance": "하",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v LegalNoticeText",
+    "safe_keyword": "REG_SZ",
+    "description": "로그온 경고 메시지가 없으면 비인가 접근에 대한 법적 경고 효과가 없습니다.",
+    "remediation": "LegalNoticeCaption, LegalNoticeText에 경고 문구 설정"
+  },
+  {
+    "code": "W-58",
+    "name": "사용자별 홈 디렉터리 권한 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "Get-ChildItem \"C:\\Users\" -Directory | ForEach-Object { icacls $_.FullName }",
+    "vulnerable_keyword": "Everyone",
+    "description": "홈 디렉터리에 Everyone 권한이 있으면 다른 사용자가 개인 파일에 접근할 수 있습니다.",
+    "remediation": "icacls로 홈 디렉터리의 Everyone 권한 제거"
+  },
+  {
+    "code": "W-59",
+    "name": "LAN Manager 인증 수준",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel",
+    "safe_keyword": "0x5",
+    "description": "낮은 LAN Manager 인증 수준은 해시 크래킹 등 인증 우회 공격에 취약합니다.",
+    "remediation": "LmCompatibilityLevel 값을 5로 설정"
+  },
+  {
+    "code": "W-60",
+    "name": "보안 채널 데이터 디지털 암호화 또는 서명",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v RequireSignOrSeal",
+    "safe_keyword": "0x1",
+    "description": "보안 채널 데이터가 암호화·서명되지 않으면 도메인 인증 트래픽이 변조될 수 있습니다.",
+    "remediation": "RequireSignOrSeal, SealSecureChannel, SignSecureChannel 값을 1로 설정"
+  },
+  {
+    "code": "W-61",
+    "name": "파일 및 디렉토리 보호",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "Get-Volume | Select-Object DriveLetter, FileSystemType",
+    "vulnerable_keyword": "FAT32",
+    "description": "FAT32 파일 시스템은 NTFS 대비 접근 제어(ACL) 기능을 지원하지 않습니다.",
+    "remediation": "convert 명령으로 NTFS로 변환"
+  },
+  {
+    "code": "W-62",
+    "name": "시작프로그램 목록 분석",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location",
+    "description": "의심스러운 시작 프로그램은 지속적인 침해 유지에 악용될 수 있습니다.",
+    "remediation": "의심스러운 시작 프로그램 확인 후 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "W-63",
+    "name": "도메인 컨트롤러-사용자의 시간 동기화",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "w32tm /query /status",
+    "description": "도메인 컨트롤러와 시간 동기화가 되지 않으면 Kerberos 인증 실패가 발생할 수 있습니다.",
+    "remediation": "Kerberos 최대 허용 오차를 5분 이하로 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "W-64",
+    "name": "윈도우 방화벽 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "(Get-NetFirewallProfile -Profile Domain).Enabled",
+    "safe_keyword": "True",
+    "description": "방화벽이 비활성화되어 있으면 비인가 트래픽 유입을 차단할 수 없습니다.",
+    "remediation": "Set-NetFirewallProfile로 모든 프로필의 방화벽을 활성화"
+  }
 ]

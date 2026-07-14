@@ -20,7 +20,7 @@ class VulnMatcher:
         21: {
             "service": "FTP",
             "cve": "CVE-2011-2523",
-            "kisa": "U-20",
+            "kisa": "U-54",
             "risk": "High",
             "name": "FTP Service Detected",
             "desc": "암호화되지 않은 FTP 서비스가 활성화되어 있습니다. 계정 정보 탈취 위험이 있습니다.",
@@ -38,7 +38,7 @@ class VulnMatcher:
         23: {
             "service": "Telnet",
             "cve": "CVE-1999-0061",
-            "kisa": "U-66",
+            "kisa": "U-52",
             "risk": "Critical",
             "name": "Telnet Service Detected",
             "desc": "보안에 매우 취약한 Telnet이 실행 중입니다. 즉시 SSH로 대체해야 합니다.",
@@ -47,7 +47,7 @@ class VulnMatcher:
         80: {
             "service": "HTTP",
             "cve": "N/A",
-            "kisa": "W-57",
+            "kisa": "",
             "risk": "Low",
             "name": "HTTP Web Server",
             "desc": "웹 서버가 실행 중입니다. 디렉터리 리스팅 및 불필요한 정보 노출을 점검하십시오.",
@@ -56,7 +56,7 @@ class VulnMatcher:
         443: {
             "service": "HTTPS",
             "cve": "CVE-2014-0160",
-            "kisa": "W-58",
+            "kisa": "",
             "risk": "Low",
             "name": "HTTPS Web Server",
             "desc": "보안 웹 서버(HTTPS)입니다. SSL/TLS 인증서 만료일 및 취약한 프로토콜 버전을 점검하십시오.",
@@ -65,7 +65,7 @@ class VulnMatcher:
         445: {
             "service": "SMB",
             "cve": "CVE-2017-0144", # EternalBlue
-            "kisa": "W-08",
+            "kisa": "W-17",
             "risk": "Critical",
             "name": "SMB File Sharing",
             "desc": "SMB 프로토콜이 노출되었습니다. 랜섬웨어 및 웜 바이러스 공격에 매우 취약합니다.",
@@ -74,7 +74,7 @@ class VulnMatcher:
         3306: {
             "service": "MySQL",
             "cve": "CVE-2012-2122",
-            "kisa": "U-62",
+            "kisa": "",
             "risk": "Medium",
             "name": "MySQL Database",
             "desc": "데이터베이스 포트가 외부에 노출되었습니다. 접근 제어(ACL) 설정이 필수입니다.",
@@ -83,7 +83,7 @@ class VulnMatcher:
         3389: {
             "service": "RDP",
             "cve": "CVE-2019-0708", # BlueKeep
-            "kisa": "W-18",
+            "kisa": "W-28",
             "risk": "High",
             "name": "Remote Desktop (RDP)",
             "desc": "원격 데스크톱 연결이 활성화되어 있습니다. 무차별 대입 공격 및 취약점 악용 위험이 큽니다.",
@@ -92,7 +92,7 @@ class VulnMatcher:
         8080: {
             "service": "HTTP-Proxy",
             "cve": "N/A",
-            "kisa": "W-57",
+            "kisa": "",
             "risk": "Medium",
             "name": "Web Proxy / Admin Console",
             "desc": "관리자 페이지 또는 프록시 서버일 가능성이 높습니다. 외부 접근 제한이 필요합니다.",
