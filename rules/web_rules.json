@@ -4,7 +4,7 @@
     "name": "Default 관리자 계정명 변경",
     "category": "계정 관리",
     "importance": "상",
-    "command": "grep -i 'username=' /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'username=' \"$f\"",
     "description": "Default 관리자 계정명 변경",
     "remediation": "Tomcat conf/server.xml, tomcat-users.xml에서 기본 계정명(tomcat, admin)을 유추 불가능한 이름으로 변경 (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
   },
@@ -13,7 +13,7 @@
     "name": "취약한 비밀번호 사용 제한",
     "category": "계정 관리",
     "importance": "상",
-    "command": "grep -i 'password=' /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'password=' \"$f\"",
     "description": "취약한 비밀번호 사용 제한",
     "remediation": "Tomcat 관리 계정 비밀번호를 2종류 이상 조합 10자리 또는 3종류 이상 조합 8자리 이상으로 설정 (수동 검토 필요)"
   },
@@ -22,7 +22,7 @@
     "name": "비밀번호 파일 권한 관리",
     "category": "계정 관리",
     "importance": "중",
-    "command": "ls -l /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && ls -l \"$f\"",
     "description": "비밀번호 파일 권한 관리",
     "remediation": "chmod 600 tomcat-users.xml (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
   },
@@ -31,8 +31,8 @@
     "name": "웹 서비스 디렉터리 리스팅 방지 설정",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "grep -ilE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -ilE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null",
-    "vulnerable_keyword": "conf",
+    "command": "apline=$(grep -hnE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Indexes'); ngline=$(grep -hnE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$apline\" ] || [ -n \"$ngline\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "웹 서비스 디렉터리 리스팅 방지 설정",
     "remediation": "Apache: Options 지시자에서 Indexes 제거(-Indexes), Nginx: autoindex off; 설정"
   },
@@ -50,10 +50,13 @@
     "name": "웹 서비스 상위 디렉터리 접근 제한 설정",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "grep -i 'AllowOverride' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null",
-    "safe_keyword": "AuthConfig",
+    "command": "grep -i 'AllowOverride' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'",
     "description": "웹 서비스 상위 디렉터리 접근 제한 설정",
-    "remediation": "AllowOverride AuthConfig 설정 후 .htaccess 인증 파일 생성"
+    "remediation": "AllowOverride AuthConfig 또는 All 설정 후 .htaccess 인증 파일 생성 (AllowOverride None은 취약)",
+    "criteria": [
+      {"label": "AllowOverride None 미설정", "command": "grep -hnE 'AllowOverride[[:space:]]+None\\b' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'", "vulnerable_keyword": "None"},
+      {"label": "AllowOverride AuthConfig 또는 All 설정", "command": "grep -hnE 'AllowOverride[[:space:]]+(AuthConfig|All)\\b' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'", "safe_keyword": "AllowOverride"}
+    ]
   },
   {
     "code": "WEB-07",
@@ -69,8 +72,8 @@
     "name": "웹 서비스 파일 업로드 및 다운로드 용량 제한",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep -ilE 'LimitRequestBody|client_max_body_size' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
-    "safe_keyword": "conf",
+    "command": "o=$(grep -hnE 'LimitRequestBody|client_max_body_size' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$o\" ]; then echo OK; else echo FAIL; fi",
+    "safe_keyword": "OK",
     "description": "웹 서비스 파일 업로드 및 다운로드 용량 제한",
     "remediation": "Apache: LimitRequestBody 지시자 설정, Nginx: client_max_body_size 설정"
   },
@@ -89,7 +92,7 @@
     "name": "불필요한 프록시 설정 제한",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "grep -i 'ProxyRequests' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null",
+    "command": "grep -i 'ProxyRequests' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'",
     "vulnerable_keyword": "On",
     "description": "불필요한 프록시 설정 제한",
     "remediation": "ProxyRequests Off 설정 유지 (오픈 프록시로 악용 방지)"
@@ -108,7 +111,7 @@
     "name": "웹 서비스 링크 사용 금지",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep -iE 'FollowSymLinks' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v -- '-FollowSymLinks'",
+    "command": "grep -iE 'FollowSymLinks' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-FollowSymLinks'",
     "vulnerable_keyword": "FollowSymLinks",
     "description": "웹 서비스 링크 사용 금지",
     "remediation": "Options 지시자에서 FollowSymLinks 제거 (-FollowSymLinks)"
@@ -118,18 +121,18 @@
     "name": "웹 서비스 설정 파일 노출 제한",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "ls -l /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
-    "safe_keyword": "root",
-    "description": "웹 서비스 설정 파일 노출 제한",
-    "remediation": "chmod 600으로 설정 파일 권한 강화, 불필요한 DB 연결 리소스 정보 제거"
+    "command": "tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); f=\"\"; for c in \"$tb/conf/context.xml\" /etc/tomcat*/context.xml /var/lib/tomcat*/conf/context.xml /usr/share/tomcat*/conf/context.xml /usr/local/tomcat*/conf/context.xml /opt/tomcat*/conf/context.xml /opt/jeus*/domains/*/config/*/jdbc.xml /usr/local/jeus*/domains/*/config/*/jdbc.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; if [ -n \"$f\" ]; then p=$(stat -c %a \"$f\" 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -ge 644 ]; then echo FAIL; else echo OK; fi; else echo OK; fi",
+    "safe_keyword": "OK",
+    "description": "웹 서비스 설정 파일(Tomcat/JEUS DB 연결정보 포함) 노출 제한",
+    "remediation": "Tomcat context.xml/JEUS jdbc.xml 등 DB 연결정보가 담긴 설정 파일 권한을 640 이하로 강화, 불필요한 DB 연결 리소스 정보 제거"
   },
   {
     "code": "WEB-14",
     "name": "웹 서비스 경로 내 파일의 접근 통제",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "ls -l /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
-    "safe_keyword": "root",
+    "command": "f=\"\"; for c in /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf; do [ -f \"$c\" ] && f=\"$c\" && break; done; if [ -z \"$f\" ]; then echo OK; else p=$(stat -c %a \"$f\" 2>/dev/null); o=$(echo \"$p\" | awk '{print substr($0,length,1)}'); if [ -n \"$o\" ] && [ \"$o\" -ge 4 ]; then echo FAIL; else echo OK; fi; fi",
+    "safe_keyword": "OK",
     "description": "웹 서비스 경로 내 파일의 접근 통제",
     "remediation": "chown/chmod 750으로 웹 서버 설정 파일 소유자 및 권한 조정"
   },
@@ -138,7 +141,7 @@
     "name": "웹 서비스의 불필요한 스크립트 매핑 제거",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep -A2 -i 'servlet-mapping' /etc/tomcat*/web.xml 2>/dev/null",
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/web.xml\" /etc/tomcat*/web.xml /var/lib/tomcat*/conf/web.xml /usr/share/tomcat*/conf/web.xml /usr/local/tomcat*/conf/web.xml /opt/tomcat*/conf/web.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -A2 -i 'servlet-mapping' \"$f\"",
     "description": "웹 서비스의 불필요한 스크립트 매핑 제거",
     "remediation": "불필요한 servlet-mapping/확장자 매핑 제거 (Tomcat 전용, 수동 검토 필요)"
   },
@@ -147,8 +150,8 @@
     "name": "웹 서비스 헤더 정보 노출 제한",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep -ilE 'ServerTokens[[:space:]]+Full' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -ilE 'server_tokens[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null",
-    "vulnerable_keyword": "conf",
+    "command": "o1=$(grep -hnE 'ServerTokens[[:space:]]+Full' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'); o2=$(grep -hnE 'server_tokens[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$o1\" ] || [ -n \"$o2\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "웹 서비스 헤더 정보 노출 제한",
     "remediation": "Apache: ServerTokens Prod, ServerSignature Off / Nginx: server_tokens off;"
   },
@@ -166,8 +169,8 @@
     "name": "웹 서비스 WebDAV 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "grep -ilE 'Dav[[:space:]]+On' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -il 'dav_methods' /etc/nginx/nginx.conf 2>/dev/null",
-    "vulnerable_keyword": "conf",
+    "command": "o1=$(grep -hnE 'Dav[[:space:]]+On' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'); o2=$(grep -hn 'dav_methods' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$o1\" ] || [ -n \"$o2\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "웹 서비스 WebDAV 비활성화",
     "remediation": "Apache: Dav Off 설정 / Nginx: dav_methods 설정 제거"
   },
@@ -185,8 +188,8 @@
     "name": "SSL/TLS 활성화",
     "category": "보안 설정",
     "importance": "상",
-    "command": "grep -iE 'SSLEngine|ssl_protocols' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
-    "safe_keyword": "ssl",
+    "command": "apache_on=$(grep -hnE 'SSLEngine[[:space:]]+on' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'); nginx_on=$(grep -hnE 'ssl_certificate[[:space:]]|listen[[:space:]]+443[[:space:]]+ssl' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$apache_on\" ] || [ -n \"$nginx_on\" ]; then echo OK; else echo FAIL; fi",
+    "safe_keyword": "OK",
     "description": "SSL/TLS 활성화",
     "remediation": "SSL/TLS 인증서를 발급하여 HTTPS(443) 활성화, TLSv1.2 이상만 허용"
   },
@@ -195,8 +198,8 @@
     "name": "HTTP 리디렉션",
     "category": "보안 설정",
     "importance": "중",
-    "command": "grep -iE 'RewriteCond.*HTTPS|return 301 https' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
-    "safe_keyword": "https",
+    "command": "apache_r=$(grep -hnE 'Redirect(Match)?[[:space:]].*https://|RewriteCond[[:space:]]+%\\{HTTPS\\}[[:space:]]+off|RewriteRule.*https://' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#'); nginx_r=$(grep -hnE 'return[[:space:]]+30[12][[:space:]]+https://|rewrite[[:space:]]+\\^.*https://' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$apache_r\" ] || [ -n \"$nginx_r\" ]; then echo OK; else echo FAIL; fi",
+    "safe_keyword": "OK",
     "description": "HTTP 리디렉션",
     "remediation": "HTTP(80) 접속 시 HTTPS(443)로 강제 리디렉션되도록 설정"
   },
@@ -205,7 +208,7 @@
     "name": "에러 페이지 관리",
     "category": "보안 설정",
     "importance": "하",
-    "command": "grep -iE 'ErrorDocument|error_page' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "command": "grep -iE 'ErrorDocument|error_page' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'",
     "safe_keyword": "rror",
     "description": "에러 페이지 관리",
     "remediation": "400/401/403/404/500 등 에러 코드별로 일원화된 에러 페이지 설정"
@@ -215,7 +218,7 @@
     "name": "LDAP 알고리즘 적절하게 구성",
     "category": "보안 설정",
     "importance": "중",
-    "command": "grep -i 'digest=' /etc/tomcat*/server.xml 2>/dev/null",
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/server.xml\" /etc/tomcat*/server.xml /var/lib/tomcat*/conf/server.xml /usr/share/tomcat*/conf/server.xml /usr/local/tomcat*/conf/server.xml /opt/tomcat*/conf/server.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'digest=' \"$f\"",
     "description": "LDAP 알고리즘 적절하게 구성",
     "remediation": "SHA-256 이상의 비밀번호 다이제스트 알고리즘 설정 (Tomcat 전용, 수동 검토 필요)"
   },

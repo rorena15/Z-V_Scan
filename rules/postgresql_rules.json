@@ -4,10 +4,10 @@
     "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT 'EMPTY_PW:'||rolname FROM pg_authid WHERE rolname='postgres' AND rolpassword IS NULL;",
+    "command": "SELECT 'EMPTY_PW:'||rolname FROM pg_authid WHERE rolname='postgres' AND rolcanlogin=true AND rolpassword IS NULL;",
     "vulnerable_keyword": "EMPTY_PW:",
     "description": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
-    "remediation": "ALTER USER postgres WITH PASSWORD '<신규비밀번호>';"
+    "remediation": "ALTER USER postgres WITH PASSWORD '<신규비밀번호>'; 또는 로그인이 불필요하면 ALTER ROLE postgres NOLOGIN; (rolcanlogin=false 이면 비밀번호 상태와 무관하게 양호)"
   },
   {
     "code": "D-02",
@@ -23,16 +23,17 @@
     "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SELECT name FROM pg_available_extensions WHERE name='passwordcheck';",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "passwordcheck",
     "description": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
-    "remediation": "passwordcheck 확장 설치(shared_preload_libraries='passwordcheck') 후 재시작 (PostgreSQL 자체 내장 정책 없음, 수동 검토 필요)"
+    "remediation": "passwordcheck 확장을 shared_preload_libraries에 실제로 등록(shared_preload_libraries='passwordcheck') 후 재시작 (단순 설치만으로는 미적용, 로드 여부까지 확인 필요)"
   },
   {
     "code": "D-04",
     "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT rolname FROM pg_roles WHERE rolsuper=true;",
+    "command": "SELECT rolname FROM pg_roles WHERE (rolsuper OR rolcreaterole OR rolcreatedb) AND rolname <> 'postgres';",
     "description": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
     "remediation": "ALTER ROLE <계정> NOSUPERUSER; (수동 검토 필요 - SUPERUSER 보유 계정 확인)"
   },
@@ -41,9 +42,10 @@
     "name": "비밀번호 재사용에 대한 제약 설정",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SELECT current_setting('password_encryption');",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "passwordcheck",
     "description": "비밀번호 재사용에 대한 제약 설정",
-    "remediation": "PostgreSQL은 비밀번호 재사용 제약 기능이 내장되어 있지 않음 - 외부 정책(주기적 강제 변경) 수립 필요 (수동 검토 필요)"
+    "remediation": "PostgreSQL은 비밀번호 재사용 제약 기능이 내장되어 있지 않아 passwordcheck 확장을 shared_preload_libraries에 등록하여 보완 (D-03과 동일 기전 - 근본적으로는 외부 정책/IdP 연동 필요)"
   },
   {
     "code": "D-06",
@@ -68,26 +70,27 @@
     "name": "안전한 암호화 알고리즘 사용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SHOW ssl;",
-    "safe_keyword": "on",
-    "description": "안전한 암호화 알고리즘 사용",
-    "remediation": "postgresql.conf에서 ssl=on 설정 및 인증서 적용"
+    "command": "SELECT 'SENSITIVE_PLAINTEXT_CANDIDATE:'||table_schema||'.'||table_name||'.'||column_name FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema') AND data_type IN ('character varying','character','text') AND lower(column_name) ~ '(password|passwd|pwd|jumin|rrn|resident|ssn)' LIMIT 20;",
+    "vulnerable_keyword": "SENSITIVE_PLAINTEXT_CANDIDATE:",
+    "description": "중요정보(비밀번호, 주민등록번호 등)를 저장하는 컬럼에 안전한 암호화 알고리즘을 적용하여 저장",
+    "remediation": "pgcrypto 확장(CREATE EXTENSION pgcrypto;)을 사용해 해당 컬럼을 암호화 저장으로 전환 (전송구간 암호화는 별도 항목: postgresql.conf에서 ssl=on 설정)"
   },
   {
     "code": "D-09",
     "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT name FROM pg_available_extensions WHERE name IN ('passwordcheck','auth_delay');",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "auth_delay",
     "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
-    "remediation": "PostgreSQL 자체 잠금 기능 없음 - auth_delay 확장 또는 외부 접근제어(fail2ban 등)로 보완 (수동 검토 필요)"
+    "remediation": "PostgreSQL 자체 계정 잠금 기능은 없음 - auth_delay 확장을 shared_preload_libraries에 등록해 무차별 대입 지연 및 fail2ban 등 OS 레벨 접근제어로 보완 (주의: 실제 KISA 기준의 핵심 통제는 OS의 fail2ban 서비스 활성 여부이며, 이는 SQL로 확인 불가하므로 SSH 기반 별도 점검 필요)"
   },
   {
     "code": "D-10",
     "name": "원격에서 DB 서버로의 접속 제한",
     "category": "접근 관리",
     "importance": "상",
-    "command": "SELECT 'ANYHOST:'||address FROM pg_hba_file_rules WHERE address IN ('0.0.0.0/0','::/0','all') OR type='host' AND address IS NULL;",
+    "command": "SELECT 'ANYHOST:'||address FROM pg_hba_file_rules WHERE type ~ '^host' AND address IN ('0.0.0.0/0','::/0','all');",
     "vulnerable_keyword": "ANYHOST:",
     "description": "원격에서 DB 서버로의 접속 제한",
     "remediation": "pg_hba.conf에서 허용 IP 대역만 명시 (host all all <허용IP>/32 md5) 후 postgresql 재적재(SELECT pg_reload_conf();)"
@@ -97,7 +100,7 @@
     "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
     "category": "접근 관리",
     "importance": "중",
-    "command": "SELECT grantee FROM information_schema.role_table_grants WHERE table_schema='pg_catalog' AND grantee NOT IN ('postgres','PUBLIC');",
+    "command": "SELECT grantee FROM information_schema.role_table_grants WHERE table_schema='pg_catalog' AND grantee NOT IN ('postgres','rdsadmin','azure_pg_admin');",
     "description": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
     "remediation": "REVOKE ALL ON ALL TABLES IN SCHEMA pg_catalog FROM <계정>; (수동 검토 필요)"
   },
@@ -125,7 +128,7 @@
     "name": "인가되지 않은 Object Owner의 제한",
     "category": "옵션 관리",
     "importance": "중",
-    "command": "SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname='public';",
+    "command": "SELECT DISTINCT r.rolname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles r ON r.oid = c.relowner WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg\\_%' AND c.relkind IN ('r','v','m','S','f','p');",
     "description": "인가되지 않은 Object Owner의 제한",
     "remediation": "불필요한 소유자의 테이블을 적절한 역할로 이전 (ALTER TABLE <테이블> OWNER TO <역할>;) - 수동 검토 필요"
   },
@@ -134,10 +137,9 @@
     "name": "인가되지 않은 GRANT OPTION 사용 제한",
     "category": "옵션 관리",
     "importance": "상",
-    "command": "SELECT 'GRANTABLE:'||grantee FROM information_schema.role_table_grants WHERE is_grantable='YES' AND grantee NOT IN ('postgres');",
-    "vulnerable_keyword": "GRANTABLE:",
+    "command": "SELECT 'GRANTABLE:'||grantee FROM information_schema.table_privileges WHERE is_grantable='YES' AND grantee NOT IN ('postgres') UNION SELECT 'GRANTABLE:'||grantee FROM information_schema.usage_privileges WHERE is_grantable='YES' AND grantee NOT IN ('postgres');",
     "description": "인가되지 않은 GRANT OPTION 사용 제한",
-    "remediation": "REVOKE GRANT OPTION FOR <권한> ON <테이블> FROM <계정>;"
+    "remediation": "REVOKE GRANT OPTION FOR <권한> ON <테이블/시퀀스 등> FROM <계정>; (WITH GRANT OPTION 권한 보유가 업무상 필요한지 수동 검토 필요)"
   },
   {
     "code": "D-25",

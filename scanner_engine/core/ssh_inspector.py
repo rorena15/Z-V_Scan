@@ -97,9 +97,78 @@ class SSHInspector:
 
     def get_mock_data(self, command):
         cmd = command.lower()
-        # [criteria 데모] U-02 세부기준: 최소길이는 충족, 최대사용기간은 미충족 -> 부분만족 예시
+
+        # ------------------------------------------------------------------
+        # [신규/수정 룰 데모 매핑]
+        # 아래 항목들은 실제로는 원격 쉘에서 OK/FAIL/SAFE/VULNERABLE 등의
+        # 최종 판정 문자열을 자체적으로 산출하는 셸 스니펫이므로, 시뮬레이션
+        # 모드에서는 그 최종 산출 문자열을 흉내내어 반환한다(중간 계산 과정
+        # 자체를 파이썬으로 재현하지 않음). 더 구체적인 패턴을 먼저 검사해
+        # 기존의 범용 패턴(permitrootlogin 등)에 가로채이지 않도록 한다.
+        # ------------------------------------------------------------------
+
+        # U-01: SSH PermitRootLogin(메인+drop-in) 세부기준 / Telnet securetty 세부기준
+        if "sshd_config.d" in cmd and "permitrootlogin" in cmd:
+            return "FAIL"
+        if "securetty" in cmd:
+            return ""  # pts/ 항목 없음 -> 양호
+
+        # U-02: 비밀번호 정책 세부기준(criteria) 데모 - 5개 중 3개 충족 -> 부분만족 예시
         if "minlen" in cmd and "awk" in cmd: return "OK"
         if "pass_max_days" in cmd: return "FAIL"
+        if "pass_min_days" in cmd: return "OK"
+        if "dcredit" in cmd: return "FAIL"
+        if "pwhistory" in cmd: return "FAIL"
+
+        # U-03: 계정 잠금 임계값(faillock/tally2 통합 numeric 체크)
+        if "faillock.conf" in cmd: return "OK"
+
+        # U-06: su 제한 세부기준(PAM wheel / 바이너리 권한)
+        if "pam_wheel" in cmd: return "auth required pam_wheel.so use_uid group=wheel"
+        if "stat -c %g" in cmd: return "OK"
+
+        # U-13: 비밀번호 암호화 알고리즘(ENCRYPT_METHOD 미설정 시 shadow 해시 보조검증)
+        if "encrypt_method" in cmd: return "OK"
+
+        # U-16/18/19/20/21/22/29/37/63: 파일 권한 numeric 체크(stat -c %a 기반)
+        if "stat -c %a /etc/passwd" in cmd: return "OK"
+        if "stat -c %a /etc/shadow" in cmd: return "OK"
+        if "stat -c %a /etc/hosts " in cmd or "stat -c %a /etc/hosts 2" in cmd: return "OK"
+        if "xinetd.conf; do" in cmd: return "OK"
+        if "rsyslog.conf /etc/syslog.conf" in cmd: return "OK"
+        if "stat -c %a /etc/services" in cmd: return "OK"
+        if "hosts.lpd" in cmd: return "OK"
+        if "usr/bin/crontab /bin/crontab" in cmd: return "OK"
+        if "stat -c %a /etc/sudoers" in cmd: return "OK"
+
+        # U-30: umask(파일 다중 확인, 8진수 변환 비교)
+        if "profile /etc/login.defs /etc/bashrc" in cmd: return "OK"
+
+        # U-34/38/39/42/43/44/52/58: systemd 단독 의존 제거(다중 신호 통합) 서비스 점검
+        if "fingerd" in cmd: return "SAFE"
+        if "chargen" in cmd: return "SAFE"
+        if "nfs-server" in cmd and "grep -i nfs" in cmd: return "SAFE"
+        if "kcms_server" in cmd: return ""  # RPC_FOUND 미포함 -> 양호
+        if "ypserv ypbind" in cmd: return "SAFE"
+        if "ntalk" in cmd: return "SAFE"
+        if "telnetd" in cmd: return "SAFE"
+        if "nmptrapd" in cmd: return "SAFE"
+
+        # ------------------------------------------------------------------
+        # WEB 룰(web_rules.json)도 동일 SSHInspector를 통해 실행되므로 함께 매핑
+        # ------------------------------------------------------------------
+        if "autoindex" in cmd: return "SAFE"
+        if "allowoverride[[:space:]]+none" in cmd: return ""  # None 미설정 -> 세부기준 충족
+        if "allowoverride[[:space:]]+(authconfig|all)" in cmd: return "AllowOverride AuthConfig"
+        if "limitrequestbody|client_max_body_size" in cmd: return "OK"
+        if "context.xml" in cmd: return "OK"
+        if "nginx.conf; do" in cmd: return "OK"
+        if "servertokens" in cmd: return "SAFE"
+        if "dav_methods" in cmd: return "SAFE"
+        if "apache_on=" in cmd: return "OK"
+        if "apache_r=" in cmd: return "OK"
+
+        # [criteria 데모] U-02 세부기준: 최소길이는 충족, 최대사용기간은 미충족 -> 부분만족 예시
         if "permitrootlogin" in cmd: return "PermitRootLogin yes"
         if "pwquality.conf" in cmd: return "retry=3"
         if "pam_tally2" in cmd or "pam_faillock" in cmd: return "auth required pam_tally2.so deny=5 unlock_time=120"

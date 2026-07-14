@@ -146,7 +146,7 @@ class TextReportGenerator:
         buf.append("")
         buf.append("** 담당자에게 전달해주시기 바랍니다. ")
         buf.append("")
-        buf.append(f"---------[ Z-VulnScan Result - {ip} ]-------")
+        buf.append(f"---------[ {display_host} Result - {ip} ]-------")
         buf.append("")
         buf.append(f"        1.   OS version is \"{os_type or 'Unknown'}\" ")
         buf.append("")

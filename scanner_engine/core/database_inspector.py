@@ -114,9 +114,54 @@ class DatabaseInspector:
         # 데모/시연용 가짜 데이터 (실제 DB 미접속 상태에서도 결과를 보여주기 위함)
         s = sql.lower()
         if "empty_pw" in s:
-            return "('EMPTY_PW:root@%',)"  # 데모: 취약 사례 하나 노출
+            return "('EMPTY_PW:root@%',)"  # D-01: 데모 취약 사례 하나 노출
+
         if "anyhost" in s:
-            return "('ANYHOST:root@%',)"
+            return "('ANYHOST:root@%',)"  # D-10: 데모 취약 사례 하나 노출
+
+        # D-08: 중요정보(주민번호/전화번호 등) 후보 컬럼 스캔 - MySQL/PostgreSQL 문법 차이로 구분
+        if "sensitive_plaintext_candidate" in s:
+            if "character varying" in s:
+                return ""  # PostgreSQL 데모: 후보 컬럼 없음 -> 양호
+            return "('SENSITIVE_PLAINTEXT_CANDIDATE:appdb.customers.ssn',)"  # MySQL 데모: 후보 컬럼 발견 -> 취약
+
+        # D-20 (MySQL): 고아(orphan) DEFINER 존재 여부
+        if "orphan_definer" in s:
+            return "('ORPHAN_DEFINER:old_app@%',)"  # 데모: 취약 사례 하나 노출
+
+        # D-20 (PostgreSQL): 비시스템 스키마 오브젝트 소유자 목록 (참고용, 판정에는 영향 없음 - MANUAL 고정)
+        if "relowner" in s:
+            return "('app_owner',)\n('postgres',)"
+
+        # D-03 / D-05 (MySQL): criteria용 숫자 비교 sentinel 쿼리 (IF(... ) 형태)
+        if "cast(variable_value as unsigned)" in s:
+            if "default_password_lifetime" in s:
+                return "('OK',)"  # 유효기간 설정됨 -> 해당 세부기준 충족
+            if "validate_password.length" in s:
+                return "('FAIL',)"  # 길이 미달 -> 해당 세부기준 미충족 (D-03 데모: 부분만족)
+            if "password_history" in s:
+                return "('FAIL',)"  # password_history=0 -> 미충족 (D-05 데모: 취약)
+            if "password_reuse_interval" in s:
+                return "('FAIL',)"
+
+        # D-03 / D-05 (MySQL): 상단 표시용 원본 조회 (판정에는 영향 없음, criteria가 우선)
+        if "global_variables" in s and "default_password_lifetime" in s:
+            return "('default_password_lifetime', '90')\n('validate_password.length', '4')"
+        if "global_variables" in s and "password_history" in s:
+            return "('password_history', '0')\n('password_reuse_interval', '0')"
+
+        # D-09 (MySQL/MariaDB): 로그인 실패 잠금 임계값 (connection_control 또는 MariaDB max_password_errors)
+        if "connection_control_failed_connections_threshold" in s or "max_password_errors" in s:
+            return "('OK',)"  # 데모: 1~5 사이로 설정됨 -> 양호
+
+        # D-03 / D-05 / D-09 (PostgreSQL): shared_preload_libraries 로드 여부 (passwordcheck/auth_delay)
+        if "shared_preload_libraries" in s:
+            return "('passwordcheck,auth_delay',)"  # 데모: 둘 다 로드됨 -> 양호
+
+        # D-21 (MySQL/PostgreSQL): GRANT OPTION 보유 현황 (판정은 MANUAL 고정, 증적만 제공)
+        if "is_grantable" in s:
+            return "('GRANTABLE:app_user',)"
+
         if "validate_password" in s:
             return ""
         if "have_ssl" in s:

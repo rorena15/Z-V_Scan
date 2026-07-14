@@ -4,10 +4,10 @@
     "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT CONCAT('EMPTY_PW:',User,'@',Host) FROM mysql.user WHERE User='root' AND (authentication_string='' OR authentication_string IS NULL);",
+    "command": "SELECT CONCAT('EMPTY_PW:',User,'@',Host) FROM mysql.user WHERE User IN ('root','admin','rdsadmin','azure_superuser','mysql.sys') AND (authentication_string='' OR authentication_string IS NULL) AND COALESCE(account_locked,'N')<>'Y' AND COALESCE(password_expired,'N')<>'Y';",
     "vulnerable_keyword": "EMPTY_PW:",
     "description": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
-    "remediation": "root 계정에 강력한 비밀번호를 설정 (ALTER USER 'root'@'localhost' IDENTIFIED BY '<신규비밀번호>'; FLUSH PRIVILEGES;)"
+    "remediation": "기본/디폴트 계정(root, admin, rdsadmin, azure_superuser, mysql.sys)에 강력한 비밀번호를 설정하거나 미사용 시 계정 잠금(ALTER USER ... ACCOUNT LOCK) 처리 (ALTER USER 'root'@'localhost' IDENTIFIED BY '<신규비밀번호>'; FLUSH PRIVILEGES;)"
   },
   {
     "code": "D-02",
@@ -23,17 +23,28 @@
     "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SHOW VARIABLES LIKE 'validate_password%';",
-    "safe_keyword": "validate_password",
+    "command": "SELECT VARIABLE_NAME, VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME IN ('default_password_lifetime','validate_password.policy','validate_password.length');",
+    "criteria": [
+      {
+        "label": "비밀번호 유효기간(default_password_lifetime) 설정",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='default_password_lifetime';",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "비밀번호 최소 길이(validate_password.length >= 8) 설정",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) >= 8, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='validate_password.length';",
+        "safe_keyword": "OK"
+      }
+    ],
     "description": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
-    "remediation": "validate_password 컴포넌트 설치 후 policy=MEDIUM 이상, length=8 이상 설정"
+    "remediation": "SET GLOBAL default_password_lifetime = 90; validate_password 컴포넌트 설치 후 policy=MEDIUM 이상, length=8 이상 설정"
   },
   {
     "code": "D-04",
     "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT GRANTEE FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE PRIVILEGE_TYPE='SUPER';",
+    "command": "SELECT CONCAT(User,'@',Host) FROM mysql.user WHERE Super_priv='Y' AND User NOT IN ('root','mysql.session','mysql.sys');",
     "description": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
     "remediation": "REVOKE SUPER ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (수동 검토 필요 - SUPER 권한 보유자 목록 확인)"
   },
@@ -42,10 +53,21 @@
     "name": "비밀번호 재사용에 대한 제약 설정",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SHOW VARIABLES LIKE 'password_history%';",
-    "safe_keyword": "password_history",
+    "command": "SELECT VARIABLE_NAME, VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME IN ('password_history','password_reuse_interval');",
+    "criteria": [
+      {
+        "label": "password_history > 0",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='password_history';",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "password_reuse_interval > 0",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='password_reuse_interval';",
+        "safe_keyword": "OK"
+      }
+    ],
     "description": "비밀번호 재사용에 대한 제약 설정",
-    "remediation": "SET GLOBAL password_history = 5; (MySQL 8.0+)"
+    "remediation": "SET GLOBAL password_history = 5; SET GLOBAL password_reuse_interval = 365; (둘 다 0이면 취약, MySQL 8.0+)"
   },
   {
     "code": "D-06",
@@ -70,27 +92,27 @@
     "name": "안전한 암호화 알고리즘 사용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SHOW VARIABLES LIKE 'have_ssl';",
-    "safe_keyword": "YES",
-    "description": "안전한 암호화 알고리즘 사용",
-    "remediation": "SSL/TLS 인증서를 발급하여 클라이언트 접속 시 암호화 통신 사용"
+    "command": "SELECT CONCAT('SENSITIVE_PLAINTEXT_CANDIDATE:',table_schema,'.',table_name,'.',column_name) FROM information_schema.columns WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') AND data_type IN ('char','varchar','text','tinytext','mediumtext','longtext') AND LOWER(column_name) REGEXP 'password|passwd|pwd|jumin|rrn|resident|ssn' LIMIT 20;",
+    "vulnerable_keyword": "SENSITIVE_PLAINTEXT_CANDIDATE:",
+    "description": "중요정보(비밀번호, 주민등록번호 등)를 저장하는 컬럼에 안전한 암호화 알고리즘을 적용하여 저장",
+    "remediation": "해당 컬럼에 대해 AES_ENCRYPT() 등 안전한 암호화 알고리즘을 적용하여 평문 저장을 방지 (전송구간 암호화는 별도 항목: SSL/TLS 인증서 발급 후 have_ssl 활성화)"
   },
   {
     "code": "D-09",
     "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT PLUGIN_NAME,PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS WHERE PLUGIN_NAME='connection_control';",
-    "safe_keyword": "ACTIVE",
+    "command": "SELECT IF(v REGEXP '^[0-9]+$' AND CAST(v AS UNSIGNED) BETWEEN 1 AND 5, 'OK', 'FAIL') AS verdict FROM (SELECT VARIABLE_VALUE AS v FROM performance_schema.global_variables WHERE VARIABLE_NAME='connection_control_failed_connections_threshold' UNION ALL SELECT VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME='max_password_errors') t LIMIT 1;",
+    "safe_keyword": "OK",
     "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
-    "remediation": "connection_control 플러그인 설치 및 활성화 (INSTALL PLUGIN CONNECTION_CONTROL SONAME 'connection_control.so';)"
+    "remediation": "connection_control 플러그인 설치 후 connection_control_failed_connections_threshold를 1~5 사이로 설정 (INSTALL PLUGIN CONNECTION_CONTROL SONAME 'connection_control.so'; SET GLOBAL connection_control_failed_connections_threshold=5;) 또는 MariaDB는 max_password_errors를 1~5로 설정"
   },
   {
     "code": "D-10",
     "name": "원격에서 DB 서버로의 접속 제한",
     "category": "접근 관리",
     "importance": "상",
-    "command": "SELECT CONCAT('ANYHOST:',User,'@',Host) FROM mysql.user WHERE Host='%';",
+    "command": "SELECT CONCAT('ANYHOST:',User,'@',Host) FROM mysql.user WHERE Host='%' OR Host='';",
     "vulnerable_keyword": "ANYHOST:",
     "description": "원격에서 DB 서버로의 접속 제한",
     "remediation": "특정 IP에서만 접속 가능한 계정으로 재생성 (CREATE USER '<계정>'@'<허용IP>' ...) 후 '%' 계정 제거"
@@ -118,19 +140,19 @@
     "name": "인가되지 않은 Object Owner의 제한",
     "category": "옵션 관리",
     "importance": "중",
-    "command": "SELECT DISTINCT DEFINER FROM information_schema.ROUTINES;",
+    "command": "SELECT CONCAT('ORPHAN_DEFINER:',d.definer) FROM (SELECT DISTINCT definer FROM information_schema.ROUTINES WHERE routine_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.VIEWS WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.TRIGGERS WHERE trigger_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.EVENTS WHERE event_schema NOT IN ('mysql','information_schema','performance_schema','sys')) d WHERE d.definer NOT IN (SELECT CONCAT(User,'@',Host) FROM mysql.user);",
+    "vulnerable_keyword": "ORPHAN_DEFINER:",
     "description": "인가되지 않은 Object Owner의 제한",
-    "remediation": "불필요한 DEFINER로 생성된 프로시저/함수를 검토 후 재생성 (수동 검토 필요)"
+    "remediation": "불필요하거나 존재하지 않는 계정(orphan DEFINER)으로 생성된 뷰/프로시저/함수/트리거/이벤트를 검토 후 재생성 (수동 검토 필요)"
   },
   {
     "code": "D-21",
     "name": "인가되지 않은 GRANT OPTION 사용 제한",
     "category": "옵션 관리",
     "importance": "상",
-    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES';",
-    "vulnerable_keyword": "GRANTABLE:",
+    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE IS_GRANTABLE='YES' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES WHERE IS_GRANTABLE='YES';",
     "description": "인가되지 않은 GRANT OPTION 사용 제한",
-    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES;"
+    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (전역/스키마/테이블 단위 GRANT OPTION 보유 계정이 업무상 필요한지 수동 검토 필요)"
   },
   {
     "code": "D-22",
