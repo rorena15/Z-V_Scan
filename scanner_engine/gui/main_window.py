@@ -13,11 +13,12 @@ import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QProgressBar, QComboBox, QMessageBox, 
+    QHeaderView, QProgressBar, QComboBox, QMessageBox,
     QSplitter, QTextEdit, QMenu,
     QGroupBox,
     QAbstractItemView,
-    QSizePolicy
+    QSizePolicy,
+    QCheckBox
 )
 # [PySide6 핵심 기능]
 from PySide6.QtCore import Qt, QTimer
@@ -41,6 +42,7 @@ from core.license_validator import LicenseValidator
 from core.config import AppConfig
 from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
+from output.text_report import TextReportGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
@@ -145,6 +147,13 @@ class ScannerApp(QMainWindow):
         self.action_xls = QAction("📊 Excel", self)
         self.action_xls.triggered.connect(self.generate_excel)
         self.toolbar.addAction(self.action_xls)
+
+        self.toolbar.addSeparator()
+
+        self.action_txt = QAction("📝 TXT", self)
+        self.action_txt.setToolTip("스크립트 결과 텍스트 리포트 (ICTIS 스타일)")
+        self.action_txt.triggered.connect(self.generate_text_report)
+        self.toolbar.addAction(self.action_txt)
         
         #self.toolbar.addSeparator()
         
@@ -257,12 +266,21 @@ class ScannerApp(QMainWindow):
         self.port_mode_combo.setStyleSheet("padding: 8px;")
         self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
 
+        self.chk_ot_mode = QCheckBox("🛡️ OT 안전 모드")
+        self.chk_ot_mode.setToolTip(
+            "동시 스캔 대상 수를 최소화하고, 대상 응답이 느려지면 자동으로 명령 간격을 늘립니다.\n"
+            "레거시/임베디드 장비가 많은 OT·제어망 환경에서 사용을 권장합니다."
+        )
+        self.chk_ot_mode.setStyleSheet("color: #ccc; font-weight: bold;")
+
         row1_layout.addWidget(lbl_target)
         row1_layout.addWidget(self.ip_input, 3) # 비율 3
         row1_layout.addSpacing(15)
         row1_layout.addWidget(lbl_mode)
         row1_layout.addWidget(self.port_mode_combo, 1) # 비율 1
-        
+        row1_layout.addSpacing(15)
+        row1_layout.addWidget(self.chk_ot_mode)
+
         config_layout.addLayout(row1_layout)
 
         # Row 2: Auth & Advanced (한 줄에 정렬)
@@ -620,6 +638,7 @@ class ScannerApp(QMainWindow):
 
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)
+        self.chk_ot_mode.setDisabled(busy)
         self.user_input.setDisabled(busy)
         self.pw_input.setDisabled(busy)
 
@@ -743,7 +762,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports)
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked())
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -773,7 +792,7 @@ class ScannerApp(QMainWindow):
                 return
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked())
         self.connect_worker()
         self.worker.start()
 
@@ -785,6 +804,19 @@ class ScannerApp(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.log_message(f"[Success] PDF Saved: {filepath}")
             if QMessageBox.question(self, "Success", "PDF를 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
+                self.open_file_platform_safe(filepath)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", str(e))
+
+    def generate_text_report(self):
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            generator = TextReportGenerator()
+            filepath = generator.generate()
+            QApplication.restoreOverrideCursor()
+            self.log_message(f"[Success] TXT Report Saved: {filepath}")
+            if QMessageBox.question(self, "Success", "텍스트 리포트를 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
                 self.open_file_platform_safe(filepath)
         except Exception as e:
             QApplication.restoreOverrideCursor()

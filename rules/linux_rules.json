@@ -17,7 +17,11 @@
     "command": "cat /etc/security/pwquality.conf 2>/dev/null",
     "safe_keyword": "minlen",
     "description": "비밀번호 복잡성 및 사용기간 정책이 없으면 무차별/사전 대입 공격에 취약합니다.",
-    "remediation": "pwquality.conf에 minlen=8 이상 설정, login.defs에 PASS_MAX_DAYS 90 / PASS_MIN_DAYS 1 설정"
+    "remediation": "pwquality.conf에 minlen=8 이상 설정, login.defs에 PASS_MAX_DAYS 90 / PASS_MIN_DAYS 1 설정",
+    "criteria": [
+      {"label": "비밀번호 최소 길이 8자 이상", "command": "grep -E '^\\s*minlen' /etc/security/pwquality.conf 2>/dev/null | awk -F= '{gsub(/ /,\"\",$2); if ($2+0 >= 8) print \"OK\"; else print \"FAIL\"}'", "safe_keyword": "OK"},
+      {"label": "비밀번호 최대 사용기간 90일 이하", "command": "grep -E '^PASS_MAX_DAYS' /etc/login.defs 2>/dev/null | awk '{if ($2+0 <= 90 && $2+0 > 0) print \"OK\"; else print \"FAIL\"}'", "safe_keyword": "OK"}
+    ]
   },
   {
     "code": "U-03",

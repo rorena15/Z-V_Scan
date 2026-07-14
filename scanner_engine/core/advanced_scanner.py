@@ -11,8 +11,9 @@ import os
 import subprocess
 import re
 import ssl
-import json 
+import json
 import struct # UDP 패킷 구조체 생성용
+import time
 
 # 상위 디렉토리(프로젝트 루트)를 시스템 경로에 추가
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -192,7 +193,7 @@ class AdvancedScanner:
         except: pass
         return is_alive, detected_os, mac_address, vendor
 
-    def tcp_scan(self, ip, ports=None):
+    def tcp_scan(self, ip, ports=None, delay=0):
         target_ports = ports if ports else self.default_ports
         open_ports = []
         timeout = 1
@@ -200,9 +201,12 @@ class AdvancedScanner:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(timeout)
-                    if s.connect_ex((ip, port)) == 0: 
+                    if s.connect_ex((ip, port)) == 0:
                         open_ports.append(port)
             except: pass
+            # [OT/저속 모드] 포트 하나하나 사이에 소폭의 대기시간을 둬서 연결 시도 폭주를 방지
+            if delay:
+                time.sleep(delay)
         return open_ports
 
     def udp_scan(self, ip, ports=None):

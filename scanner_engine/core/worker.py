@@ -23,6 +23,7 @@ sys.path.append(parent_dir)
 from core.advanced_scanner import AdvancedScanner
 from core.ssh_inspector import SSHInspector
 from core.windows_inspector import WindowsInspector
+from core.database_inspector import DatabaseInspector
 from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
@@ -40,7 +41,7 @@ class ScanWorker(QThread):
     # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
     asset_found_signal = Signal(str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, ports=None, db_queue=None):
+    def __init__(self, mode, target_input, user=None, ports=None, db_queue=None, ot_mode=False):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -57,6 +58,8 @@ class ScanWorker(QThread):
         self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
         self.ports = ports
+        # [OT/저속 모드] 켜면 동시 스캔 대상 수를 줄이고, 진단 명령 사이에 적응형 딜레이를 적용
+        self.ot_mode = ot_mode
         self._security_token = get_engine_token()
 
     def run(self):
@@ -100,8 +103,12 @@ class ScanWorker(QThread):
                 self.finish_signal.emit("No Live Hosts")
                 return
 
-            max_workers = 10 if self.mode == "FULL" else 30 
-            
+            max_workers = 10 if self.mode == "FULL" else 30
+            if self.ot_mode:
+                # [OT/저속 모드] 동시에 여러 호스트를 두드리는 것 자체가 부하이므로 동시성을 크게 낮춤
+                max_workers = min(max_workers, 3)
+                self.log_signal.emit("[OT 모드] 저속/적응형 스로틀링 활성화 - 동시 스캔 대상 수를 최소화합니다.")
+
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(self.scan_target, ip): ip for ip in live_hosts}
                 
@@ -275,9 +282,10 @@ class ScanWorker(QThread):
             else: target_ports = scanner.default_ports
             
             target_ports = list(target_ports)
+            scan_delay = 0.05 if self.ot_mode else 0  # OT 모드: 포트당 소폭의 대기시간으로 연결 시도 폭주 방지
             for i in range(0, len(target_ports), 500):
                 if self.stop_flag: return
-                open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500]))
+                open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500], delay=scan_delay))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
         self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
@@ -337,23 +345,61 @@ class ScanWorker(QThread):
             username = self.user_info.get(ip, {}).get('user', self.default_user)
 
         if should_inspect and not self.stop_flag:
-            inspector = None
+            os_inspector = None  # SYSTEM Detail 부록 수집 대상 (Windows/Linux 대표 1개만)
+            inspectors = []
             # Windows 진단 조건
             if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
-                inspector = WindowsInspector(ip, username)
+                os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode)
+                inspectors.append(os_inspector)
             # Linux 진단 조건
             elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-                inspector = SSHInspector(ip, username)
+                os_inspector = SSHInspector(ip, username, throttle=self.ot_mode)
+                inspectors.append(os_inspector)
 
-            if inspector and inspector.connect():
+            # DB 진단 조건 (OS 진단과 별개로, 열린 DB 포트가 있으면 추가 수행)
+            if 3306 in open_ports:
+                inspectors.append(DatabaseInspector(ip, username, "mysql", throttle=self.ot_mode))
+            if 5432 in open_ports:
+                inspectors.append(DatabaseInspector(ip, username, "postgresql", throttle=self.ot_mode))
+
+            # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
+            if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
+               22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
+                inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode))
+
+            for inspector in inspectors:
+                if self.stop_flag: break
+                if not inspector.connect(): continue
+
+                # [SYSTEM Detail] OS 대표 인스펙터 1개에서만 시스템/IP/PORT/서비스 원시 정보 수집
+                if inspector is os_inspector and hasattr(inspector, 'get_system_detail'):
+                    detail_info = inspector.get_system_detail()
+                    for key, label in (("os_info", "시스템 정보"), ("ip_info", "IP 정보"),
+                                        ("port_info", "PORT 정보"), ("service_info", "서비스 정보")):
+                        self.db_queue.put(("SCAN_RESULT", (
+                            ip, f"SYS-{key.upper()}", label, "Info", "Safe",
+                            "SYSTEM Detail 부록 (판정 대상 아님)", "-", detail_info.get(key, ""), ""
+                        )))
+
+                    # [PC vs Windows 서버 자동 분류] systeminfo의 OS 이름으로 룰셋 재선택
+                    # ("Server"가 없으면 업무용 PC로 간주하여 PC-01~18 룰셋 적용)
+                    if isinstance(inspector, WindowsInspector) and "Server" not in detail_info.get("os_info", ""):
+                        inspector.set_ruleset("pc_rules.json")
+
                 results = inspector.run_all_checks()
                 for code, (status, detail, name, remediation, raw_output, kisa_code, importance) in results.items():
                     if status == "VULNERABLE":
                         # KISA 중요도(상/중/하)를 위험도로 변환하여 리포트 통계에 정확히 반영
                         risk = {"상": "Critical", "중": "High", "하": "Medium"}.get(importance, "High")
+                    elif status == "PARTIAL":
+                        # 부분만족: 세부기준 일부만 충족 = 미충족(VULNERABLE) 대비 한 단계 낮은 위험도
+                        risk = {"상": "High", "중": "Medium", "하": "Low"}.get(importance, "Medium")
                     else:
                         risk = "Info"
                     # [중요] 9개 요소 (증적 포함) 전송
                     self.db_queue.put(("SCAN_RESULT", (
                         ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
                     )))
+
+                if hasattr(inspector, 'close'):
+                    inspector.close()

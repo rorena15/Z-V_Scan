@@ -37,8 +37,11 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --collect-all "matplotlib" `
     --collect-all "paramiko" `
     --collect-all "keyring" `
+    --collect-all "pymysql" `
+    --collect-all "psycopg2" `
     --hidden-import "winrm" `
     --hidden-import "wmi" `
+    --hidden-import "core.database_inspector" `
     --hidden-import "PySide6.QtCore" `
     --hidden-import "PySide6.QtGui" `
     --hidden-import "PySide6.QtWidgets" `

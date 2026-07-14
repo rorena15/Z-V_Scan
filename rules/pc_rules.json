@@ -1,0 +1,182 @@
+[
+  {
+    "code": "PC-01",
+    "name": "비밀번호의 주기적 변경",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "net accounts",
+    "safe_keyword": "90",
+    "description": "비밀번호의 주기적 변경",
+    "remediation": "net accounts /maxpwage:90 /minpwage:1 설정, 암호 사용 기간 제한 없음으로 설정된 계정 확인",
+    "criteria": [
+      {"label": "최대 암호 사용 기간 90일 이하", "safe_keyword": "90"},
+      {"label": "암호 만료 미설정 계정 존재하지 않음", "command": "if (@(Get-LocalUser | Where-Object {$_.PasswordExpires -eq $null -and $_.Enabled -eq $true}).Count -eq 0) { 'OK' } else { (Get-LocalUser | Where-Object {$_.PasswordExpires -eq $null -and $_.Enabled -eq $true}).Name -join ',' }", "safe_keyword": "OK"}
+    ]
+  },
+  {
+    "code": "PC-02",
+    "name": "비밀번호 관리정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "secedit /export /cfg C:\\secpol_tmp.cfg; Select-String 'MinimumPasswordLength','PasswordComplexity' C:\\secpol_tmp.cfg; Remove-Item C:\\secpol_tmp.cfg -Force",
+    "safe_keyword": "PasswordComplexity",
+    "description": "비밀번호 관리정책 설정",
+    "remediation": "최소 암호 길이 8자 이상, 암호 복잡성 사용함으로 설정"
+  },
+  {
+    "code": "PC-03",
+    "name": "복구 콘솔에서 자동 로그온을 금지하도록 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Setup\\RecoveryConsole\" /v SecurityLevel",
+    "vulnerable_keyword": "0x1",
+    "description": "복구 콘솔에서 자동 로그온을 금지하도록 설정",
+    "remediation": "SecurityLevel 값을 0(사용 안 함)으로 설정"
+  },
+  {
+    "code": "PC-04",
+    "name": "공유폴더 제거",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoShareWks",
+    "vulnerable_keyword": "0x1",
+    "description": "공유폴더 제거",
+    "remediation": "net share <공유명> /delete로 불필요한 공유 제거, AutoShareWks 값을 0으로 설정"
+  },
+  {
+    "code": "PC-05",
+    "name": "불필요한 서비스 제거",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name, DisplayName",
+    "description": "불필요한 서비스 제거",
+    "remediation": "DHCP Client, Print Spooler, Remote Registry 등 불필요한 서비스 중지 및 사용 안 함 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "PC-06",
+    "name": "비인가 상용 메신저 사용 금지",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-Process | Where-Object {$_.ProcessName -match 'kakaotalk|skype|nateon|telegram'} | Select-Object ProcessName",
+    "vulnerable_keyword": "ProcessName",
+    "description": "비인가 상용 메신저 사용 금지",
+    "remediation": "업무 목적 외 상용 메신저 제거 및 실행 제한(GPO Windows Messenger 정책) 설정"
+  },
+  {
+    "code": "PC-07",
+    "name": "파일 시스템이 NTFS 포맷으로 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-Volume | Select-Object DriveLetter, FileSystemType",
+    "vulnerable_keyword": "FAT32",
+    "description": "파일 시스템이 NTFS 포맷으로 설정",
+    "remediation": "convert <드라이브>: /fs:ntfs 명령으로 NTFS 변환"
+  },
+  {
+    "code": "PC-08",
+    "name": "대상 시스템이 windows 서버를 제외한 다른 OS로 멀티 부팅이 가능하지 않도록 설정",
+    "category": "서비스 관리",
+    "importance": "하",
+    "command": "bcdedit /enum",
+    "description": "대상 시스템이 windows 서버를 제외한 다른 OS로 멀티 부팅이 가능하지 않도록 설정",
+    "remediation": "불필요한 부팅 항목을 bcdedit /delete로 제거 (수동 검토 필요 - 부팅 목록에 2개 이상 OS 존재 여부 확인)"
+  },
+  {
+    "code": "PC-09",
+    "name": "브라우저 종료 시 임시 인터넷 파일 폴더의 내용을 삭제하도록 설정",
+    "category": "서비스 관리",
+    "importance": "하",
+    "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Privacy\" /v ClearBrowsingHistoryOnExit",
+    "safe_keyword": "0x1",
+    "description": "브라우저 종료 시 임시 인터넷 파일 폴더의 내용을 삭제하도록 설정",
+    "remediation": "ClearBrowsingHistoryOnExit 값을 1로 설정 (GPO: 브라우저 종료 시 임시 인터넷 파일 폴더 비우기 사용)"
+  },
+  {
+    "code": "PC-10",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "Windows Update로 최신 패치 적용 및 내부 관리 절차 수립 (수동 검토 필요)"
+  },
+  {
+    "code": "PC-11",
+    "name": "지원이 종료되지 않은 Windows OS Build 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "Get-ComputerInfo | Select-Object WindowsVersion, OsBuildNumber",
+    "description": "지원이 종료되지 않은 Windows OS Build 적용",
+    "remediation": "Windows Update로 최신 빌드 적용, 지원 종료 임박 여부 확인 (수동 검토 필요)"
+  },
+  {
+    "code": "PC-12",
+    "name": "Windows 자동 로그인 점검",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -ErrorAction SilentlyContinue).AutoAdminLogon",
+    "vulnerable_keyword": "1",
+    "description": "Windows 자동 로그인 점검",
+    "remediation": "AutoAdminLogon 값을 0으로 설정하고 DefaultPassword 레지스트리 값 삭제"
+  },
+  {
+    "code": "PC-13",
+    "name": "바이러스 백신 프로그램 설치 및 주기적 업데이트",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-MpComputerStatus).AntivirusEnabled",
+    "safe_keyword": "True",
+    "description": "바이러스 백신 프로그램 설치 및 주기적 업데이트",
+    "remediation": "백신 프로그램 설치 및 Update-MpSignature로 정의 파일 최신화"
+  },
+  {
+    "code": "PC-14",
+    "name": "바이러스 백신 프로그램에서 제공하는 실시간 감시 기능 활성화",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-MpComputerStatus).RealTimeProtectionEnabled",
+    "safe_keyword": "True",
+    "description": "바이러스 백신 프로그램에서 제공하는 실시간 감시 기능 활성화",
+    "remediation": "Set-MpPreference -DisableRealtimeMonitoring $false 로 실시간 보호 활성화"
+  },
+  {
+    "code": "PC-15",
+    "name": "OS에서 제공하는 침입차단 기능 활성화",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-NetFirewallProfile -Profile Domain).Enabled",
+    "safe_keyword": "True",
+    "description": "OS에서 제공하는 침입차단 기능 활성화",
+    "remediation": "Set-NetFirewallProfile로 모든 프로필의 Windows 방화벽 활성화"
+  },
+  {
+    "code": "PC-16",
+    "name": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive",
+    "safe_keyword": "1",
+    "description": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
+    "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600(10분 이하), ScreenSaverIsSecure=1 설정"
+  },
+  {
+    "code": "PC-17",
+    "name": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\" /v NoDriveTypeAutoRun",
+    "safe_keyword": "0xff",
+    "description": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립",
+    "remediation": "NoDriveTypeAutoRun 값을 0xff(모든 드라이브 자동 실행 끄기)로 설정"
+  },
+  {
+    "code": "PC-18",
+    "name": "원격 지원을 금지하도록 정책이 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Remote Assistance\" /v fAllowToGetHelp",
+    "vulnerable_keyword": "0x1",
+    "description": "원격 지원을 금지하도록 정책이 설정",
+    "remediation": "fAllowToGetHelp 값을 0으로 설정하여 원격 지원 요청 차단"
+  }
+]

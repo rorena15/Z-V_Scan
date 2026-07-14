@@ -1,0 +1,250 @@
+[
+  {
+    "code": "WEB-01",
+    "name": "Default 관리자 계정명 변경",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "grep -i 'username=' /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "description": "Default 관리자 계정명 변경",
+    "remediation": "Tomcat conf/server.xml, tomcat-users.xml에서 기본 계정명(tomcat, admin)을 유추 불가능한 이름으로 변경 (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
+  },
+  {
+    "code": "WEB-02",
+    "name": "취약한 비밀번호 사용 제한",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "grep -i 'password=' /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "description": "취약한 비밀번호 사용 제한",
+    "remediation": "Tomcat 관리 계정 비밀번호를 2종류 이상 조합 10자리 또는 3종류 이상 조합 8자리 이상으로 설정 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-03",
+    "name": "비밀번호 파일 권한 관리",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "ls -l /etc/tomcat*/tomcat-users.xml 2>/dev/null",
+    "description": "비밀번호 파일 권한 관리",
+    "remediation": "chmod 600 tomcat-users.xml (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
+  },
+  {
+    "code": "WEB-04",
+    "name": "웹 서비스 디렉터리 리스팅 방지 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "grep -ilE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -ilE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null",
+    "vulnerable_keyword": "conf",
+    "description": "웹 서비스 디렉터리 리스팅 방지 설정",
+    "remediation": "Apache: Options 지시자에서 Indexes 제거(-Indexes), Nginx: autoindex off; 설정"
+  },
+  {
+    "code": "WEB-05",
+    "name": "지정하지 않은 CGI/ISAPI 실행 제한",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -i 'LoadModule.*cgi' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^#'; grep -i 'fastcgi_pass' /etc/nginx/nginx.conf 2>/dev/null",
+    "description": "지정하지 않은 CGI/ISAPI 실행 제한",
+    "remediation": "불필요한 CGI 모듈/fastcgi_pass 설정 비활성화 (PHP-FPM 등 정상 사용 여부 확인 필요 - 수동 검토 필요)"
+  },
+  {
+    "code": "WEB-06",
+    "name": "웹 서비스 상위 디렉터리 접근 제한 설정",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "grep -i 'AllowOverride' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null",
+    "safe_keyword": "AuthConfig",
+    "description": "웹 서비스 상위 디렉터리 접근 제한 설정",
+    "remediation": "AllowOverride AuthConfig 설정 후 .htaccess 인증 파일 생성"
+  },
+  {
+    "code": "WEB-07",
+    "name": "웹 서비스 경로 내 불필요한 파일 제거",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "find /var/www/html /var/www /usr/share/nginx/html -maxdepth 2 \\( -iname 'manual' -o -iname 'index.html' \\) 2>/dev/null",
+    "description": "웹 서비스 경로 내 불필요한 파일 제거",
+    "remediation": "매뉴얼/샘플/기본 페이지 등 불필요한 파일 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-08",
+    "name": "웹 서비스 파일 업로드 및 다운로드 용량 제한",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -ilE 'LimitRequestBody|client_max_body_size' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "conf",
+    "description": "웹 서비스 파일 업로드 및 다운로드 용량 제한",
+    "remediation": "Apache: LimitRequestBody 지시자 설정, Nginx: client_max_body_size 설정"
+  },
+  {
+    "code": "WEB-09",
+    "name": "웹 서비스 프로세스 권한 제한",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "ps -eo user,comm | grep -E 'httpd|apache2|nginx' | grep -v grep",
+    "vulnerable_keyword": "root",
+    "description": "웹 서비스 프로세스 권한 제한",
+    "remediation": "웹 서버 전용 계정(www-data, nginx 등)으로 실행되도록 설정"
+  },
+  {
+    "code": "WEB-10",
+    "name": "불필요한 프록시 설정 제한",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "grep -i 'ProxyRequests' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null",
+    "vulnerable_keyword": "On",
+    "description": "불필요한 프록시 설정 제한",
+    "remediation": "ProxyRequests Off 설정 유지 (오픈 프록시로 악용 방지)"
+  },
+  {
+    "code": "WEB-11",
+    "name": "웹 서비스 경로 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -i 'DocumentRoot' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -iE '^[[:space:]]*root' /etc/nginx/nginx.conf 2>/dev/null",
+    "description": "웹 서비스 경로 설정",
+    "remediation": "DocumentRoot/root를 별도의 안전한 경로로 지정 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-12",
+    "name": "웹 서비스 링크 사용 금지",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -iE 'FollowSymLinks' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v -- '-FollowSymLinks'",
+    "vulnerable_keyword": "FollowSymLinks",
+    "description": "웹 서비스 링크 사용 금지",
+    "remediation": "Options 지시자에서 FollowSymLinks 제거 (-FollowSymLinks)"
+  },
+  {
+    "code": "WEB-13",
+    "name": "웹 서비스 설정 파일 노출 제한",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "ls -l /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "root",
+    "description": "웹 서비스 설정 파일 노출 제한",
+    "remediation": "chmod 600으로 설정 파일 권한 강화, 불필요한 DB 연결 리소스 정보 제거"
+  },
+  {
+    "code": "WEB-14",
+    "name": "웹 서비스 경로 내 파일의 접근 통제",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "ls -l /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "root",
+    "description": "웹 서비스 경로 내 파일의 접근 통제",
+    "remediation": "chown/chmod 750으로 웹 서버 설정 파일 소유자 및 권한 조정"
+  },
+  {
+    "code": "WEB-15",
+    "name": "웹 서비스의 불필요한 스크립트 매핑 제거",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -A2 -i 'servlet-mapping' /etc/tomcat*/web.xml 2>/dev/null",
+    "description": "웹 서비스의 불필요한 스크립트 매핑 제거",
+    "remediation": "불필요한 servlet-mapping/확장자 매핑 제거 (Tomcat 전용, 수동 검토 필요)"
+  },
+  {
+    "code": "WEB-16",
+    "name": "웹 서비스 헤더 정보 노출 제한",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -ilE 'ServerTokens[[:space:]]+Full' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -ilE 'server_tokens[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null",
+    "vulnerable_keyword": "conf",
+    "description": "웹 서비스 헤더 정보 노출 제한",
+    "remediation": "Apache: ServerTokens Prod, ServerSignature Off / Nginx: server_tokens off;"
+  },
+  {
+    "code": "WEB-17",
+    "name": "웹 서비스 가상 디렉토리 삭제",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "grep -i 'Alias' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -i 'alias' /etc/nginx/nginx.conf 2>/dev/null",
+    "description": "웹 서비스 가상 디렉토리 삭제",
+    "remediation": "불필요한 Alias/가상 디렉터리 설정 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-18",
+    "name": "웹 서비스 WebDAV 비활성화",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "grep -ilE 'Dav[[:space:]]+On' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -il 'dav_methods' /etc/nginx/nginx.conf 2>/dev/null",
+    "vulnerable_keyword": "conf",
+    "description": "웹 서비스 WebDAV 비활성화",
+    "remediation": "Apache: Dav Off 설정 / Nginx: dav_methods 설정 제거"
+  },
+  {
+    "code": "WEB-19",
+    "name": "웹 서비스 SSI(Server Side Includes) 사용제한",
+    "category": "보안 설정",
+    "importance": "중",
+    "command": "grep -i 'Includes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -i 'ssi ' /etc/nginx/nginx.conf 2>/dev/null",
+    "description": "웹 서비스 SSI(Server Side Includes) 사용제한",
+    "remediation": "Options 지시자에서 Includes 제거, Nginx는 ssi off; 설정 (수동 검토 필요 - Includes 앞에 -가 있는지 직접 확인)"
+  },
+  {
+    "code": "WEB-20",
+    "name": "SSL/TLS 활성화",
+    "category": "보안 설정",
+    "importance": "상",
+    "command": "grep -iE 'SSLEngine|ssl_protocols' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "ssl",
+    "description": "SSL/TLS 활성화",
+    "remediation": "SSL/TLS 인증서를 발급하여 HTTPS(443) 활성화, TLSv1.2 이상만 허용"
+  },
+  {
+    "code": "WEB-21",
+    "name": "HTTP 리디렉션",
+    "category": "보안 설정",
+    "importance": "중",
+    "command": "grep -iE 'RewriteCond.*HTTPS|return 301 https' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "https",
+    "description": "HTTP 리디렉션",
+    "remediation": "HTTP(80) 접속 시 HTTPS(443)로 강제 리디렉션되도록 설정"
+  },
+  {
+    "code": "WEB-22",
+    "name": "에러 페이지 관리",
+    "category": "보안 설정",
+    "importance": "하",
+    "command": "grep -iE 'ErrorDocument|error_page' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf /etc/nginx/nginx.conf 2>/dev/null",
+    "safe_keyword": "rror",
+    "description": "에러 페이지 관리",
+    "remediation": "400/401/403/404/500 등 에러 코드별로 일원화된 에러 페이지 설정"
+  },
+  {
+    "code": "WEB-23",
+    "name": "LDAP 알고리즘 적절하게 구성",
+    "category": "보안 설정",
+    "importance": "중",
+    "command": "grep -i 'digest=' /etc/tomcat*/server.xml 2>/dev/null",
+    "description": "LDAP 알고리즘 적절하게 구성",
+    "remediation": "SHA-256 이상의 비밀번호 다이제스트 알고리즘 설정 (Tomcat 전용, 수동 검토 필요)"
+  },
+  {
+    "code": "WEB-24",
+    "name": "별도의 업로드 경로 사용 및 권한 설정",
+    "category": "패치 및 로그 관리",
+    "importance": "중",
+    "command": "find /var/www -maxdepth 2 -iname 'upload*' -type d 2>/dev/null",
+    "description": "별도의 업로드 경로 사용 및 권한 설정",
+    "remediation": "업로드 전용 디렉터리를 별도로 분리하고 750 권한 및 실행 권한 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-25",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 및 로그 관리",
+    "importance": "상",
+    "command": "httpd -v 2>/dev/null; apache2 -v 2>/dev/null; nginx -v 2>&1",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "벤더 사이트에서 최신 보안 패치 확인 및 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "WEB-26",
+    "name": "로그 디렉터리 및 파일 권한 설정",
+    "category": "패치 및 로그 관리",
+    "importance": "중",
+    "command": "ls -ld /var/log/httpd /var/log/apache2 /var/log/nginx 2>/dev/null",
+    "safe_keyword": "root",
+    "description": "로그 디렉터리 및 파일 권한 설정",
+    "remediation": "chmod o-rwx로 로그 디렉터리/파일에 대한 타 사용자 접근 제거"
+  }
+]

@@ -9,23 +9,28 @@ import winrm
 import json
 import os
 import sys
+import time
 
 # 상위 폴더 모듈 참조
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
+from utils.throttle import AdaptiveThrottle
+from utils.rule_judge import judge_rule
 
 class WindowsInspector:
-    def __init__(self, ip, username):
+    def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False):
         self.ip = ip
         self.username = username
         self.session = None
         self.is_connected = False
         self.is_simulation = False
+        self.ruleset = ruleset  # windows_rules.json 또는 pc_rules.json 등
+        self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 명령 간격을 늘림
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
-        filename = 'windows_rules.json'
+        filename = self.ruleset
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
         else:
@@ -88,10 +93,23 @@ class WindowsInspector:
 
     def get_mock_data(self, script):
         s = script.lower()
+        # [criteria 데모] PC-01 세부기준 2: 만료 미설정 계정 존재 -> 부분만족 예시
+        if "get-localuser" in s: return "Guest"
+        # [criteria 데모] W-09 세부기준: 최대 사용기간은 충족, 최소 길이는 미충족 -> 부분만족 예시
+        # (모의 데이터는 실제 PS 스크립트를 실행하지 않으므로 하위 문자열로 직접 결과를 매핑)
+        if "maximum password age" in s: return "OK"
+        if "minimum password length" in s: return "FAIL"
         if "administrator" in s: return "Name: Administrator, Enabled: True"
         if "guest" in s: return ""
         if "tlntsvr" in s: return "Status: Running"
-        if "net accounts" in s: return "Lockout threshold: Never"
+        if "net accounts" in s:
+            # [criteria 데모] 잠금 임계값/기간은 기존 판정 유지, 암호 정책 세부기준(90일 충족/최소길이 미충족)으로 부분만족 시연
+            return (
+                "Lockout threshold: Never\n"
+                "Lockout duration (minutes): 60\n"
+                "Maximum password age (days): 90\n"
+                "Minimum password length: 0"
+            )
         if "get-smbshare" in s: return "Name: C$, Path: C:\\"
         if "simptcp" in s: return "Status: Stopped"
         if "get-hotfix" in s: return "Cannot find HotFix"
@@ -114,30 +132,22 @@ class WindowsInspector:
         else:
             AppLogger.log_error(f"Windows rules file not found: {self.rules_path}")
 
+        throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
+
         for rule in rules:
             code = rule['code']
             # [추가 1] KISA 코드
             kisa_code = rule.get('kisa_code', rule.get('code', ''))
-            
+
             cmd = rule['command']
             # [추가 2] 증적 확보
+            t0 = time.time()
             full_output = self.execute_ps(cmd)
+            # [OT/저속 모드] 응답이 느려질수록 다음 명령 전 대기시간을 자동으로 늘림
+            throttle.wait(time.time() - t0)
 
-            status = "SAFE"
-            detail = "양호 (설정 확인됨)"
-
-            if "vulnerable_keyword" in rule:
-                if rule['vulnerable_keyword'] in full_output:
-                    status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {full_output[:40]}..."
-            elif "safe_keyword" in rule:
-                if not full_output or rule['safe_keyword'] not in full_output:
-                    status = "VULNERABLE"
-                    detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
-            else:
-                # 판정 기준(키워드)이 없는 항목 = 조직 맥락 판단이 필요해 자동 판정하지 않는 항목
-                status = "MANUAL"
-                detail = "수동 검토 필요 (증적 확인)"
+            # 판정 로직 (단일조건: 취약/양호/수동검토, 다중조건(criteria): 취약/부분만족/양호, 공통: 해당없음)
+            status, detail = judge_rule(rule, full_output, execute_fn=self.execute_ps)
 
             # [핵심 수정] 6개 -> 7개 튜플 반환 (중요도 포함)
             results[code] = (
@@ -149,5 +159,31 @@ class WindowsInspector:
                 kisa_code,   # KISA Code
                 rule.get('importance', '중')  # 중요도 (상/중/하)
             )
-            
+
         return results
+
+    def set_ruleset(self, ruleset):
+        """연결된 세션을 유지한 채 점검 룰셋만 교체 (PC vs Server 재분류용)"""
+        self.ruleset = ruleset
+        self.rules_path = self._get_rules_path()
+
+    def get_system_detail(self):
+        """
+        리포트의 'SYSTEM Detail' 부록용 원시 정보 수집 (시스템/IP/PORT/서비스).
+        룰 판정과 무관한 참고용 증적이라 run_all_checks()와 분리된 메서드로 둔다.
+        """
+        if self.is_simulation:
+            return {
+                "os_info": "OS Name: Microsoft Windows Server 2019 Standard (Simulation)",
+                "ip_info": "Ethernet adapter: 0.0.0.0",
+                "port_info": "TCP    0.0.0.0:445    LISTENING\nTCP    0.0.0.0:3389   LISTENING",
+                "service_info": "RemoteRegistry     Running\nSpooler            Running",
+            }
+        return {
+            "os_info": self.execute_ps("systeminfo"),
+            "ip_info": self.execute_ps("ipconfig /all"),
+            "port_info": self.execute_ps("netstat -ano"),
+            "service_info": self.execute_ps(
+                "Get-Service | Where-Object {$_.Status -eq 'Running'} | Format-Table -AutoSize | Out-String -Width 200"
+            ),
+        }

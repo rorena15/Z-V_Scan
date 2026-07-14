@@ -200,10 +200,10 @@ class PDFGenerator:
                     SELECT 
                         CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' THEN kisa_code ELSE vuln_code END as code_display,
                         vuln_name, risk_level, status, detected_value, remediation
-                    FROM TBL_SCAN_RESULT 
-                    WHERE asset_id = ? AND waiver_status = 0
-                    ORDER BY 
-                        CASE risk_level 
+                    FROM TBL_SCAN_RESULT
+                    WHERE asset_id = ? AND waiver_status = 0 AND vuln_code NOT LIKE 'SYS-%'
+                    ORDER BY
+                        CASE risk_level
                             WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 
                             WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 
                             ELSE 5 END ASC
@@ -214,7 +214,7 @@ class PDFGenerator:
                 # 테이블 헤더 (양호/취약/경고를 명확히 구분하는 판정 컬럼 추가)
                 table_data = [['Code', '점검 항목', '판정', '위험도', '현황 요약', '조치 방안']]
 
-                status_label = {"VULNERABLE": "취약", "SAFE": "양호", "WARNING": "주의", "MANUAL": "검토필요"}
+                status_label = {"VULNERABLE": "취약", "SAFE": "양호", "WARNING": "주의", "MANUAL": "검토필요", "PARTIAL": "부분만족", "NA": "해당없음"}
 
                 for r in rows:
                     code, name, risk, status, detail, rem = r

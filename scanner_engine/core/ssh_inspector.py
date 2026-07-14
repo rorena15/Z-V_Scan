@@ -9,22 +9,27 @@ import paramiko
 import json
 import os
 import sys
+import time
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
+from utils.throttle import AdaptiveThrottle
+from utils.rule_judge import judge_rule
 
 class SSHInspector:
-    def __init__(self, ip, username, port=22):
+    def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False):
         self.ip = ip
         self.username = username
         self.port = port
         self.client = None
         self.is_simulation = False
+        self.ruleset = ruleset  # linux_rules.json 또는 web_rules.json 등
+        self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 명령 간격을 늘림
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
-        filename = 'linux_rules.json'
+        filename = self.ruleset
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
         else:
@@ -85,6 +90,9 @@ class SSHInspector:
 
     def get_mock_data(self, command):
         cmd = command.lower()
+        # [criteria 데모] U-02 세부기준: 최소길이는 충족, 최대사용기간은 미충족 -> 부분만족 예시
+        if "minlen" in cmd and "awk" in cmd: return "OK"
+        if "pass_max_days" in cmd: return "FAIL"
         if "permitrootlogin" in cmd: return "PermitRootLogin yes"
         if "pwquality.conf" in cmd: return "retry=3"
         if "pam_tally2" in cmd or "pam_faillock" in cmd: return "auth required pam_tally2.so deny=5 unlock_time=120"
@@ -115,34 +123,25 @@ class SSHInspector:
                 AppLogger.log_error(f"Failed to load linux rules: {e}")
         else:
             AppLogger.log_error(f"Linux rules file not found: {self.rules_path}")
-        
+
+        throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
+
         for rule in rules:
             code = rule['code']
             # [추가 1] KISA 코드 매핑 (없으면 내부 코드 사용)
             kisa_code = rule.get('kisa_code', rule.get('code', ''))
-            
-            cmd = rule['command']
-            
-            # [추가 2] 증적 확보 (명령어 실행 전체 결과)
-            full_output = self.execute_command(cmd)
-            
-            status = "SAFE"
-            detail = "양호 (점검 완료)"
 
-            # 판정 로직
-            if "vulnerable_keyword" in rule:
-                if rule['vulnerable_keyword'] in full_output:
-                    status = "VULNERABLE"
-                    detail = f"취약 설정 발견: {full_output[:40]}..."
-            elif "safe_keyword" in rule:
-                if not full_output or rule['safe_keyword'] not in full_output:
-                    status = "VULNERABLE"
-                    detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
-            else:
-                # 판정 기준(키워드)이 없는 항목 = 조직 맥락 판단이 필요해 자동 판정하지 않는 항목
-                # "양호"로 단정하지 않고 증적만 제공, 수동 검토가 필요함을 명시
-                status = "MANUAL"
-                detail = "수동 검토 필요 (증적 확인)"
+            cmd = rule['command']
+
+            # [추가 2] 증적 확보 (명령어 실행 전체 결과)
+            t0 = time.time()
+            full_output = self.execute_command(cmd)
+            # [OT/저속 모드] 응답이 느려질수록 다음 명령 전 대기시간을 자동으로 늘려
+            # 대상 서버(특히 레거시/임베디드 장비)에 가해지는 부하를 유동적으로 조절
+            throttle.wait(time.time() - t0)
+
+            # 판정 로직 (단일조건: 취약/양호/수동검토, 다중조건(criteria): 취약/부분만족/양호, 공통: 해당없음)
+            status, detail = judge_rule(rule, full_output, execute_fn=self.execute_command)
 
             # [핵심 수정] 6개 -> 7개 튜플 반환 (증적 + 중요도 포함)
             results[code] = (
@@ -154,5 +153,26 @@ class SSHInspector:
                 kisa_code,    # KISA Code
                 rule.get('importance', '중')  # 중요도 (상/중/하)
             )
-            
+
         return results
+
+    def get_system_detail(self):
+        """
+        리포트의 'SYSTEM Detail' 부록용 원시 정보 수집 (시스템/IP/PORT/서비스).
+        룰 판정과 무관한 참고용 증적이라 run_all_checks()와 분리된 메서드로 둔다.
+        """
+        if self.is_simulation:
+            return {
+                "os_info": "Linux localhost 5.15.0 x86_64 GNU/Linux (Simulation)",
+                "ip_info": "eth0: 127.0.0.1/8",
+                "port_info": "tcp   0.0.0.0:22   LISTEN\ntcp   0.0.0.0:80   LISTEN",
+                "service_info": "sshd.service       loaded active running\nnginx.service      loaded active running",
+            }
+        return {
+            "os_info": self.execute_command("uname -a; cat /etc/os-release 2>/dev/null"),
+            "ip_info": self.execute_command("ip addr show 2>/dev/null || ifconfig -a 2>/dev/null"),
+            "port_info": self.execute_command("ss -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null"),
+            "service_info": self.execute_command(
+                "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null"
+            ),
+        }

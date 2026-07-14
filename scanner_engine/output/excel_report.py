@@ -30,6 +30,8 @@ class ExcelGenerator:
     COLOR_HIGH = 'FFE6CC'     # 중 (연한 주황)
     COLOR_GOOD = 'E2EFDA'     # 양호 (연한 초록)
     COLOR_WAIVER = 'D9D9D9'   # 예외 (회색)
+    COLOR_PARTIAL = 'FFF2CC' # 부분만족 (연한 노랑)
+    COLOR_NA = 'F2F2F2'       # 해당없음 (연한 회색)
 
     # 폰트 정의
     FONT_TITLE = Font(name='맑은 고딕', size=20, bold=True)
@@ -156,6 +158,7 @@ class ExcelGenerator:
                     R.raw_output, R.remediation, R.waiver_status, R.waiver_reason
                 FROM TBL_SCAN_RESULT R
                 JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
+                WHERE R.vuln_code NOT LIKE 'SYS-%'
                 ORDER BY A.ip_addr ASC, R.kisa_code ASC
             """
             cursor.execute(query)
@@ -319,10 +322,12 @@ class ExcelGenerator:
             if evidence and len(str(evidence)) > 32000:
                 evidence = str(evidence)[:32000] + "\n...[증적 내용이 너무 길어 엑셀 제한에 의해 잘렸습니다. DB를 확인하세요.]"
 
-            # KISA 상태 한글화
+            # KISA 상태 한글화 (4단계: 취약/부분만족/양호/해당없음 + 예외/검토필요)
             final_status = "양호"
             if is_waived == 1: final_status = "예외"
             elif status == "VULNERABLE": final_status = "취약"
+            elif status == "PARTIAL": final_status = "부분만족"
+            elif status == "NA": final_status = "해당없음"
             elif status == "MANUAL": final_status = "검토필요"
             
             row_vals = [idx, ip, hostname, kisa_code, name, risk, final_status, summary, evidence, remediation, waiver_reason]
@@ -346,6 +351,8 @@ class ExcelGenerator:
                     elif final_status == "양호": cell.fill = PatternFill(start_color=self.COLOR_GOOD, fill_type='solid')
                     elif final_status == "예외": cell.fill = PatternFill(start_color=self.COLOR_WAIVER, fill_type='solid')
                     elif final_status == "검토필요": cell.fill = PatternFill(start_color=self.COLOR_HIGH, fill_type='solid')
+                    elif final_status == "부분만족": cell.fill = PatternFill(start_color=self.COLOR_PARTIAL, fill_type='solid')
+                    elif final_status == "해당없음": cell.fill = PatternFill(start_color=self.COLOR_NA, fill_type='solid')
 
     def _create_asset_sheet(self, wb, asset_data):
         ws = wb.create_sheet("3.자산목록")

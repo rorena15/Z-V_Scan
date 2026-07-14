@@ -85,7 +85,11 @@
     "command": "net accounts",
     "safe_keyword": "90",
     "description": "비밀번호 정책이 미흡하면 취약한 비밀번호 사용 및 장기 미변경으로 인한 노출 위험이 있습니다.",
-    "remediation": "net accounts /minpwlen:8 /maxpwage:90 /minpwage:1 /uniquepw:4"
+    "remediation": "net accounts /minpwlen:8 /maxpwage:90 /minpwage:1 /uniquepw:4",
+    "criteria": [
+      {"label": "최대 암호 사용 기간 90일 이하", "command": "$m = (net accounts | Select-String 'Maximum password age').ToString() -replace '[^0-9]',''; if([int]$m -le 90 -and [int]$m -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
+      {"label": "최소 암호 길이 8자 이상", "command": "$m = (net accounts | Select-String 'Minimum password length').ToString() -replace '[^0-9]',''; if([int]$m -ge 8){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+    ]
   },
   {
     "code": "W-10",

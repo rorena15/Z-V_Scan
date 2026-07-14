@@ -1,0 +1,164 @@
+[
+  {
+    "code": "D-01",
+    "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('EMPTY_PW:',User,'@',Host) FROM mysql.user WHERE User='root' AND (authentication_string='' OR authentication_string IS NULL);",
+    "vulnerable_keyword": "EMPTY_PW:",
+    "description": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "remediation": "root 계정에 강력한 비밀번호를 설정 (ALTER USER 'root'@'localhost' IDENTIFIED BY '<신규비밀번호>'; FLUSH PRIVILEGES;)"
+  },
+  {
+    "code": "D-02",
+    "name": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT User,Host,account_locked FROM mysql.user WHERE account_locked='N' AND User NOT IN ('root','mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "description": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "remediation": "DROP USER '<계정>'@'<호스트>'; FLUSH PRIVILEGES; (수동 검토 필요 - 목록에서 불필요 계정 확인)"
+  },
+  {
+    "code": "D-03",
+    "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SHOW VARIABLES LIKE 'validate_password%';",
+    "safe_keyword": "validate_password",
+    "description": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "remediation": "validate_password 컴포넌트 설치 후 policy=MEDIUM 이상, length=8 이상 설정"
+  },
+  {
+    "code": "D-04",
+    "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT GRANTEE FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE PRIVILEGE_TYPE='SUPER';",
+    "description": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
+    "remediation": "REVOKE SUPER ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (수동 검토 필요 - SUPER 권한 보유자 목록 확인)"
+  },
+  {
+    "code": "D-05",
+    "name": "비밀번호 재사용에 대한 제약 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'password_history%';",
+    "safe_keyword": "password_history",
+    "description": "비밀번호 재사용에 대한 제약 설정",
+    "remediation": "SET GLOBAL password_history = 5; (MySQL 8.0+)"
+  },
+  {
+    "code": "D-06",
+    "name": "DB 사용자 계정을 개별적으로 부여하여 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT User,Host FROM mysql.user ORDER BY User;",
+    "description": "DB 사용자 계정을 개별적으로 부여하여 사용",
+    "remediation": "공용 계정 사용을 지양하고 업무별 개별 계정 발급 (수동 검토 필요)"
+  },
+  {
+    "code": "D-07",
+    "name": "root 권한으로 서비스 구동 제한",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT USER() AS current_connection;",
+    "description": "root 권한으로 서비스 구동 제한",
+    "remediation": "my.cnf [mysqld] 섹션에 user=mysql 지정 (OS 레벨 점검 필요 - SSH 접속 후 ps -ef | grep mysqld 로 확인)"
+  },
+  {
+    "code": "D-08",
+    "name": "안전한 암호화 알고리즘 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'have_ssl';",
+    "safe_keyword": "YES",
+    "description": "안전한 암호화 알고리즘 사용",
+    "remediation": "SSL/TLS 인증서를 발급하여 클라이언트 접속 시 암호화 통신 사용"
+  },
+  {
+    "code": "D-09",
+    "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT PLUGIN_NAME,PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS WHERE PLUGIN_NAME='connection_control';",
+    "safe_keyword": "ACTIVE",
+    "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "remediation": "connection_control 플러그인 설치 및 활성화 (INSTALL PLUGIN CONNECTION_CONTROL SONAME 'connection_control.so';)"
+  },
+  {
+    "code": "D-10",
+    "name": "원격에서 DB 서버로의 접속 제한",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('ANYHOST:',User,'@',Host) FROM mysql.user WHERE Host='%';",
+    "vulnerable_keyword": "ANYHOST:",
+    "description": "원격에서 DB 서버로의 접속 제한",
+    "remediation": "특정 IP에서만 접속 가능한 계정으로 재생성 (CREATE USER '<계정>'@'<허용IP>' ...) 후 '%' 계정 제거"
+  },
+  {
+    "code": "D-11",
+    "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SELECT GRANTEE,PRIVILEGE_TYPE FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE TABLE_SCHEMA='mysql';",
+    "description": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
+    "remediation": "REVOKE ALL ON mysql.* FROM '<계정>'; (수동 검토 필요 - mysql 스키마 권한 보유자 확인)"
+  },
+  {
+    "code": "D-14",
+    "name": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'datadir';",
+    "description": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "remediation": "chmod 640 /etc/my.cnf, chown mysql:mysql /etc/my.cnf (OS 레벨 점검 필요 - SSH 접속 후 확인)"
+  },
+  {
+    "code": "D-20",
+    "name": "인가되지 않은 Object Owner의 제한",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT DISTINCT DEFINER FROM information_schema.ROUTINES;",
+    "description": "인가되지 않은 Object Owner의 제한",
+    "remediation": "불필요한 DEFINER로 생성된 프로시저/함수를 검토 후 재생성 (수동 검토 필요)"
+  },
+  {
+    "code": "D-21",
+    "name": "인가되지 않은 GRANT OPTION 사용 제한",
+    "category": "옵션 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES';",
+    "vulnerable_keyword": "GRANTABLE:",
+    "description": "인가되지 않은 GRANT OPTION 사용 제한",
+    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES;"
+  },
+  {
+    "code": "D-22",
+    "name": "데이터베이스의 자원 제한 기능을 TRUE로 설정",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('NOLIMIT:',User,'@',Host) FROM mysql.user WHERE max_user_connections=0 AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "vulnerable_keyword": "NOLIMIT:",
+    "description": "데이터베이스의 자원 제한 기능을 TRUE로 설정",
+    "remediation": "ALTER USER '<계정>'@'<호스트>' WITH MAX_USER_CONNECTIONS <제한값>;"
+  },
+  {
+    "code": "D-25",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "SELECT VERSION();",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "https://dev.mysql.com/downloads/ 에서 최신 보안 패치 확인 및 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "D-26",
+    "name": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "category": "패치 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'general_log';",
+    "safe_keyword": "ON",
+    "description": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "remediation": "SET GLOBAL general_log = 'ON'; SET GLOBAL general_log_file = '/var/log/mysql/general.log';"
+  }
+]
