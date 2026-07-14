@@ -150,12 +150,13 @@ class AdvancedScanner:
 
     def get_mac_address(self, ip):
         if ip in ["127.0.0.1", "localhost", "0.0.0.0"]: return "Localhost"
+        if not OSUtils.is_safe_host(ip): return "Unknown"
         mac_address = "Unknown"
         try:
-            cmd = f"arp -a {ip}" if OSUtils.is_windows() else f"arp -n {ip}"
-            kwargs = OSUtils.get_hidden_kwargs() if OSUtils.is_windows() else {}
-            
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, shell=True, **kwargs)
+            cmd = ["arp", "-a", ip] if OSUtils.is_windows() else ["arp", "-n", ip]
+            kwargs = OSUtils.get_subprocess_kwargs() if OSUtils.is_windows() else {}
+
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, **kwargs)
             if proc.returncode == 0:
                 mac_match = re.search(r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", proc.stdout)
                 if mac_match: 

@@ -973,34 +973,27 @@ class ScannerApp(QMainWindow):
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set()
         
-        # 3. 데이터 가져오기 (5개 항목: IP, Host, OS, MAC, Vendor)
-        assets = self.db.get_all_assets() 
-        
+        # 3. 데이터 가져오기 (DBConnector.get_all_assets()는 항상
+        #    (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+        #    Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
+        #    (memo는 add_asset_to_table 내부에서 DB로부터 다시 조회하므로 여기서는 사용하지 않음)
+        assets = self.db.get_all_assets()
+
         # 화면 깜빡임 방지
         self.asset_table.setSortingEnabled(False)
         self.asset_table.setUpdatesEnabled(False)
-        
+
         for data in assets:
             try:
-                # [수정] 데이터 개수에 맞춰 변수 풀기 (이제 "-"를 강제로 넣지 않습니다!)
-                if len(data) == 5:
-                    ip, hostname, os_type, mac_addr, vendor = data
-                elif len(data) == 4:
-                    ip, hostname, os_type, mac_addr = data
-                    vendor = "" # 없을 때만 빈칸
-                else:
-                    continue
+                ip, os_type, _memo, mac_addr = data
 
                 # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
                 # (실제 데이터가 있으면 그대로 유지됨)
-                hostname = "" if str(hostname) == "-" else hostname
                 os_type  = "" if str(os_type) == "-"  else os_type
                 mac_addr = "" if str(mac_addr) == "-" else mac_addr
-                vendor   = "" if str(vendor) == "-"   else vendor
 
-                # [수정] 5개 변수를 제 자리에 정확히 전달
-                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
-                
+                self.add_asset_to_table(ip, "", os_type, mac_addr, "")
+
             except Exception as e:
                 print(f"Error refreshing row: {e}")
             
@@ -1085,17 +1078,12 @@ class ScannerApp(QMainWindow):
         count = 0
         for asset in assets:
             try:
-                # [수정] 데이터 개수에 따라 유연하게 처리 (방어 코드)
-                if len(asset) == 5:
-                    # 정상 (5개)
-                    self.add_asset_to_table(*asset)
-                elif len(asset) == 4:
-                    # 구형 데이터 (Vendor 없음) -> "Unknown"으로 채움
-                    ip, host, os_type, mac = asset
-                    self.add_asset_to_table(ip, host, os_type, mac, "Unknown")
-                else:
-                    # 데이터가 이상하면 건너뜀
-                    continue
+                # DBConnector.get_all_assets()는 항상
+                # (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+                # Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
+                ip, os_type, _memo, mac = asset
+                self.add_asset_to_table(ip, "", os_type, mac, "")
+                count += 1
             except Exception as e:
                 print(f"Error loading asset: {e}")
         

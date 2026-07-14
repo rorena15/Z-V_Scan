@@ -26,6 +26,7 @@ from core.windows_inspector import WindowsInspector
 from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
+from utils.os_utils import OSUtils
 from core.discovery import HostDiscovery
 from utils.auth_token import get_engine_token
 from core.config import AppConfig
@@ -221,8 +222,16 @@ class ScanWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"[!] Target Parse Error: {e}")
             AppLogger.log_error("Target Parsing Failed", e)
-        
-        return sorted(list(set(targets)))
+
+        # [보안] 셸 메타문자 등 비정상 문자가 포함된 타겟은 이후 단계(arp/ping/ssh 등)에서
+        # Command Injection으로 이어질 수 있으므로 여기서 걸러낸다.
+        safe_targets = [t for t in targets if OSUtils.is_safe_host(t)]
+        rejected = set(targets) - set(safe_targets)
+        for bad in rejected:
+            self.log_signal.emit(f"[!] Rejected invalid target (unsafe characters): {bad}")
+            AppLogger.log_error(f"Rejected invalid target: {bad}")
+
+        return sorted(list(set(safe_targets)))
 
     def scan_target(self, ip):
         if self.stop_flag: return

@@ -159,8 +159,12 @@ class PDFGenerator:
             if not all_assets:
                 raise Exception("No assets found.")
 
-            # 통계 조회 (예외처리 제외)
-            cursor.execute("SELECT risk_level, COUNT(*) FROM TBL_SCAN_RESULT WHERE waiver_status=0 GROUP BY risk_level")
+            # 통계 조회 (예외처리 제외, 실제 취약 판정 건만 집계)
+            cursor.execute("""
+                SELECT risk_level, COUNT(*) FROM TBL_SCAN_RESULT
+                WHERE waiver_status=0 AND status='VULNERABLE'
+                GROUP BY risk_level
+            """)
             risk_stats = dict(cursor.fetchall())
             
             total_vulns = sum(risk_stats.values())
@@ -207,31 +211,34 @@ class PDFGenerator:
                 cursor.execute(sql, (asset_id,))
                 rows = cursor.fetchall()
 
-                # 테이블 헤더
-                table_data = [['Code', '점검 항목', '위험도', '현황 요약', '조치 방안']]
-                
+                # 테이블 헤더 (양호/취약/경고를 명확히 구분하는 판정 컬럼 추가)
+                table_data = [['Code', '점검 항목', '판정', '위험도', '현황 요약', '조치 방안']]
+
+                status_label = {"VULNERABLE": "취약", "SAFE": "양호", "WARNING": "주의"}
+
                 for r in rows:
                     code, name, risk, status, detail, rem = r
-                    
+
                     # 텍스트 길이 제한 (PDF 깨짐 방지)
                     name = self._truncate(name, 40)
                     detail = self._truncate(detail, 80) # 요약본만 표시
                     rem = self._truncate(rem, 60)
-                    
+
                     risk_icon = self.RISK_ICONS.get(risk, '')
-                    
+
                     table_data.append([
                         code,
                         Paragraph(html.escape(name), cell_style),
+                        status_label.get(status, status or "-"),
                         f"{risk_icon} {risk}",
                         Paragraph(html.escape(detail), cell_style),
                         Paragraph(html.escape(rem), cell_style)
                     ])
 
                 if not rows:
-                    table_data.append(["-", "취약점 없음 (안전)", "-", "-", "-"])
+                    table_data.append(["-", "취약점 없음 (안전)", "-", "-", "-", "-"])
 
-                t = Table(table_data, colWidths=[50, 120, 60, 140, 100], repeatRows=1)
+                t = Table(table_data, colWidths=[45, 100, 45, 55, 130, 95], repeatRows=1)
                 t.setStyle(TableStyle([
                     ('BACKGROUND', (0,0), (-1,0), self.DARK_BLUE),
                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
