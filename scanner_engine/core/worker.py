@@ -56,6 +56,7 @@ class ScanWorker(QThread):
         self.stop_flag = False
         self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
+        self.ports = ports
         self._security_token = get_engine_token()
 
     def run(self):
