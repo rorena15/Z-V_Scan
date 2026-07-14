@@ -18,7 +18,7 @@ from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 
 class SSHInspector:
-    def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False):
+    def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False):
         self.ip = ip
         self.username = username
         self.port = port
@@ -26,6 +26,9 @@ class SSHInspector:
         self.is_simulation = False
         self.ruleset = ruleset  # linux_rules.json 또는 web_rules.json 등
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 명령 간격을 늘림
+        # [실전 안전장치] True일 때만 데모 IP/접속 실패 시 가상 데이터를 사용한다.
+        # 기본값 False에서는 접속 실패를 절대 조용히 감추지 않고 정직하게 실패로 보고한다.
+        self.demo_mode = demo_mode
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -50,15 +53,15 @@ class SSHInspector:
         return external_path
 
     def connect(self):
-        if self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
+        if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True
             return True
-        
+
         password = SecureStorage.get_credential(self.ip, self.username)
         if not password:
             AppLogger.log_error(f"Credentials not found for {self.ip}")
             return False
-            
+
         try:
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -66,8 +69,12 @@ class SSHInspector:
             del password
             return True
         except Exception as e:
-            self.is_simulation = True 
-            return True
+            # [실전 안전장치] 데모 모드가 아니면 접속 실패를 절대 가짜 데이터로 감추지 않는다.
+            if self.demo_mode:
+                self.is_simulation = True
+                return True
+            AppLogger.log_error(f"[SSH] Connect failed for {self.ip}", e)
+            return False
 
     def close(self):
         if self.client:

@@ -22,7 +22,7 @@ DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432}
 class DatabaseInspector:
     """MySQL / PostgreSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
 
-    def __init__(self, ip, username, engine, port=None, throttle=False):
+    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False):
         self.ip = ip
         self.username = username
         self.engine = engine  # "mysql" or "postgresql"
@@ -30,6 +30,8 @@ class DatabaseInspector:
         self.conn = None
         self.is_simulation = False
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 쿼리 간격을 늘림
+        # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
+        self.demo_mode = demo_mode
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -54,7 +56,7 @@ class DatabaseInspector:
         return external_path
 
     def connect(self):
-        if self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
+        if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True
             return True
 

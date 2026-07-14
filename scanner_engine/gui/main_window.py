@@ -273,6 +273,15 @@ class ScannerApp(QMainWindow):
         )
         self.chk_ot_mode.setStyleSheet("color: #ccc; font-weight: bold;")
 
+        # [실전 안전장치] 기본값 OFF. 켜져 있을 때만 127.0.0.1 등 데모 IP를 가짜 데이터로 처리하고,
+        # 실제 접속 실패 시 시뮬레이션으로 자동 대체합니다. 꺼져 있으면 접속 실패는 항상 정직하게 실패로 보고됩니다.
+        self.chk_demo_mode = QCheckBox("🎭 데모 모드")
+        self.chk_demo_mode.setToolTip(
+            "체크 시에만 127.0.0.1/localhost 등 데모 IP 및 접속 실패 시 가상 데이터를 사용합니다.\n"
+            "실제 현장 진단 시에는 반드시 꺼두세요 (기본값 OFF)."
+        )
+        self.chk_demo_mode.setStyleSheet("color: #f0ad4e; font-weight: bold;")
+
         row1_layout.addWidget(lbl_target)
         row1_layout.addWidget(self.ip_input, 3) # 비율 3
         row1_layout.addSpacing(15)
@@ -280,6 +289,7 @@ class ScannerApp(QMainWindow):
         row1_layout.addWidget(self.port_mode_combo, 1) # 비율 1
         row1_layout.addSpacing(15)
         row1_layout.addWidget(self.chk_ot_mode)
+        row1_layout.addWidget(self.chk_demo_mode)
 
         config_layout.addLayout(row1_layout)
 
@@ -639,6 +649,7 @@ class ScannerApp(QMainWindow):
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)
         self.chk_ot_mode.setDisabled(busy)
+        self.chk_demo_mode.setDisabled(busy)
         self.user_input.setDisabled(busy)
         self.pw_input.setDisabled(busy)
 
@@ -699,11 +710,11 @@ class ScannerApp(QMainWindow):
         user = self.user_input.text().strip()
         SecureStorage.delete_credential(target_ip, user)
         
-        # [2단계 연동 추가] 스캔 종료 시 위험 IP 미들웨어로 보고
+        # [2단계 연동 추가] 스캔 종료 시 위험 IP 미들웨어로 보고 (실제 진단 결과 기준 취약 건수)
         if target_ip:
-            self.log_message(f"[System] 📡 미들웨어에 취약점 진단 결과 전송 중... ({target_ip})")
-            # 취약점 개수는 예창패 시연을 위해 강제로 3개로 넘깁니다. 
-            threading.Thread(target=self.report_to_middleware, args=(target_ip, 3), daemon=True).start()
+            actual_vuln_count = self.db.get_vuln_count(target_ip)
+            self.log_message(f"[System] 📡 미들웨어에 취약점 진단 결과 전송 중... ({target_ip}, 취약 {actual_vuln_count}건)")
+            threading.Thread(target=self.report_to_middleware, args=(target_ip, actual_vuln_count), daemon=True).start()
         
     def report_to_middleware(self, ip, vuln_count):
         url = "http://127.0.0.1:8089/api/v1/vuln_report"
@@ -762,7 +773,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked())
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked())
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -792,7 +803,7 @@ class ScannerApp(QMainWindow):
                 return
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked())
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked())
         self.connect_worker()
         self.worker.start()
 

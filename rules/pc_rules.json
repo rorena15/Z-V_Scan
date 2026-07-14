@@ -4,13 +4,13 @@
     "name": "비밀번호의 주기적 변경",
     "category": "계정 관리",
     "importance": "상",
-    "command": "net accounts",
-    "safe_keyword": "90",
-    "description": "비밀번호의 주기적 변경",
+    "command": "secedit /export /cfg C:\\secpol_pc01.cfg; Select-String 'MaximumPasswordAge' C:\\secpol_pc01.cfg; Remove-Item C:\\secpol_pc01.cfg -Force",
+    "safe_keyword": "MaximumPasswordAge",
+    "description": "비밀번호의 주기적 변경 (net accounts 화면 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
     "remediation": "net accounts /maxpwage:90 /minpwage:1 설정, 암호 사용 기간 제한 없음으로 설정된 계정 확인",
     "criteria": [
-      {"label": "최대 암호 사용 기간 90일 이하", "safe_keyword": "90"},
-      {"label": "암호 만료 미설정 계정 존재하지 않음", "command": "if (@(Get-LocalUser | Where-Object {$_.PasswordExpires -eq $null -and $_.Enabled -eq $true}).Count -eq 0) { 'OK' } else { (Get-LocalUser | Where-Object {$_.PasswordExpires -eq $null -and $_.Enabled -eq $true}).Name -join ',' }", "safe_keyword": "OK"}
+      {"label": "최대 암호 사용 기간 90일 이하", "command": "secedit /export /cfg C:\\secpol_pc01a.cfg | Out-Null; $v = (Select-String 'MaximumPasswordAge' C:\\secpol_pc01a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_pc01a.cfg -Force; if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
+      {"label": "암호 만료 미설정 계정 존재하지 않음", "command": "$u = Get-WmiObject -Query \"SELECT Name FROM Win32_UserAccount WHERE LocalAccount='True' AND Disabled='False' AND PasswordExpires='False'\"; if (-not $u) { 'OK' } else { ($u | Select-Object -ExpandProperty Name) -join ',' }", "safe_keyword": "OK"}
     ]
   },
   {

@@ -33,9 +33,9 @@
     "name": "계정 잠금 임계값 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "net accounts",
-    "vulnerable_keyword": "Never",
-    "description": "계정 잠금 임계값이 없으면 무차별 대입 공격에 무방비로 노출됩니다.",
+    "command": "secedit /export /cfg C:\\secpol_w04.cfg; Select-String 'LockoutBadCount' C:\\secpol_w04.cfg; Remove-Item C:\\secpol_w04.cfg -Force",
+    "vulnerable_keyword": "LockoutBadCount = 0",
+    "description": "계정 잠금 임계값이 없으면 무차별 대입 공격에 무방비로 노출됩니다. (net accounts의 'Never'/'없음' 표시는 시스템 언어에 따라 달라 secedit 기반으로 점검합니다)",
     "remediation": "net accounts /lockoutthreshold:5"
   },
   {
@@ -82,13 +82,13 @@
     "name": "비밀번호 관리정책 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "net accounts",
-    "safe_keyword": "90",
-    "description": "비밀번호 정책이 미흡하면 취약한 비밀번호 사용 및 장기 미변경으로 인한 노출 위험이 있습니다.",
+    "command": "secedit /export /cfg C:\\secpol_w09.cfg; Select-String 'MaximumPasswordAge','MinimumPasswordLength' C:\\secpol_w09.cfg; Remove-Item C:\\secpol_w09.cfg -Force",
+    "safe_keyword": "MaximumPasswordAge",
+    "description": "비밀번호 정책이 미흡하면 취약한 비밀번호 사용 및 장기 미변경으로 인한 노출 위험이 있습니다. (net accounts 화면 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
     "remediation": "net accounts /minpwlen:8 /maxpwage:90 /minpwage:1 /uniquepw:4",
     "criteria": [
-      {"label": "최대 암호 사용 기간 90일 이하", "command": "$m = (net accounts | Select-String 'Maximum password age').ToString() -replace '[^0-9]',''; if([int]$m -le 90 -and [int]$m -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "최소 암호 길이 8자 이상", "command": "$m = (net accounts | Select-String 'Minimum password length').ToString() -replace '[^0-9]',''; if([int]$m -ge 8){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {"label": "최대 암호 사용 기간 90일 이하", "command": "secedit /export /cfg C:\\secpol_w09a.cfg | Out-Null; $v = (Select-String 'MaximumPasswordAge' C:\\secpol_w09a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09a.cfg -Force; if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
+      {"label": "최소 암호 길이 8자 이상", "command": "secedit /export /cfg C:\\secpol_w09b.cfg | Out-Null; $v = (Select-String 'MinimumPasswordLength' C:\\secpol_w09b.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09b.cfg -Force; if([int]$v -ge 8){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
     ]
   },
   {

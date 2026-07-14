@@ -32,6 +32,7 @@ class ExcelGenerator:
     COLOR_WAIVER = 'D9D9D9'   # 예외 (회색)
     COLOR_PARTIAL = 'FFF2CC' # 부분만족 (연한 노랑)
     COLOR_NA = 'F2F2F2'       # 해당없음 (연한 회색)
+    COLOR_ERROR = 'D9D9D9'    # 점검불가/접속실패 (진회색)
 
     # 폰트 정의
     FONT_TITLE = Font(name='맑은 고딕', size=20, bold=True)
@@ -329,6 +330,7 @@ class ExcelGenerator:
             elif status == "PARTIAL": final_status = "부분만족"
             elif status == "NA": final_status = "해당없음"
             elif status == "MANUAL": final_status = "검토필요"
+            elif status == "ERROR": final_status = "점검불가"
             
             row_vals = [idx, ip, hostname, kisa_code, name, risk, final_status, summary, evidence, remediation, waiver_reason]
             
@@ -353,6 +355,7 @@ class ExcelGenerator:
                     elif final_status == "검토필요": cell.fill = PatternFill(start_color=self.COLOR_HIGH, fill_type='solid')
                     elif final_status == "부분만족": cell.fill = PatternFill(start_color=self.COLOR_PARTIAL, fill_type='solid')
                     elif final_status == "해당없음": cell.fill = PatternFill(start_color=self.COLOR_NA, fill_type='solid')
+                    elif final_status == "점검불가": cell.fill = PatternFill(start_color=self.COLOR_ERROR, fill_type='solid')
 
     def _create_asset_sheet(self, wb, asset_data):
         ws = wb.create_sheet("3.자산목록")

@@ -19,7 +19,7 @@ from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 
 class WindowsInspector:
-    def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False):
+    def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False, demo_mode=False):
         self.ip = ip
         self.username = username
         self.session = None
@@ -27,6 +27,8 @@ class WindowsInspector:
         self.is_simulation = False
         self.ruleset = ruleset  # windows_rules.json 또는 pc_rules.json 등
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 명령 간격을 늘림
+        # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
+        self.demo_mode = demo_mode
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -51,7 +53,7 @@ class WindowsInspector:
         return external_path
 
     def connect(self):
-        if self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
+        if self.demo_mode and self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
             self.is_simulation = True
             return True
         
@@ -93,23 +95,20 @@ class WindowsInspector:
 
     def get_mock_data(self, script):
         s = script.lower()
+        # [locale-safe 점검] secedit 기반 계정정책 점검(W-04/W-09/PC-01)은 실행 결과를 직접 흉내낸다.
+        # 모의 데이터는 실제 PS 스크립트를 실행하지 않으므로, 스크립트의 "최종 반환값"에 맞춰 매핑한다.
+        if "lockoutbadcount" in s: return "LockoutBadCount = 0"  # 잠금 임계값 미설정 -> 취약 예시
+        # [criteria 데모] 최대 암호 사용기간은 충족(90일), 최소 길이는 미충족(0) -> 부분만족 예시
+        if "maximumpasswordage" in s and "minimumpasswordlength" in s:
+            return "MaximumPasswordAge = 90\r\nMinimumPasswordLength = 0"
+        if "maximumpasswordage" in s: return "OK"
+        if "minimumpasswordlength" in s: return "FAIL"
         # [criteria 데모] PC-01 세부기준 2: 만료 미설정 계정 존재 -> 부분만족 예시
-        if "get-localuser" in s: return "Guest"
-        # [criteria 데모] W-09 세부기준: 최대 사용기간은 충족, 최소 길이는 미충족 -> 부분만족 예시
-        # (모의 데이터는 실제 PS 스크립트를 실행하지 않으므로 하위 문자열로 직접 결과를 매핑)
-        if "maximum password age" in s: return "OK"
-        if "minimum password length" in s: return "FAIL"
+        if "win32_useraccount" in s: return "Guest"
         if "administrator" in s: return "Name: Administrator, Enabled: True"
         if "guest" in s: return ""
         if "tlntsvr" in s: return "Status: Running"
-        if "net accounts" in s:
-            # [criteria 데모] 잠금 임계값/기간은 기존 판정 유지, 암호 정책 세부기준(90일 충족/최소길이 미충족)으로 부분만족 시연
-            return (
-                "Lockout threshold: Never\n"
-                "Lockout duration (minutes): 60\n"
-                "Maximum password age (days): 90\n"
-                "Minimum password length: 0"
-            )
+        if "net accounts" in s: return "Lockout duration (minutes): 60"
         if "get-smbshare" in s: return "Name: C$, Path: C:\\"
         if "simptcp" in s: return "Status: Stopped"
         if "get-hotfix" in s: return "Cannot find HotFix"

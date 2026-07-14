@@ -231,6 +231,25 @@ class DBConnector:
             finally: conn.close()
             return stats
 
+    def get_vuln_count(self, ip):
+        """미들웨어 연동 등에 사용할, 특정 자산의 실제 취약(VULNERABLE) 항목 수 (예외처리 제외)"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM TBL_SCAN_RESULT R
+                    JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
+                    WHERE A.ip_addr = ? AND R.status = 'VULNERABLE' AND R.waiver_status = 0
+                """, (ip,))
+                row = cursor.fetchone()
+                return row[0] if row else 0
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Vuln Count Query Failed ({ip})", e)
+                return 0
+            finally:
+                conn.close()
+
     def get_memo(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
