@@ -26,6 +26,7 @@ from core.windows_inspector import WindowsInspector
 from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
+from utils.os_utils import OSUtils
 from core.discovery import HostDiscovery
 from utils.auth_token import get_engine_token
 from core.config import AppConfig
@@ -36,18 +37,101 @@ class ScanWorker(QThread):
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
     started_signal = Signal(int)
-    asset_found_signal = Signal(str, str, str, str) # IP, Hostname, OS, Ports
+    # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
+    asset_found_signal = Signal(str, str, str, str, str)
 
     def __init__(self, mode, target_input, user=None, ports=None, db_queue=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
-        self.user_info = user if isinstance(user, dict) else {}
+        self.user_info = {}
+        self.default_user = None
+
+        if isinstance(user, dict):
+            self.user_info = user
+        elif isinstance(user, str) and user:
+            self.default_user = user # 단일 타겟용 기본 계정 저장
+
         self.custom_ports = ports
         self.stop_flag = False
         self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
         self._security_token = get_engine_token()
+
+    def run(self):
+        if self._security_token != AppConfig.ENGINE_ACCESS_TOKEN:
+            self.log_signal.emit("[CRITICAL] Unauthorized Access Detected.")
+            self.finish_signal.emit("Security Error")
+            return
+        
+        self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
+        self.writer_thread.start()
+
+        try:
+            target_ips = self.parse_targets()
+            if not target_ips:
+                self.finish_signal.emit("No Targets")
+                return
+
+            live_hosts = []
+            sim_ips = ["0.0.0.0", "localhost", "127.0.0.1", "127.0.0.2"]
+
+            if self.mode != "CUSTOM":
+                # 1. 실제 스캔 (시뮬레이션 IP 제외)
+                real_targets = [ip for ip in target_ips if ip not in sim_ips]
+                if real_targets:
+                    discovery = HostDiscovery()
+                    live_hosts = discovery.scan_network(real_targets)
+                
+                # 2. 시뮬레이션 IP는 무조건 생존 처리
+                for sim in sim_ips:
+                    if sim in target_ips:
+                        self.log_signal.emit(f"[Simulation] Force activating target: {sim}")
+                        live_hosts.append(sim)
+            else:
+                live_hosts = target_ips
+
+            real_total_count = len(live_hosts)
+            self.started_signal.emit(real_total_count) 
+            
+            if real_total_count == 0:
+                self.log_signal.emit("[!] No live hosts found.")
+                self.finish_signal.emit("No Live Hosts")
+                return
+
+            max_workers = 10 if self.mode == "FULL" else 30 
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(self.scan_target, ip): ip for ip in live_hosts}
+                
+                processed_count = 0
+                for future in as_completed(futures):
+                    ip = futures[future]
+                    if self.stop_flag:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    try:
+                        future.result()
+                    except Exception as e:
+                        AppLogger.log_error(f"[Thread Error] {ip}", e)
+                    
+                    processed_count += 1
+                    if real_total_count > 0:
+                        progress = int((processed_count / real_total_count) * 100)
+                        self.progress_signal.emit(progress, processed_count)
+
+            if not self.stop_flag:
+                self.progress_signal.emit(100, real_total_count)
+            
+        except Exception as e:
+            self.log_signal.emit(f"[Critical] Error: {str(e)}")
+            AppLogger.log_critical(f"Worker Error: {e}")
+        
+        finally:
+            self.db_queue.put(None)
+            if self.writer_thread:
+                self.writer_thread.join(timeout=3)
+            self.finish_signal.emit("Scan Process Terminated")
 
     def stop(self):
         self.stop_flag = True
@@ -132,8 +216,16 @@ class ScanWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"[!] Target Parse Error: {e}")
             AppLogger.log_error("Target Parsing Failed", e)
-        
-        return sorted(list(set(targets)))
+
+        # [보안] 셸 메타문자 등 비정상 문자가 포함된 타겟은 이후 단계(arp/ping/ssh 등)에서
+        # Command Injection으로 이어질 수 있으므로 여기서 걸러낸다.
+        safe_targets = [t for t in targets if OSUtils.is_safe_host(t)]
+        rejected = set(targets) - set(safe_targets)
+        for bad in rejected:
+            self.log_signal.emit(f"[!] Rejected invalid target (unsafe characters): {bad}")
+            AppLogger.log_error(f"Rejected invalid target: {bad}")
+
+        return sorted(list(set(safe_targets)))
 
     # ----------------------------------------------------------------------
     # [Module 3] Scanning Phases (Modularized)
@@ -142,80 +234,73 @@ class ScanWorker(QThread):
         """단일 타겟에 대한 전체 스캔 프로세스 오케스트레이션"""
         if self.stop_flag: return
         
+        # [핵심] 시뮬레이션 타겟 확인
+        is_sim = ip in ["0.0.0.0", "127.0.0.2", "localhost", "127.0.0.1"]
+        
         scanner = AdvancedScanner()
         
-        # 1. 호스트 생존 확인 (Discovery)
-        is_alive, os_type, hostname, mac_addr = self._phase_host_discovery(ip, scanner)
-        if not is_alive and self.mode != "CUSTOM":
-            return # 죽은 호스트는 스킵
-
-        # 2. TCP 포트 스캔 (Port Scan & Banner Grab)
-        open_ports = self._phase_tcp_scan(ip, scanner, os_type, hostname, mac_addr)
-
-        # 3. UDP 스캔 (UDP Scan)
-        self._phase_udp_scan(ip, scanner)
-
-        # 4. 정밀 진단 (Authenticated Audit)
-        self._phase_audit(ip, open_ports, os_type)
-
-    def _phase_host_discovery(self, ip, scanner):
-        """1단계: 호스트 생존 여부 및 OS 탐지"""
-        is_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
+        # 1. Host Discovery & OS Detection (가짜 데이터 주입)
+        if is_sim:
+            is_alive = True
+            # IP에 따라 가짜 OS 구분
+            if ip in ["0.0.0.0", "127.0.0.2"]:
+                os_type = "Windows Server 2019"
+                vendor = "Microsoft"
+            else:
+                os_type = "Ubuntu Linux 20.04"
+                vendor = "Ubuntu"
+            mac_addr = "00:00:00:00:00:00"
+        else:
+            is_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
         
-        hostname = "Unknown"
-        if vendor != "Unknown":
-            hostname = f"({vendor}) Device"
-            
-        return is_alive, os_type, hostname, mac_addr
-
-    def _phase_tcp_scan(self, ip, scanner, os_type, hostname, mac_addr):
-        """2단계: TCP 포트 스캔 및 취약점 매칭"""
-        target_ports = self._get_target_ports(scanner)
+        if not is_alive and self.mode != "CUSTOM": return
+        
+        hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
+        
+        # [Phase 1] TCP Port Scan (가짜 포트 주입)
         open_ports = []
-        chunk_size = 500
-        
-        if not isinstance(target_ports, list):
+        if is_sim:
+            # 시뮬레이션이면 OS에 맞는 핵심 포트 강제 오픈
+            if "Windows" in os_type:
+                open_ports = [135, 445, 3389, 80]
+            else:
+                open_ports = [22, 80, 3306]
+            self.log_signal.emit(f"[Simulation] Injecting fake ports for {ip}: {open_ports}")
+        else:
+            # 실제 스캔 로직
+            if self.mode == "FULL" and self.ports is None: target_ports = range(1, 65536)
+            elif self.ports: target_ports = self.ports
+            elif self.custom_ports: target_ports = scanner.parse_ports(self.custom_ports)
+            else: target_ports = scanner.default_ports
+            
             target_ports = list(target_ports)
-
-        # 스캔 수행
-        for i in range(0, len(target_ports), chunk_size):
-            if self.stop_flag: break
-            chunk = target_ports[i : i + chunk_size]
-            found = scanner.tcp_scan(ip, ports=chunk)
-            open_ports.extend(found)
+            for i in range(0, len(target_ports), 500):
+                if self.stop_flag: return
+                open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500]))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
-        
-        # 자산 정보 등록
-        self.asset_found_signal.emit(ip, hostname, f"OS: {os_type}", f"Ports: {ports_str}")
+        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
 
         if not open_ports:
-            # 포트 없음 -> 증적 없음
             self.db_queue.put(("SCAN_RESULT", (
-                ip, "INFO-00", "Host Alive", "Info", "Safe", 
+                ip, "INFO-00", "Host Alive", "Info", "Safe",
                 "ICMP Ping Response Only", "-", "", ""
             )))
-            return []
 
-        # 배너 그래빙 및 취약점 매칭
+        # 포트별 배너 및 기본 취약점 확인
         for port in open_ports:
             if self.stop_flag: break
-            banner = scanner.grab_banner(ip, port)
+            banner = f"Simulation Banner on {port}" if is_sim else scanner.grab_banner(ip, port)
             match_res = VulnMatcher.match(port, banner)
-            
-            if not isinstance(match_res, dict):
-                match_res = {}
+
+            if not isinstance(match_res, dict): match_res = {}
 
             status = "VULNERABLE" if match_res.get('risk') in ['High', 'Critical'] else "WARNING"
             if match_res.get('risk') == 'Info': status = "Safe"
-            
-            # [데이터 매핑] 
-            # raw_output -> banner (증적)
-            # kisa_code -> match_res['kisa']
             self.db_queue.put(("SCAN_RESULT", (
-                ip, 
-                f"TCP-{port}", 
+                ip,
+                f"TCP-{port}",
                 match_res.get('name', f"Open Port {port}"),
                 match_res.get('risk', 'Low'),
                 status,
@@ -224,148 +309,46 @@ class ScanWorker(QThread):
                 banner,                     # raw_output
                 match_res.get('kisa', '')   # kisa_code
             )))
-            
-        return open_ports
 
-    def _phase_udp_scan(self, ip, scanner):
-        """3단계: UDP 스캔"""
-        if self.mode != "FAST" and not self.stop_flag:
+        # [Phase 2] UDP Scan (시뮬레이션은 생략 가능)
+        if not is_sim and self.mode != "FAST" and not self.stop_flag:
             udp_results = scanner.udp_scan(ip)
             for u_port, u_msg, u_len in udp_results:
                 udp_desc = f"UDP Port {u_port} is Open/Response. Payload Size: {u_len} bytes"
                 self.db_queue.put(("SCAN_RESULT", (
-                    ip,
-                    f"UDP-{u_port}",
-                    f"UDP Service Open ({u_port})",
-                    "Info", 
-                    "WARNING", 
-                    udp_desc,
-                    "불필요한 경우 해당 UDP 서비스를 비활성화하십시오.",
-                    udp_desc, # raw_output
-                    ""        # kisa_code (UDP는 매핑 없음)
+                    ip, f"UDP-{u_port}", f"UDP Service ({u_port})", "Info", "WARNING",
+                    udp_desc, "불필요한 경우 해당 UDP 서비스를 비활성화하십시오.",
+                    udp_desc,  # raw_output
+                    ""         # kisa_code (UDP는 매핑 없음)
                 )))
 
-    def _phase_audit(self, ip, open_ports, os_type):
-        """4단계: 인증 기반 정밀 진단 (Inspector)"""
-        # 사용자 자격 증명 확인
-        if not (self.user_info and self.user_info.get(ip)) or self.stop_flag:
-            return
+        # [Phase 3] Deep Inspection (증적 확보)
+        should_inspect = False
+        username = ""
 
-        creds = self.user_info[ip]
-        username = creds.get('user', '') if isinstance(creds, dict) else ''
-        
-        inspector = None
-        
-        # Windows 진단 조건
-        if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
-            inspector = WindowsInspector(ip, username)
+        # 시뮬레이션이거나, 계정 정보가 있으면 진단 수행
+        if is_sim:
+            should_inspect = True
+            username = "Administrator" if "Windows" in os_type else "root"
+        elif (self.user_info.get(ip) or self.default_user):
+            should_inspect = True
+            # IP별 계정이 없으면 기본 계정 사용
+            username = self.user_info.get(ip, {}).get('user', self.default_user)
 
-        # Linux 진단 조건
-        elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-            inspector = SSHInspector(ip, username)
-            
-        # 진단 수행
-        if inspector and inspector.connect():
-            results = inspector.run_all_checks()
-            
-            # Inspector 결과 처리 (튜플 크기에 따라 유연하게 대응)
-            for code, res_tuple in results.items():
-                # 기본값
-                status, detail, name, remediation = "Safe", "", code, ""
-                raw_output, kisa_code = "", ""
-                
-                if len(res_tuple) >= 6:
-                    status, detail, name, remediation, raw_output, kisa_code = res_tuple[:6]
-                elif len(res_tuple) == 4:
-                    status, detail, name, remediation = res_tuple
-                
-                risk = "High" if status == "VULNERABLE" else "Info"
-                
-                self.db_queue.put(("SCAN_RESULT", (
-                    ip, code, name, risk, status, detail, 
-                    remediation, raw_output, kisa_code
-                )))
+        if should_inspect and not self.stop_flag:
+            inspector = None
+            # Windows 진단 조건
+            if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
+                inspector = WindowsInspector(ip, username)
+            # Linux 진단 조건
+            elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
+                inspector = SSHInspector(ip, username)
 
-    def _get_target_ports(self, scanner):
-        """스캔 모드에 따른 타겟 포트 리스트 반환"""
-        if self.mode == "FULL" and self.custom_ports is None:
-            return range(1, 65536)
-        elif self.custom_ports:
-            return scanner.parse_ports(self.custom_ports)
-        else:
-            return scanner.default_ports
-
-    # ----------------------------------------------------------------------
-    # [Module 4] Main Run Loop
-    # ----------------------------------------------------------------------
-    def run(self):
-        # 1. 보안 토큰 검증
-        if self._security_token != AppConfig.ENGINE_ACCESS_TOKEN:
-            self.log_signal.emit("[CRITICAL] Unauthorized Access Detected.")
-            self.finish_signal.emit("Security Error")
-            return
-        
-        # 2. DB Writer 시작
-        self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
-        self.writer_thread.start()
-
-        try:
-            # 3. 타겟 파싱
-            target_ips = self.parse_targets()
-            if not target_ips:
-                self.finish_signal.emit("No Targets")
-                return
-
-            # 4. Host Discovery
-            live_hosts = target_ips
-            if self.mode != "CUSTOM": 
-                discovery = HostDiscovery()
-                live_hosts = discovery.scan_network(target_ips)
-                
-                dead_count = len(target_ips) - len(live_hosts)
-                if dead_count > 0:
-                    self.log_signal.emit(f"[-] {dead_count} hosts seem down. Skipping.")
-
-            real_total_count = len(live_hosts)
-            self.started_signal.emit(real_total_count) 
-            
-            if real_total_count == 0:
-                self.log_signal.emit("[!] No live hosts found.")
-                self.finish_signal.emit("No Live Hosts")
-                return
-
-            # 5. Thread Pool Execution
-            max_workers = 10 if self.mode == "FULL" else 30 
-            
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(self.scan_target, ip): ip for ip in live_hosts}
-                
-                processed_count = 0
-                for future in as_completed(futures):
-                    ip = futures[future]
-                    
-                    if self.stop_flag:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        break
-                    try:
-                        future.result()
-                    except Exception as e:
-                        AppLogger.log_error(f"[Thread Error] {ip}", e)
-                    
-                    processed_count += 1
-                    if real_total_count > 0:
-                        progress = int((processed_count / real_total_count) * 100)
-                        self.progress_signal.emit(progress, processed_count)
-
-            if not self.stop_flag:
-                self.progress_signal.emit(100, real_total_count)
-            
-        except Exception as e:
-            self.log_signal.emit(f"[Critical] Error: {str(e)}")
-            AppLogger.log_critical(f"Worker Error: {e}")
-        
-        finally:
-            self.db_queue.put(None) # Writer 종료 신호
-            if self.writer_thread:
-                self.writer_thread.join(timeout=3)
-            self.finish_signal.emit("Scan Process Terminated")
+            if inspector and inspector.connect():
+                results = inspector.run_all_checks()
+                for code, (status, detail, name, remediation, raw_output, kisa_code) in results.items():
+                    risk = "High" if status == "VULNERABLE" else "Info"
+                    # [중요] 9개 요소 (증적 포함) 전송
+                    self.db_queue.put(("SCAN_RESULT", (
+                        ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
+                    )))

@@ -7,9 +7,14 @@
 # --------------------------------------------------------------------------
 import sys
 import os
+import re
 import platform
 import subprocess
 from utils.logger import AppLogger
+
+# 호스트/사용자 이름에 허용되는 문자만 통과시킴 (셸 메타문자 주입 방지)
+_SAFE_HOST_RE = re.compile(r'^[A-Za-z0-9.:\-]+$')
+_SAFE_USER_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
 
 class OSUtils:
     @staticmethod
@@ -62,6 +67,15 @@ class OSUtils:
         return cmd, kwargs
 
     @staticmethod
+    def is_safe_host(value):
+        # IP/호스트명에 셸 메타문자가 없는지 검증 (Command Injection 방지)
+        return bool(value) and bool(_SAFE_HOST_RE.match(value))
+
+    @staticmethod
+    def is_safe_user(value):
+        return bool(value) and bool(_SAFE_USER_RE.match(value))
+
+    @staticmethod
     def is_admin():
         try:
             if OSUtils.is_windows():
@@ -106,37 +120,46 @@ class OSUtils:
     @staticmethod
     def open_ping_test(target_ip):
         # UI 컨텍스트 메뉴용: 새 콘솔 창을 열어 Ping을 계속 실행 (-t)
+        if not OSUtils.is_safe_host(target_ip):
+            AppLogger.log_error(f"[Utills] Rejected unsafe ping target: {target_ip}")
+            return
         try:
             if OSUtils.is_windows():
-                # start cmd /k : 명령 실행 후 창 유지
-                subprocess.Popen(f"start cmd /k ping {target_ip} -t", shell=True)
+                # start cmd /k : 명령 실행 후 창 유지 (리스트 인자로 전달하여 셸 인젝션 방지)
+                subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", "ping", target_ip, "-t"])
             elif OSUtils.is_linux():
                 # gnome-terminal 사용 (환경에 따라 xterm 등으로 변경 가능)
-                subprocess.Popen(f"gnome-terminal -- ping {target_ip}", shell=True)
+                subprocess.Popen(["gnome-terminal", "--", "ping", target_ip])
         except Exception as e:
             AppLogger.log_error(f"[Utills] Fail to open ping test", e)
-            
-    
+
+
     @staticmethod
     def open_rdp(target_ip):
         # UI 컨텍스트 메뉴용: Windows MSTSC(원격 데스크톱) 실행
-        if OSUtils.is_windows():
-            try:
-                subprocess.Popen(f"mstsc /v:{target_ip}", shell=True)
-            except Exception as e:
-                AppLogger.log_error(f"[Utills] Failed to open RDP:", e)
-        else:
+        if not OSUtils.is_windows():
             AppLogger.log_error(f"[Utills] [Warning] RDP shortcut is primarily for Windows hosts.")
+            return
+        if not OSUtils.is_safe_host(target_ip):
+            AppLogger.log_error(f"[Utills] Rejected unsafe RDP target: {target_ip}")
+            return
+        try:
+            subprocess.Popen(["mstsc", f"/v:{target_ip}"])
+        except Exception as e:
+            AppLogger.log_error(f"[Utills] Failed to open RDP:", e)
 
     @staticmethod
     def open_ssh(target_ip, user="root"):
         # UI 컨텍스트 메뉴용: 새 콘솔 창을 열어 SSH 접속 시도
+        if not OSUtils.is_safe_host(target_ip) or not OSUtils.is_safe_user(user):
+            AppLogger.log_error(f"[Utills] Rejected unsafe SSH target/user: {user}@{target_ip}")
+            return
         try:
             if OSUtils.is_windows():
-                # Windows 10/11은 기본 ssh 클라이언트 내장
-                subprocess.Popen(f"start cmd /k ssh {user}@{target_ip}", shell=True)
+                # Windows 10/11은 기본 ssh 클라이언트 내장 (리스트 인자로 전달하여 셸 인젝션 방지)
+                subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", "ssh", f"{user}@{target_ip}"])
             elif OSUtils.is_linux():
-                subprocess.Popen(f"gnome-terminal -- ssh {user}@{target_ip}", shell=True)
+                subprocess.Popen(["gnome-terminal", "--", "ssh", f"{user}@{target_ip}"])
         except Exception as e:
             AppLogger.log_error(f"[Utills] Failed to open SSH console:", e)
             

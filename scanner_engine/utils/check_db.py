@@ -25,24 +25,17 @@ def check_data():
     asset_cnt = cursor.fetchone()[0]
     print(f"1. 저장된 자산(IP) 수: {asset_cnt}개")
 
-    # 2. 취약점 정의(Vuln Def) 확인
-    cursor.execute("SELECT count(*) FROM TBL_VULN_DEF")
-    vuln_def_cnt = cursor.fetchone()[0]
-    print(f"2. 취약점 코드 정의 수: {vuln_def_cnt}개 (13개여야 정상)")
-
-    # 3. 스캔 결과(Scan Result) 확인 (가장 중요!)
+    # 2. 스캔 결과(Scan Result) 확인 (가장 중요!)
     cursor.execute("SELECT count(*) FROM TBL_SCAN_RESULT")
     result_cnt = cursor.fetchone()[0]
-    print(f"3. 저장된 진단 결과 수: {result_cnt}건")
+    print(f"2. 저장된 진단 결과 수: {result_cnt}건")
 
     if result_cnt > 0:
-        _signature = "Made_By_Rorena_2025_Seongnam_KR"
         print("\n[상세 데이터 샘플 (최근 5건)]")
         cursor.execute("""
-            SELECT A.ip_addr, V.code, R.status 
+            SELECT A.ip_addr, R.vuln_code, R.status
             FROM TBL_SCAN_RESULT R
             LEFT JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
-            LEFT JOIN TBL_VULN_DEF V ON R.vuln_id = V.vuln_id
             ORDER BY R.scan_date DESC LIMIT 5
         """)
         for row in cursor.fetchall():

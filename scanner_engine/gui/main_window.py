@@ -7,6 +7,8 @@
 # --------------------------------------------------------------------------
 import sys
 import os
+import requests
+import threading
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -101,6 +103,7 @@ class ScannerApp(QMainWindow):
                 # 3. 유효하면 해당 등급으로 즉시 적용 (Standard -> Pro/Ent)
                 self.license_mgr.current_tier = tier
                 print(f"[System] Valid License Found: {tier}")
+        self.load_saved_data()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -360,12 +363,13 @@ class ScannerApp(QMainWindow):
         
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(6)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","mac_addr", "Ports", "Memo"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Memo", "Vender"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.asset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.asset_table.setAlternatingRowColors(False)
         self.asset_table.setStyleSheet("""
             QTableWidget { background-color: #1e1e1e; gridline-color: #333; border: 1px solid #444; border-radius: 4px; }
@@ -453,55 +457,75 @@ class ScannerApp(QMainWindow):
         central_widget.setLayout(main_layout)
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
-    def add_asset_to_table(self, ip, os_type, ports, memo_text=None):
-        """테이블에 자산을 추가합니다. (DB 로드 / 스캔 결과 공용)"""
-        
+    def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor):
         # 1. 중복 검사 (Cache 확인 -> 빠름)
         if not hasattr(self, 'scanned_ip_cache'):
             self.scanned_ip_cache = set()
             
-        # 이미 캐시에 있으면 건너뛰거나(스캔중), 업데이트를 위해 행을 찾음
         items = self.asset_table.findItems(ip, Qt.MatchExactly)
         row = -1
         
         if items:
-            row = items[0].row() # 이미 존재하면 업데이트
+            row = items[0].row() 
         else:
             row = self.asset_table.rowCount()
-            self.asset_table.insertRow(row) # 없으면 추가
+            self.asset_table.insertRow(row)
             self.scanned_ip_cache.add(ip)
 
-        # 2. 메모 데이터 처리
-        # 스캔 결과(None)라면 DB에서 조회, 히스토리 로드라면 전달된 값 사용
-        if memo_text is None:
-            # 실시간 스캔 시 DB 조회를 하면 느려질 수 있으니,
-            # 여기서는 빈 칸으로 두고 나중에 필요하면 로드하는 게 좋습니다.
-            # 하지만 사용자 편의를 위해 DB에 메모가 있다면 가져옵니다.
+        # 2. 메모 가져오기
+        memo_text = ""
+        try:
             db = DBConnector()
             memo_text = db.get_memo(ip)
+        except: pass
 
-        # 3. 아이템 생성 및 스타일링
-        c_ip = QTableWidgetItem(ip)
-        c_os = QTableWidgetItem(os_type)
-        c_port = QTableWidgetItem(ports)
-        c_memo = QTableWidgetItem(memo_text if memo_text else "")
+        # --- [핵심 수정] 강제 빈칸 처리 로직 ---
+        # 입력된 값이 None이거나 "-" (대시)라면 무조건 빈 문자열("")로 바꿈
+        def clean_text(text):
+            if text is None: return ""
+            s = str(text).strip()
+            if s == "-": return ""  # 범인 제거!
+            return s
+
+        hostname = clean_text(hostname)
+        os_type  = clean_text(os_type)
+        mac_addr = clean_text(mac_addr)
+        vendor   = clean_text(vendor)
+        # ------------------------------------
+
+        # 3. 아이템 생성
+        item_ip = QTableWidgetItem(ip)
+        item_host = QTableWidgetItem(hostname)
+        item_os = QTableWidgetItem(os_type)
+        item_mac = QTableWidgetItem(mac_addr)
+        item_memo = QTableWidgetItem(memo_text if memo_text else "")
+        item_vendor = QTableWidgetItem(vendor)
         
-        # 색상 설정 (다크 테마 최적화)
-        c_ip.setForeground(QBrush(QColor("#ffffff")))
-        c_port.setForeground(QBrush(QColor("#aaaaaa")))
-        c_memo.setForeground(QBrush(QColor("#00ff00"))) # 메모 강조
+        # 4. 스타일링 (색상 설정)
+        item_ip.setForeground(QBrush(QColor("#ffffff")))      
+        item_host.setForeground(QBrush(QColor("#dddddd")))    
+        item_mac.setForeground(QBrush(QColor("#aaaaaa")))     
+        item_vendor.setForeground(QBrush(QColor("#aaaaaa")))  
+        item_memo.setForeground(QBrush(QColor("#00ff00")))    
         
-        if "Linux" in os_type:
-            c_os.setForeground(QBrush(QColor("#ff9900"))) # 오렌지
+        if "Linux" in os_type or "Ubuntu" in os_type:
+            item_os.setForeground(QBrush(QColor("#ff9900"))) 
         elif "Windows" in os_type:
-            c_os.setForeground(QBrush(QColor("#00bfff"))) # 하늘색
+            item_os.setForeground(QBrush(QColor("#00bfff"))) 
         else:
-            c_os.setForeground(QBrush(QColor("#777777"))) # 회색
+            item_os.setForeground(QBrush(QColor("#777777"))) 
 
-        self.asset_table.setItem(row, 0, c_ip)
-        self.asset_table.setItem(row, 1, c_os)
-        self.asset_table.setItem(row, 2, c_port)
-        self.asset_table.setItem(row, 3, c_memo)
+        # 가운데 정렬
+        for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
+            item.setTextAlignment(Qt.AlignCenter)
+
+        # 5. 테이블 배치
+        self.asset_table.setItem(row, 0, item_ip)     
+        self.asset_table.setItem(row, 1, item_host)   
+        self.asset_table.setItem(row, 2, item_os)     
+        self.asset_table.setItem(row, 3, item_mac)    
+        self.asset_table.setItem(row, 4, item_memo)   
+        self.asset_table.setItem(row, 5, item_vendor)
 
     def clear_asset_table(self):
         if self.asset_table.rowCount() == 0:
@@ -615,38 +639,60 @@ class ScannerApp(QMainWindow):
             self.timer.stop()
             self.pbar.setValue(100)
 
-    def update_asset_table(self, ip, os_type, open_ports):
+    def update_asset_table(self, ip, hostname, os_type, mac_addr, vendor):
         """[Optimized] 실시간 테이블 렌더링 대신 버퍼에 저장"""
         # 로그는 이미 실시간으로 뜨므로, 테이블 데이터는 모아둡니다.
-        self.scan_result_buffer.append((ip, os_type, open_ports))
+        self.scan_result_buffer.append((ip, hostname, os_type, mac_addr, vendor))
 
     def scan_finished(self, msg):
         self.timer.stop()
-        self.pbar.setValue(100)
-        self.set_ui_busy(False)
+        self.pbar.setValue(100) 
+        self.set_ui_busy(False) 
         
-        # [Batch Update] 모아둔 결과를 한 번에 테이블에 등록
         if self.scan_result_buffer:
-            self.log_message(f"[System] Registering {len(self.scan_result_buffer)} assets to table...")
+            count = len(self.scan_result_buffer)
+            self.log_message(f"[System] Registering {count} assets to table...")
             
-            self.asset_table.setSortingEnabled(False) # 속도 향상
+            self.asset_table.setSortingEnabled(False) 
+            self.asset_table.setUpdatesEnabled(False) 
             
             for data in self.scan_result_buffer:
-                ip, os, ports = data
-                self.add_asset_to_table(ip, os, ports)
+                ip, hostname, os_type, mac_addr, vendor = data
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
                 
-            self.asset_table.setSortingEnabled(True) # 정렬 복구
+            self.asset_table.setUpdatesEnabled(True) 
+            self.asset_table.setSortingEnabled(True) 
             self.log_message("[System] Table update completed.")
         
         QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)})")
+        
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
+        
+        self.time_label.setText("Ready")
+        self.time_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #ddd;")
+        
+        self.pbar.setValue(0) 
+
         self.log_message(f"[System] Scan Finished. (Total: {self.elapsed_seconds}s)")
         
-        # 보안 조치
         target_ip = self.ip_input.text().strip()
         user = self.user_input.text().strip()
         SecureStorage.delete_credential(target_ip, user)
+        
+        # [2단계 연동 추가] 스캔 종료 시 위험 IP 미들웨어로 보고
+        if target_ip:
+            self.log_message(f"[System] 📡 미들웨어에 취약점 진단 결과 전송 중... ({target_ip})")
+            # 취약점 개수는 예창패 시연을 위해 강제로 3개로 넘깁니다. 
+            threading.Thread(target=self.report_to_middleware, args=(target_ip, 3), daemon=True).start()
+        
+    def report_to_middleware(self, ip, vuln_count):
+        url = "http://127.0.0.1:8089/api/v1/vuln_report"
+        payload = {"target_ip": ip, "vuln_count": vuln_count}
+        try:
+            requests.post(url, json=payload, timeout=3)
+        except:
+            pass
 
     def start_network_scan(self):
         self.btn_scan.setEnabled(False) 
@@ -685,7 +731,8 @@ class ScannerApp(QMainWindow):
                 self.set_ui_busy(False)
                 return
             target_ports = list(range(1, 65536))
-        self.asset_table.setRowCount(0)
+        #self.asset_table.setRowCount(0)
+        self.log_message("--- New Scan Started ---")
         
         # 중복 방지 캐시 초기화
         if hasattr(self, 'scanned_ip_cache'):
@@ -909,36 +956,49 @@ class ScannerApp(QMainWindow):
         self.refresh_dashboard() # (만약 이런 기능이 있다면)
         
     def refresh_dashboard(self):
-        #DB에서 최신 데이터를 읽어와 테이블과 통계를 갱신합니다.
-        # 1. 통계 데이터 갱신
-        stats = self.db.get_dashboard_stats()
-        if hasattr(self, 'lbl_stats_assets'):
-            self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
-        if hasattr(self, 'lbl_stats_vulns'):
-            self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
+        # [DB Sync] 최신 데이터로 화면 갱신
+        
+        # 1. 통계 갱신 (에러 방지 처리)
+        try:
+            stats = self.db.get_dashboard_stats()
+            if hasattr(self, 'lbl_stats_assets'):
+                self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
+            if hasattr(self, 'lbl_stats_vulns'):
+                self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
+        except: pass
             
-        # 2. 자산 리스트 갱신
-        # 기존 테이블 초기화
+        # 2. 테이블 초기화
         self.asset_table.setRowCount(0)
-        self.scanned_ip_cache = set() # 캐시 초기화
+        self.scanned_ip_cache = set()
         
-        # DB에서 전체 자산 가져오기
-        assets = self.db.get_all_assets() # [(ip, os, memo, mac), ...]
-        
-        self.asset_table.setSortingEnabled(False) # 렌더링 속도 향상
-        
-        for ip, os_type, memo, mac_addr in assets:
-            # OS 표기 처리 (MAC 주소 있으면 병기)
-            display_os = os_type
-            if mac_addr: 
-                display_os = f"{os_type} | {mac_addr}"
+        # 3. 데이터 가져오기 (DBConnector.get_all_assets()는 항상
+        #    (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+        #    Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
+        #    (memo는 add_asset_to_table 내부에서 DB로부터 다시 조회하므로 여기서는 사용하지 않음)
+        assets = self.db.get_all_assets()
+
+        # 화면 깜빡임 방지
+        self.asset_table.setSortingEnabled(False)
+        self.asset_table.setUpdatesEnabled(False)
+
+        for data in assets:
+            try:
+                ip, os_type, _memo, mac_addr = data
+
+                # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
+                # (실제 데이터가 있으면 그대로 유지됨)
+                os_type  = "" if str(os_type) == "-"  else os_type
+                mac_addr = "" if str(mac_addr) == "-" else mac_addr
+
+                self.add_asset_to_table(ip, "", os_type, mac_addr, "")
+
+            except Exception as e:
+                print(f"Error refreshing row: {e}")
             
-            # 기존에 만드신 add_asset_to_table 재활용
-            self.add_asset_to_table(ip, display_os, "History", memo_text=memo)
-            
+        self.asset_table.setUpdatesEnabled(True)
         self.asset_table.setSortingEnabled(True)
         
-        self.log_message(f"[System] Dashboard Refreshed. (Assets: {stats['total_assets']})")
+        self.log_message(f"[System] Dashboard Refreshed. (Assets: {len(assets)})")
         
     def update_ui_by_license(self):
         # 1. 윈도우 제목 변경
@@ -978,7 +1038,7 @@ class ScannerApp(QMainWindow):
         
         msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
         QMessageBox.information(self, "License Change", msg)
-        
+
     # ----------------------------------------------------------------------
     # [TODO] 나중에 주석 해제하여 사용 (라이선스 다이얼로그 연동)
     # ----------------------------------------------------------------------
@@ -997,3 +1057,37 @@ class ScannerApp(QMainWindow):
             "☁️ [Cloud Sync]\n\n"
             "자산 데이터를 중앙 관제 대시보드(SaaS)로 전송합니다.\n"
             "(현재 데모 버전에서는 시뮬레이션만 수행됩니다.)")
+        
+    def load_saved_data(self):
+        #[Startup] DB에 저장된 자산 정보를 불러와 테이블에 채웁니다.
+        self.log_message("[System] Loading saved assets from database...")
+        
+        db = DBConnector()
+        assets = db.get_all_assets()
+        
+        if not assets:
+            self.log_message("[System] No saved assets found.")
+            return
+
+        # 화면 깜빡임 방지 (대량 데이터 로드 시 필수)
+        self.asset_table.setSortingEnabled(False)
+        self.asset_table.setUpdatesEnabled(False)
+        
+        count = 0
+        for asset in assets:
+            try:
+                # DBConnector.get_all_assets()는 항상
+                # (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+                # Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
+                ip, os_type, _memo, mac = asset
+                self.add_asset_to_table(ip, "", os_type, mac, "")
+                count += 1
+            except Exception as e:
+                print(f"Error loading asset: {e}")
+        
+        self.asset_table.setUpdatesEnabled(True)
+        self.asset_table.setSortingEnabled(True)
+        
+        # 상태 업데이트
+        self.lbl_stats_assets.setText(f"Assets: {count}")
+        self.log_message(f"[System] Successfully loaded {count} assets.")

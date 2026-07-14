@@ -56,6 +56,27 @@ class AdvancedScanner:
 
         self.SIGNATURES = [] 
         self.load_signatures()
+    
+    def get_system_vendor(self):
+        try:
+            # 윈도우가 아니면 실행 안 함
+            if not OSUtils.is_windows():
+                return None
+
+            # creationflags=0x08000000 : CMD 창 깜빡임 방지
+            cmd = "wmic csproduct get vendor"
+            output = subprocess.check_output(cmd, shell=True, creationflags=0x08000000).decode('utf-8', errors='ignore')
+            
+            lines = output.strip().splitlines()
+            for line in lines:
+                cleaned = line.strip()
+                if not cleaned or "Vendor" in cleaned:
+                    continue
+                return cleaned # 진짜 벤더 이름 반환 (예: innotek GmbH)
+                
+        except:
+            pass
+        return None
 
     def load_signatures(self):
         #[Hybrid Loader] 외부 JSON 룰 우선, 없으면 내부 기본값
@@ -129,12 +150,13 @@ class AdvancedScanner:
 
     def get_mac_address(self, ip):
         if ip in ["127.0.0.1", "localhost", "0.0.0.0"]: return "Localhost"
+        if not OSUtils.is_safe_host(ip): return "Unknown"
         mac_address = "Unknown"
         try:
-            cmd = f"arp -a {ip}" if OSUtils.is_windows() else f"arp -n {ip}"
-            kwargs = OSUtils.get_hidden_kwargs() if OSUtils.is_windows() else {}
-            
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, shell=True, **kwargs)
+            cmd = ["arp", "-a", ip] if OSUtils.is_windows() else ["arp", "-n", ip]
+            kwargs = OSUtils.get_subprocess_kwargs() if OSUtils.is_windows() else {}
+
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, **kwargs)
             if proc.returncode == 0:
                 mac_match = re.search(r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", proc.stdout)
                 if mac_match: 
@@ -160,13 +182,20 @@ class AdvancedScanner:
                 
                 mac_address = self.get_mac_address(ip)
                 vendor = OUILookup.lookup(mac_address)
+                
+                #만약 MAC으로 벤더를 못 찾았고, 내 로컬 PC(localhost)를 스캔 중이라면 wmic 시도
+                if vendor == "Unknown" and ip in ["127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())]:
+                    wmic_vendor = self.get_system_vendor()
+                    if wmic_vendor:
+                        vendor = wmic_vendor
+
         except: pass
         return is_alive, detected_os, mac_address, vendor
 
     def tcp_scan(self, ip, ports=None):
         target_ports = ports if ports else self.default_ports
         open_ports = []
-        timeout = 0.2
+        timeout = 1
         for port in target_ports:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
