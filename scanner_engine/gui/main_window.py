@@ -19,10 +19,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QSizePolicy
 )
-
 # [PySide6 핵심 기능]
 from PySide6.QtCore import Qt, QTimer
-
 # [PySide6 그래픽 및 액션]
 from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
 
@@ -39,15 +37,15 @@ def resource_path(relative_path):
 # 엔진 모듈 연동
 from core.worker import ScanWorker              
 from core.advanced_scanner import AdvancedScanner
+from core.license_validator import LicenseValidator
+from core.config import AppConfig
 from output.pdf_report import PDFGenerator
 from output.excel_report import ExcelGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
-from gui.styles import STYLESHEET
 from utils.network_visualizer import NetworkVisualizer
-from core.license_validator import LicenseValidator
-from core.config import AppConfig
+from gui.styles import STYLESHEET
 from gui.dialogs import LicenseDialog
 
 class LicenseManager:

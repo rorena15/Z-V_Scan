@@ -196,9 +196,7 @@ class VulnMatcher:
     
     @staticmethod
     def sync_kisa_code_on_db(db_path):
-        """
-        [NEW] DB를 직접 순회하며 누락된 KISA 코드를 업데이트하는 로직 (엑셀 리포트에서 이관됨)
-        """
+        #[NEW] DB를 직접 순회하며 누락된 KISA 코드를 업데이트하는 로직 (엑셀 리포트에서 호출)
         if not os.path.exists(db_path):
             return
 
@@ -226,11 +224,10 @@ class VulnMatcher:
             if updates:
                 cursor.executemany("UPDATE TBL_SCAN_RESULT SET kisa_code = ? WHERE result_id = ?", updates)
                 conn.commit()
-                print(f"[VulnMatcher] Auto-synced {len(updates)} records to KISA codes.")
+                # print(f"[VulnMatcher] Auto-synced {len(updates)} records to KISA codes.")
                 
         except Exception as e:
             print(f"[VulnMatcher] Sync Error: {e}")
         finally:
             conn.close()
-    
 VulnMatcher.load_rules()

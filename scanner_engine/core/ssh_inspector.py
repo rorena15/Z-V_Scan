@@ -103,6 +103,7 @@ class SSHInspector:
         results = {}
         rules = []
         
+        # 룰 파일 로드
         if os.path.exists(self.rules_path):
             try:
                 with open(self.rules_path, 'r', encoding='utf-8') as f:
@@ -114,17 +115,18 @@ class SSHInspector:
         
         for rule in rules:
             code = rule['code']
-            # [추가] KISA 코드 매핑
+            # [추가 1] KISA 코드 매핑 (없으면 내부 코드 사용)
             kisa_code = rule.get('kisa_code', rule.get('code', ''))
             
             cmd = rule['command']
             
-            # [핵심] 전체 출력 결과 저장
+            # [추가 2] 증적 확보 (명령어 실행 전체 결과)
             full_output = self.execute_command(cmd)
             
             status = "SAFE"
             detail = "양호 (점검 완료)"
 
+            # 판정 로직
             if "vulnerable_keyword" in rule:
                 if rule['vulnerable_keyword'] in full_output:
                     status = "VULNERABLE"
@@ -134,14 +136,14 @@ class SSHInspector:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
             
-            # [확장] 6개 튜플 반환
+            # [핵심 수정] 4개 -> 6개 튜플 반환 (증적 포함)
             results[code] = (
                 status, 
                 detail, 
                 rule.get('name', code), 
                 rule.get('remediation', ''),
-                full_output, # 증적
-                kisa_code    # KISA 코드
+                full_output,  # Raw Output (증적)
+                kisa_code     # KISA Code
             )
             
         return results

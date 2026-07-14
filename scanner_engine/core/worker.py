@@ -46,17 +46,16 @@ class ScanWorker(QThread):
         self.target_input = target_input
         self.user_info = {}
         self.default_user = None
-        
+
         if isinstance(user, dict):
             self.user_info = user
         elif isinstance(user, str) and user:
             self.default_user = user # 단일 타겟용 기본 계정 저장
-            
+
         self.custom_ports = ports
         self.stop_flag = False
         self.db_queue = db_queue if db_queue else queue.Queue()
         self.writer_thread = None
-        self.ports = ports
         self._security_token = get_engine_token()
 
     def run(self):
@@ -138,8 +137,11 @@ class ScanWorker(QThread):
         self.stop_flag = True
         self.log_signal.emit("[-] Stopping scan worker...")
 
+    # ----------------------------------------------------------------------
+    # [Module 1] DB Writer Loop (Consumer)
+    # ----------------------------------------------------------------------
     def db_writer(self):
-        # [수정] DB 쓰기 스레드: 증적(Raw Output) 데이터 처리 추가
+        """DB 쓰기 전용 스레드: 큐에서 데이터를 꺼내 DB에 저장"""
         db = DBConnector()
         while True:
             item = self.db_queue.get()
@@ -149,59 +151,51 @@ class ScanWorker(QThread):
             try:
                 msg_type, data = item
                 if msg_type == "ASSET":
-                    # Data: (ip, hostname, os_type, ports_str, mac_addr)
-                    db.save_asset(
-                        data[0], 
-                        hostname=data[1], 
-                        os_type=data[2], 
-                        open_ports=data[3],
-                        mac_addr=data[4]
-                    )
-                    
+                    self._save_asset_to_db(db, data)
                 elif msg_type == "SCAN_RESULT":
-                    # [확장] Data: (ip, code, name, risk, status, desc, remediation, raw_output, kisa_code)
-                    # Inspector 결과는 9개 요소, Port Scan 결과는 7개 요소일 수 있음 (유연성 처리)
-                    
-                    ip = data[0]
-                    asset_id = db.get_asset_id(ip)
-                    
-                    if asset_id:
-                        if len(data) >= 9:
-                            # [KISA Inspector Result] 증적 포함
-                            # (ip, code, name, risk, status, detail, remediation, raw_output, kisa_code)
-                            db.save_result(
-                                asset_id, 
-                                data[1], # code (내부 ID)
-                                data[2], # name
-                                data[3], # risk
-                                data[4], # status
-                                data[5], # detail (요약)
-                                data[6], # remediation
-                                raw_output=data[7], # [NEW] 증적
-                                kisa_code=data[8]   # [NEW] KISA 코드 (W-01 등)
-                            )
-                        else:
-                            # [Port Scan / Legacy Result] 증적 없음 (기존 방식 유지)
-                            # (ip, code, name, risk, status, detail, remediation)
-                            db.save_result(
-                                asset_id, 
-                                data[1], data[2], data[3], data[4], data[5], data[6],
-                                raw_output="", # 기본값
-                                kisa_code=""   # 기본값
-                            )
-
+                    self._save_result_to_db(db, data)
             except Exception as e:
                 AppLogger.log_error("DB Writer Error", e)
             finally:
                 self.db_queue.task_done()
 
+    def _save_asset_to_db(self, db, data):
+        # Data: (ip, hostname, os_type, ports_str, mac_addr)
+        db.save_asset(
+            data[0], hostname=data[1], os_type=data[2], 
+            open_ports=data[3], mac_addr=data[4]
+        )
+
+    def _save_result_to_db(self, db, data):
+        # [핵심 수정] 9개 인자 언패킹 (증적, KISA 코드 포함)
+        # Data: (ip, code, name, risk, status, detail, remediation, raw_output, kisa_code)
+        try:
+            if len(data) >= 9:
+                ip, code, name, risk, status, detail, remediation, raw_output, kisa_code = data[:9]
+            else:
+                # 구버전 호환성 (7개 인자일 경우)
+                ip, code, name, risk, status, detail, remediation = data[:7]
+                raw_output, kisa_code = "", ""
+
+            asset_id = db.get_asset_id(ip)
+            if asset_id:
+                db.save_result(
+                    asset_id, code, name, risk, status, detail, 
+                    remediation, raw_output, kisa_code
+                )
+        except ValueError as e:
+            AppLogger.log_error(f"DB Save Mismatch: {data}", e)
+
+    # ----------------------------------------------------------------------
+    # [Module 2] Target Parsing Logic
+    # ----------------------------------------------------------------------
     def parse_targets(self):
         targets = []
         try:
             raw_list = self.target_input.split(',')
             for raw in raw_list:
                 raw = raw.strip()
-                if '/' in raw:
+                if '/' in raw: # CIDR
                     net = ipaddress.ip_network(raw, strict=False)
                     for ip in net.hosts():
                         targets.append(str(ip))
@@ -217,7 +211,7 @@ class ScanWorker(QThread):
                             targets.append(f"{base}.{i}")
                     else:
                         targets.append(raw)
-                else:
+                else: # Single IP
                     targets.append(raw)
         except Exception as e:
             self.log_signal.emit(f"[!] Target Parse Error: {e}")
@@ -233,7 +227,11 @@ class ScanWorker(QThread):
 
         return sorted(list(set(safe_targets)))
 
+    # ----------------------------------------------------------------------
+    # [Module 3] Scanning Phases (Modularized)
+    # ----------------------------------------------------------------------
     def scan_target(self, ip):
+        """단일 타겟에 대한 전체 스캔 프로세스 오케스트레이션"""
         if self.stop_flag: return
         
         # [핵심] 시뮬레이션 타겟 확인
@@ -285,35 +283,43 @@ class ScanWorker(QThread):
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
 
         if not open_ports:
-            self.db_queue.put(("SCAN_RESULT", (ip, "INFO-00", "Host Alive", "Info", "Safe", "ICMP Ping Response Only", "-")))
-        
+            self.db_queue.put(("SCAN_RESULT", (
+                ip, "INFO-00", "Host Alive", "Info", "Safe",
+                "ICMP Ping Response Only", "-", "", ""
+            )))
+
         # 포트별 배너 및 기본 취약점 확인
         for port in open_ports:
             if self.stop_flag: break
             banner = f"Simulation Banner on {port}" if is_sim else scanner.grab_banner(ip, port)
             match_res = VulnMatcher.match(port, banner)
-            
+
             if not isinstance(match_res, dict): match_res = {}
-            
+
             status = "VULNERABLE" if match_res.get('risk') in ['High', 'Critical'] else "WARNING"
             if match_res.get('risk') == 'Info': status = "Safe"
-            
             self.db_queue.put(("SCAN_RESULT", (
-                ip, 
-                f"TCP-{port}", 
+                ip,
+                f"TCP-{port}",
                 match_res.get('name', f"Open Port {port}"),
                 match_res.get('risk', 'Low'),
                 status,
                 match_res.get('desc', banner),
-                match_res.get('remediation', '-')
+                match_res.get('remediation', '-'),
+                banner,                     # raw_output
+                match_res.get('kisa', '')   # kisa_code
             )))
 
         # [Phase 2] UDP Scan (시뮬레이션은 생략 가능)
         if not is_sim and self.mode != "FAST" and not self.stop_flag:
             udp_results = scanner.udp_scan(ip)
             for u_port, u_msg, u_len in udp_results:
+                udp_desc = f"UDP Port {u_port} is Open/Response. Payload Size: {u_len} bytes"
                 self.db_queue.put(("SCAN_RESULT", (
-                    ip, f"UDP-{u_port}", f"UDP Service ({u_port})", "Info", "WARNING", f"Payload: {u_len} bytes", "-"
+                    ip, f"UDP-{u_port}", f"UDP Service ({u_port})", "Info", "WARNING",
+                    udp_desc, "불필요한 경우 해당 UDP 서비스를 비활성화하십시오.",
+                    udp_desc,  # raw_output
+                    ""         # kisa_code (UDP는 매핑 없음)
                 )))
 
         # [Phase 3] Deep Inspection (증적 확보)
@@ -337,7 +343,7 @@ class ScanWorker(QThread):
             # Linux 진단 조건
             elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
                 inspector = SSHInspector(ip, username)
-            
+
             if inspector and inspector.connect():
                 results = inspector.run_all_checks()
                 for code, (status, detail, name, remediation, raw_output, kisa_code) in results.items():

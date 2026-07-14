@@ -1,5 +1,3 @@
-# [FINAL COMPLETED] utils/db_connector.py
-
 # --------------------------------------------------------------------------
 # Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
 # 
@@ -36,6 +34,7 @@ class DBConnector:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
         
+            # [최적화 적용] WAL 모드 활성화
             try:
                 cursor.execute("PRAGMA journal_mode=WAL;")
                 cursor.execute("PRAGMA synchronous=NORMAL;")
@@ -57,27 +56,52 @@ class DBConnector:
                 )
             ''')
 
-            # 2. 스캔 결과 테이블 (KISA 증적/예외처리 컬럼 포함)
+            # 2. 취약점 정의 테이블 (Optional)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS TBL_VULN_DEF (
+                    vuln_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT UNIQUE,
+                    name TEXT,
+                    category TEXT, 
+                    remediation TEXT
+                )
+            ''')
+
+            # 3. 스캔 결과 테이블 (증적 및 KISA 코드 컬럼 추가됨)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS TBL_SCAN_RESULT (
                     result_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     asset_id INTEGER,
-                    vuln_code TEXT,       
-                    kisa_code TEXT,       
+                    vuln_code TEXT,
+                    kisa_code TEXT,         -- [NEW] KISA 주요정보통신기반시설 코드 (예: U-01)
                     vuln_name TEXT,
                     risk_level TEXT,
-                    status TEXT,          
-                    detected_value TEXT,  
-                    raw_output TEXT,      
+                    status TEXT,
+                    detected_value TEXT,
+                    raw_output TEXT,        -- [NEW] 상세 증적 데이터 (헌법 2조 준수)
                     remediation TEXT,
-                    waiver_status INTEGER DEFAULT 0, 
-                    waiver_reason TEXT DEFAULT '',
+                    waiver_status INTEGER DEFAULT 0, -- [NEW] 예외처리 여부 (0:미처리, 1:예외)
+                    waiver_reason TEXT,              -- [NEW] 예외처리 사유
                     scan_date DATETIME,
                     FOREIGN KEY(asset_id) REFERENCES TBL_ASSETS(asset_id)
                 )
             ''')
             
-            # 3. 오픈 포트 테이블
+            # [마이그레이션] 기존 DB에 컬럼이 없을 경우 추가
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN kisa_code TEXT")
+            except sqlite3.OperationalError: pass
+            
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN raw_output TEXT")
+            except sqlite3.OperationalError: pass
+
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_status INTEGER DEFAULT 0")
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_reason TEXT")
+            except sqlite3.OperationalError: pass
+            
+            # 4. 오픈 포트 테이블
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS TBL_OPEN_PORTS (
                     port_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,16 +114,11 @@ class DBConnector:
                 )
             ''')
             
-            # 마이그레이션 (컬럼 추가)
-            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN raw_output TEXT DEFAULT ''")
-            except: pass
-            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN kisa_code TEXT DEFAULT ''")
-            except: pass
-            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_status INTEGER DEFAULT 0")
-            except: pass
-            try: cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_reason TEXT DEFAULT ''")
-            except: pass
-
+            # 자산 테이블 컬럼 보정
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN open_ports TEXT DEFAULT ''")
+            except sqlite3.OperationalError: pass
+            
             conn.commit()
             conn.close()
 
@@ -151,21 +170,22 @@ class DBConnector:
             except: return None
             finally: conn.close()
 
+    # [수정됨] 증적(raw_output) 및 KISA 코드(kisa_code) 저장 지원
     def save_result(self, asset_id, code, name, risk, status, detail, remediation="-", raw_output="", kisa_code=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
+                # 기존 결과 삭제 (덮어쓰기)
                 cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?", (asset_id, code))
                 
+                # 새로운 컬럼 포함하여 Insert
                 cursor.execute("""
                     INSERT INTO TBL_SCAN_RESULT 
                     (asset_id, vuln_code, kisa_code, vuln_name, risk_level, status, detected_value, raw_output, remediation, scan_date)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (asset_id, code, kisa_code, name, risk, status, detail, raw_output, remediation, now))
-                
                 conn.commit()
                 return True
             except Exception as e:
@@ -173,29 +193,9 @@ class DBConnector:
                 return False
             finally: conn.close()
 
-    def toggle_waiver(self, result_id, reason=""):
-        with self._db_lock:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT waiver_status FROM TBL_SCAN_RESULT WHERE result_id=?", (result_id,))
-                row = cursor.fetchone()
-                if not row: return False
-                
-                current_status = row[0]
-                new_status = 1 if current_status == 0 else 0
-                
-                cursor.execute("""
-                    UPDATE TBL_SCAN_RESULT 
-                    SET waiver_status=?, waiver_reason=? 
-                    WHERE result_id=?
-                """, (new_status, reason, result_id))
-                conn.commit()
-                return True
-            except Exception as e:
-                AppLogger.log_error(f"[DB] Toggle Waiver Error", e)
-                return False
-            finally: conn.close()
+    # 하위 호환성 유지용 (기존 코드가 이 메서드를 호출할 경우 대비)
+    def save_scan_result(self, asset_id, vuln_code, status, detail, vuln_name=None, remediation=None):
+        return self.save_result(asset_id, vuln_code, vuln_name or vuln_code, "Info", status, detail, remediation)
 
     def get_all_assets(self):
         with self._db_lock:

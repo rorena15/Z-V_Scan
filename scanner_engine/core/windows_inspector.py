@@ -115,37 +115,34 @@ class WindowsInspector:
             AppLogger.log_error(f"Windows rules file not found: {self.rules_path}")
 
         for rule in rules:
-            code = rule['code'] # 내부 ID (Unique Key)
-            # [추가] KISA 코드 매핑 (없으면 내부 ID 사용)
-            kisa_code = rule.get('kisa_code', rule.get('code', '')) 
+            code = rule['code']
+            # [추가 1] KISA 코드
+            kisa_code = rule.get('kisa_code', rule.get('code', ''))
             
             cmd = rule['command']
-            
-            # [핵심] 전체 출력 결과 저장 (증적용)
+            # [추가 2] 증적 확보
             full_output = self.execute_ps(cmd)
 
             status = "SAFE"
             detail = "양호 (설정 확인됨)"
 
-            # 판정 로직
             if "vulnerable_keyword" in rule:
                 if rule['vulnerable_keyword'] in full_output:
                     status = "VULNERABLE"
-                    # UI용 요약 (짧게)
                     detail = f"취약 설정 발견: {full_output[:40]}..."
             elif "safe_keyword" in rule:
                 if not full_output or rule['safe_keyword'] not in full_output:
                     status = "VULNERABLE"
                     detail = f"필수 설정 미흡: {rule['safe_keyword']} 누락"
 
-            # [확장] 6개의 값을 튜플로 반환
+            # [핵심 수정] 6개 튜플 반환
             results[code] = (
                 status, 
                 detail, 
                 rule.get('name', code), 
                 rule.get('remediation', ''),
-                full_output, # 증적 (Raw Data)
-                kisa_code    # KISA 코드
+                full_output, # Raw Output
+                kisa_code    # KISA Code
             )
             
         return results

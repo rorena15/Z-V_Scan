@@ -19,18 +19,19 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
 import core.vuln_matcher as Vuln
+
 class ExcelGenerator:
     # --- KISA 스타일 상수 정의 ---
     COLOR_HEADER_BG = 'E7E6E6'   # 헤더 배경 (연한 회색)
     COLOR_BORDER = '000000'      # 테두리 (검정)
     
-    # 위험도 색상
+    # 위험도 색상 코드 (Hex)
     COLOR_CRITICAL = 'FFCCCC' # 상 (연한 빨강)
     COLOR_HIGH = 'FFE6CC'     # 중 (연한 주황)
     COLOR_GOOD = 'E2EFDA'     # 양호 (연한 초록)
     COLOR_WAIVER = 'D9D9D9'   # 예외 (회색)
 
-    # 폰트
+    # 폰트 정의
     FONT_TITLE = Font(name='맑은 고딕', size=20, bold=True)
     FONT_HEADER = Font(name='맑은 고딕', size=10, bold=True)
     FONT_NORMAL = Font(name='맑은 고딕', size=9)
@@ -42,6 +43,12 @@ class ExcelGenerator:
         right=Side(style='thin', color=COLOR_BORDER),
         top=Side(style='thin', color=COLOR_BORDER),
         bottom=Side(style='thin', color=COLOR_BORDER)
+    )
+
+    # 단순 얇은 테두리 (호환성)
+    BORDER_THIN = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
     )
 
     def __init__(self):
@@ -60,6 +67,27 @@ class ExcelGenerator:
             except OSError:
                 pass
 
+        # [Fix] 누락되었던 스타일 속성 초기화
+        self.HEADER_FILL = PatternFill(start_color=self.COLOR_HEADER_BG, end_color=self.COLOR_HEADER_BG, fill_type='solid')
+
+        self.RISK_COLORS = {
+            "Critical": self.COLOR_CRITICAL,
+            "High": self.COLOR_HIGH,
+            "Medium": "FFFFCC", # 약한 노랑
+            "Low": self.COLOR_GOOD,
+            "Info": "F2F2F2",
+            "Safe": self.COLOR_GOOD
+        }
+
+        self.RISK_ICONS = {
+            "Critical": "🔴",
+            "High": "🟠",
+            "Medium": "🟡",
+            "Low": "🟢",
+            "Info": "⚪",
+            "Safe": "✅"
+        }
+
     def clean_text(self, text):
         #엑셀에서 허용하지 않는 특수문자 제거
         if not text:
@@ -70,9 +98,7 @@ class ExcelGenerator:
         return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
 
     def _style_range(self, ws, cell_range, border=None, fill=None, font=None, alignment=None):
-        """
-        [Fix] 단일 셀('A1')과 범위('A1:B2') 모두 처리하도록 개선
-        """
+        """단일 셀('A1')과 범위('A1:B2') 모두 처리하도록 개선"""
         selection = ws[cell_range]
         
         # 만약 selection이 튜플/리스트가 아니라면(단일 Cell 객체라면), 튜플로 감싸서 반복 가능하게 만듦
@@ -90,6 +116,7 @@ class ExcelGenerator:
         try:
             wb = Workbook()
             
+            # KISA 코드 동기화 (안전장치)
             Vuln.VulnMatcher.sync_kisa_code_on_db(self.db.db_path)
             
             scan_data = self._fetch_scan_result()
@@ -102,6 +129,7 @@ class ExcelGenerator:
             self._create_detail_sheet(wb, scan_data)
             self._create_asset_sheet(wb, asset_data)
             
+            # 기본 Sheet 제거
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
 
@@ -198,13 +226,11 @@ class ExcelGenerator:
         ]
         
         for title, content in overview_data:
-            # 제목 (단일 셀)
             ws[f'B{row}'] = title
             self._style_range(ws, f'B{row}', border=self.BORDER_ALL, 
                               fill=PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid'),
                               alignment=Alignment(horizontal='center', vertical='center'))
             
-            # 내용 (병합 범위)
             range_content = f'C{row}:E{row}'
             ws.merge_cells(range_content)
             ws[f'C{row}'] = content
@@ -238,14 +264,12 @@ class ExcelGenerator:
         
         for i, h in enumerate(headers):
             col_idx = 2 + i
-            # 헤더
             cell = ws.cell(row=row, column=col_idx)
             cell.value = h
             cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
             cell.border = self.BORDER_ALL
             cell.alignment = Alignment(horizontal='center')
             
-            # 값
             val_cell = ws.cell(row=row+1, column=col_idx)
             val_cell.value = values[i]
             val_cell.border = self.BORDER_ALL
@@ -255,8 +279,10 @@ class ExcelGenerator:
             ws.column_dimensions[get_column_letter(col_idx)].width = 20
 
     def _create_detail_sheet(self, wb, scan_data):
+        """[Detail] 상세 취약점 목록 (KISA 스타일 + 32k 방어 적용)"""
         ws = wb.create_sheet("2.상세점검결과")
         
+        # 1. 헤더 설정
         headers = [
             ("A", "No", 5), ("B", "자산 IP", 15), ("C", "호스트명", 20),
             ("D", "진단코드", 12), ("E", "항목명", 30), ("F", "중요도", 10),
@@ -267,7 +293,7 @@ class ExcelGenerator:
         for col, title, width in headers:
             cell = ws[f'{col}1']
             cell.value = title
-            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
+            cell.fill = self.HEADER_FILL
             cell.font = self.FONT_HEADER
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = self.BORDER_ALL
@@ -276,6 +302,7 @@ class ExcelGenerator:
         ws.row_dimensions[1].height = 25
         ws.freeze_panes = 'A2'
 
+        # 2. 데이터 입력 루프
         for idx, row in enumerate(scan_data, 1):
             ip, hostname = row[0], row[1]
             kisa_code = row[2] if row[2] else row[3]
@@ -288,6 +315,11 @@ class ExcelGenerator:
             is_waived = row[10]
             waiver_reason = row[11]
 
+            # [핵심] 32k 글자 수 제한 방어 로직
+            if evidence and len(str(evidence)) > 32000:
+                evidence = str(evidence)[:32000] + "\n...[증적 내용이 너무 길어 엑셀 제한에 의해 잘렸습니다. DB를 확인하세요.]"
+
+            # KISA 상태 한글화
             final_status = "양호"
             if is_waived == 1: final_status = "예외"
             elif status == "VULNERABLE": final_status = "취약"
@@ -302,9 +334,11 @@ class ExcelGenerator:
                 cell.border = self.BORDER_ALL
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
                 
+                # 가운데 정렬
                 if c_idx in [1, 2, 4, 6, 7]: 
                     cell.alignment = Alignment(horizontal='center', vertical='top')
                 
+                # 진단결과(G열) 색상 처리
                 if c_idx == 7: 
                     cell.font = self.FONT_BOLD
                     if final_status == "취약": cell.fill = PatternFill(start_color=self.COLOR_CRITICAL, fill_type='solid')
@@ -317,7 +351,7 @@ class ExcelGenerator:
         for i, h in enumerate(headers):
             cell = ws.cell(row=1, column=i+1)
             cell.value = h
-            cell.fill = PatternFill(start_color=self.COLOR_HEADER_BG, fill_type='solid')
+            cell.fill = self.HEADER_FILL
             cell.font = self.FONT_HEADER
             cell.border = self.BORDER_ALL
             cell.alignment = Alignment(horizontal='center', vertical='center')
