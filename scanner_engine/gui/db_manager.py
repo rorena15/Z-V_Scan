@@ -47,12 +47,12 @@ class DatabaseManagerDialog(QDialog):
         # 1. 상단 안내 및 버튼
         top_layout = QHBoxLayout()
         
-        info_lbl = QLabel("💡 팁: 셀을 더블 클릭하면 내용을 수정할 수 있습니다. (IP는 수정 불가)")
+        info_lbl = QLabel("팁: 셀을 더블 클릭하면 내용을 수정할 수 있습니다. (IP는 수정 불가)")
         
-        btn_refresh = QPushButton("🔄 새로고침 (Refresh)")
+        btn_refresh = QPushButton("새로고침 (Refresh)")
         btn_refresh.clicked.connect(self.load_data)
         
-        btn_delete = QPushButton("🗑️ 선택 삭제 (Delete)")
+        btn_delete = QPushButton("선택 삭제 (Delete)")
         btn_delete.setStyleSheet("background-color: #c62828; border-color: #8e0000;") # 빨간색
         btn_delete.clicked.connect(self.delete_selected_row)
 

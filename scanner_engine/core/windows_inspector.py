@@ -17,8 +17,15 @@ from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
 from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
+from utils.expert_profile import get_excluded_codes
 
 class WindowsInspector:
+    # [안정성] secedit 기반 룰들이 각자 자기 임시파일에 export/삭제를 반복하면
+    # (특히 백신 실시간 검사와 겹칠 때) 간헐적으로 파일이 비어있거나 잠겨 판정이
+    # 흔들리는 문제가 있어, 감사 시작 시 딱 한 번만 export한 뒤 모든 룰이 같은
+    # 캐시 파일을 읽도록 공유한다.
+    SECEDIT_CACHE_PATH = r"C:\zvulnscan_secpol_cache.cfg"
+
     def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False, demo_mode=False):
         self.ip = ip
         self.username = username
@@ -97,27 +104,34 @@ class WindowsInspector:
         s = script.lower()
         # [locale-safe 점검] secedit/reg query 기반 점검(W-04/W-08/W-09/W-11/W-12/W-14/W-40/W-41/PC-01/PC-02 등)은
         # 실제 PS 스크립트를 실행하지 않으므로, 스크립트가 최종적으로 반환할 값(OK/FAIL 센티널 또는 원문 텍스트)에
-        # 맞춰 흉내낸다. 임시파일명(secpol_xxx.cfg)처럼 스크립트별로 고유한 문자열을 우선순위 높은 트리거로 사용한다.
+        # 맞춰 흉내낸다. 모든 secedit 룰이 공유 캐시 파일(zvulnscan_secpol_cache.cfg)을 읽으므로 임시파일명 대신
+        # 조회 키 이름(들)의 조합으로 MAIN(원문 덤프)과 개별 criteria(OK/FAIL 판정)를 구분한다.
+        # [중요] 여러 키를 한 번에 조회하는 "조합 확인"을 먼저 검사하고, 그 다음에 단일 키 확인으로 내려가야 한다.
+
+        # ---- W-08 계정 잠금 기간 (MAIN: 2개 키 동시 조회, criteria: 단일 키 + OK/FAIL) ----
+        if "lockoutduration" in s and "resetlockoutcount" in s:
+            return "LockoutDuration = 60\r\nResetLockoutCount = 30"
+        if "lockoutduration" in s: return "OK"    # criteria: LockoutDuration >= 60
+        if "resetlockoutcount" in s: return "FAIL"  # criteria: ResetLockoutCount < 60 -> 부분만족 예시
 
         # ---- W-04 계정 잠금 임계값 ----
         if "lockoutbadcount" in s: return "LockoutBadCount = 0"  # 잠금 임계값 미설정 -> 취약 예시
 
-        # ---- W-08 계정 잠금 기간 (criteria: LockoutDuration / ResetLockoutCount) ----
-        if "secpol_w08a.cfg" in s: return "OK"    # LockoutDuration >= 60
-        if "secpol_w08b.cfg" in s: return "FAIL"  # ResetLockoutCount < 60 -> 부분만족 예시
-        if "secpol_w08.cfg" in s: return "LockoutDuration = 60\r\nResetLockoutCount = 30"
+        # ---- PC-02 비밀번호 관리정책 (MAIN: 2개 키 동시 조회) - W-09 단일 키 검사보다 먼저 확인해야 함 ----
+        if "minimumpasswordlength" in s and "passwordcomplexity" in s:
+            return "MinimumPasswordLength = 8\r\nPasswordComplexity = 0"
 
-        # ---- W-09 비밀번호 관리정책 (criteria 5개) ----
-        if "secpol_w09a.cfg" in s: return "OK"    # MaximumPasswordAge <= 90
-        if "secpol_w09b.cfg" in s: return "FAIL"  # MinimumPasswordLength < 8 -> 부분만족 예시
-        if "secpol_w09c.cfg" in s: return "OK"    # MinimumPasswordAge >= 1
-        if "secpol_w09d.cfg" in s: return "OK"    # PasswordHistorySize > 0
-        if "secpol_w09e.cfg" in s: return "OK"    # PasswordComplexity == 1
+        # ---- W-09 비밀번호 관리정책 (MAIN: 2개 키 동시 조회, criteria: 단일 키 + OK/FAIL, 5개) ----
         if "maximumpasswordage" in s and "minimumpasswordlength" in s:
             return "MaximumPasswordAge = 90\r\nMinimumPasswordLength = 0"
+        if "maximumpasswordage" in s: return "OK"    # criteria: MaximumPasswordAge <= 90
+        if "minimumpasswordlength" in s: return "FAIL"  # criteria: MinimumPasswordLength < 8 -> 부분만족 예시
+        if "minimumpasswordage" in s: return "OK"    # criteria: MinimumPasswordAge >= 1
+        if "passwordhistorysize" in s: return "OK"   # criteria: PasswordHistorySize > 0
+        if "passwordcomplexity" in s: return "OK"    # criteria(W-09/PC-02 공용): PasswordComplexity == 1
 
         # ---- W-11 로컬 로그온 허용 (Administrators SID만 허용) ----
-        if "secpol_w11.cfg" in s or "seinteractivelogonright" in s: return "OK"
+        if "seinteractivelogonright" in s: return "OK"
 
         # ---- W-12 익명 SID/이름 변환 허용 해제 ----
         if "lsaanonymousnamelookup" in s: return "0"  # 비활성화(0) -> 양호 예시
@@ -137,15 +151,15 @@ class WindowsInspector:
         # ---- W-39/W-45 백신 설치 (Defender 서비스 또는 서드파티 프로세스) ----
         if "mcshield" in s or "windefend" in s: return "OK"
 
-        # ---- W-40 감사 정책 (criteria 6개: secpol_w40a~f.cfg) ----
-        if "secpol_w40a.cfg" in s: return "OK"    # AuditAccountManage
-        if "secpol_w40b.cfg" in s: return "FAIL"  # AuditLogonEvents -> 부분만족 예시
-        if "secpol_w40c.cfg" in s: return "OK"    # AuditDSAccess
-        if "secpol_w40d.cfg" in s: return "OK"    # AuditAccountLogon
-        if "secpol_w40e.cfg" in s: return "OK"    # AuditSystemEvents
-        if "secpol_w40f.cfg" in s: return "OK"    # AuditPolicyChange
+        # ---- W-40 감사 정책 (MAIN: 6개 키 동시 조회, criteria: 단일 키 + OK/FAIL, 6개) ----
         if "auditaccountmanage" in s and "auditlogonevents" in s:
             return "AuditAccountManage = 3\r\nAuditLogonEvents = 0\r\nAuditDSAccess = 3\r\nAuditAccountLogon = 3\r\nAuditSystemEvents = 3\r\nAuditPolicyChange = 3"
+        if "auditaccountmanage" in s: return "OK"
+        if "auditlogonevents" in s: return "FAIL"  # -> 부분만족 예시
+        if "auditdsaccess" in s: return "OK"
+        if "auditaccountlogon" in s: return "OK"
+        if "auditsystemevents" in s: return "OK"
+        if "auditpolicychange" in s: return "OK"
 
         # ---- W-41 NTP 시각 동기화 (NtpServer 레지스트리 값) ----
         if "ntpserver" in s: return "FAIL"  # 값 미설정 -> 취약 예시
@@ -190,16 +204,9 @@ class WindowsInspector:
         if "-profile public" in s: return "True"
         if "get-netfirewallprofile" in s: return "Name: Domain, Enabled: True\r\nName: Private, Enabled: False\r\nName: Public, Enabled: True"
 
-        # ---- PC-01 비밀번호 주기적 변경 ----
-        if "secpol_pc01a.cfg" in s: return "OK"  # MaximumPasswordAge <= 90
+        # ---- PC-01 비밀번호 주기적 변경 (criteria 1: MaximumPasswordAge, W-09 공용 규칙으로 처리됨) ----
         # [criteria 데모] PC-01 세부기준 2: 만료 미설정 계정 존재 -> 부분만족 예시
         if "win32_useraccount" in s: return "Guest"
-
-        # ---- PC-02 비밀번호 관리정책 (criteria: secpol_pc02a/b.cfg) ----
-        if "secpol_pc02a.cfg" in s: return "OK"    # MinimumPasswordLength >= 8
-        if "secpol_pc02b.cfg" in s: return "FAIL"  # PasswordComplexity != 1 -> 부분만족 예시
-        if "secpol_pc02" in s or ("minimumpasswordlength" in s and "passwordcomplexity" in s):
-            return "MinimumPasswordLength = 8\r\nPasswordComplexity = 0"
 
         # ---- PC-04 공유폴더 제거 (Win32_Share Everyone 점검) ----
         if "win32_share" in s: return "OK"
@@ -232,10 +239,6 @@ class WindowsInspector:
         # ---- PC-18 원격 지원 금지 (fAllowUnsolicited) ----
         if "fallowunsolicited" in s: return "fAllowUnsolicited    REG_DWORD    0x0"
 
-        # ---- 그 외 bare 키워드 최종 폴백 (위 어떤 특정 트리거에도 안 걸린 잔여 secedit 덤프용) ----
-        if "maximumpasswordage" in s: return "OK"
-        if "minimumpasswordlength" in s: return "FAIL"
-
         if "administrator" in s: return "Name: Administrator, Enabled: True"
         if "guest" in s: return ""
         if "tlntsvr" in s: return "Status: Running"
@@ -262,35 +265,62 @@ class WindowsInspector:
         else:
             AppLogger.log_error(f"Windows rules file not found: {self.rules_path}")
 
+        # [Phase 3: 전문가 모드] 사용자가 이 룰셋에서 제외한 코드는 아예 실행하지 않는다
+        excluded_codes = get_excluded_codes(self.ruleset)
+        if excluded_codes:
+            rules = [r for r in rules if r['code'] not in excluded_codes]
+
         throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
 
-        for rule in rules:
-            code = rule['code']
-            # [추가 1] KISA 코드
-            kisa_code = rule.get('kisa_code', rule.get('code', ''))
+        def _uses_cache(rule):
+            if self.SECEDIT_CACHE_PATH in rule.get('command', ''):
+                return True
+            return any(self.SECEDIT_CACHE_PATH in c.get('command', '') for c in rule.get('criteria', []))
+        needs_secedit = any(_uses_cache(rule) for rule in rules)
+        if needs_secedit:
+            self._prime_secedit_cache()
 
-            cmd = rule['command']
-            # [추가 2] 증적 확보
-            t0 = time.time()
-            full_output = self.execute_ps(cmd)
-            # [OT/저속 모드] 응답이 느려질수록 다음 명령 전 대기시간을 자동으로 늘림
-            throttle.wait(time.time() - t0)
+        try:
+            for rule in rules:
+                code = rule['code']
+                # [추가 1] KISA 코드
+                kisa_code = rule.get('kisa_code', rule.get('code', ''))
 
-            # 판정 로직 (단일조건: 취약/양호/수동검토, 다중조건(criteria): 취약/부분만족/양호, 공통: 해당없음)
-            status, detail = judge_rule(rule, full_output, execute_fn=self.execute_ps)
+                cmd = rule['command']
+                # [추가 2] 증적 확보
+                t0 = time.time()
+                full_output = self.execute_ps(cmd)
+                # [OT/저속 모드] 응답이 느려질수록 다음 명령 전 대기시간을 자동으로 늘림
+                throttle.wait(time.time() - t0)
 
-            # [핵심 수정] 6개 -> 7개 튜플 반환 (중요도 포함)
-            results[code] = (
-                status,
-                detail,
-                rule.get('name', code),
-                rule.get('remediation', ''),
-                full_output, # Raw Output
-                kisa_code,   # KISA Code
-                rule.get('importance', '중')  # 중요도 (상/중/하)
-            )
+                # 판정 로직 (단일조건: 취약/양호/수동검토, 다중조건(criteria): 취약/부분만족/양호, 공통: 해당없음)
+                status, detail = judge_rule(rule, full_output, execute_fn=self.execute_ps)
+
+                # [핵심 수정] 6개 -> 7개 튜플 반환 (중요도 포함)
+                results[code] = (
+                    status,
+                    detail,
+                    rule.get('name', code),
+                    rule.get('remediation', ''),
+                    full_output, # Raw Output
+                    kisa_code,   # KISA Code
+                    rule.get('importance', '중')  # 중요도 (상/중/하)
+                )
+        finally:
+            if needs_secedit:
+                self._cleanup_secedit_cache()
 
         return results
+
+    def _prime_secedit_cache(self):
+        if self.is_simulation:
+            return
+        self.execute_ps(f'secedit /export /cfg {self.SECEDIT_CACHE_PATH} | Out-Null')
+
+    def _cleanup_secedit_cache(self):
+        if self.is_simulation:
+            return
+        self.execute_ps(f'Remove-Item {self.SECEDIT_CACHE_PATH} -Force -ErrorAction SilentlyContinue')
 
     def set_ruleset(self, ruleset):
         """연결된 세션을 유지한 채 점검 룰셋만 교체 (PC vs Server 재분류용)"""
@@ -304,7 +334,7 @@ class WindowsInspector:
         """
         if self.is_simulation:
             return {
-                "os_info": "OS Name: Microsoft Windows Server 2019 Standard (Simulation)",
+                "os_info": "Host Name:                 SIM-WIN-HOST\r\nOS Name:                   Microsoft Windows Server 2019 Standard (Simulation)",
                 "ip_info": "Ethernet adapter: 0.0.0.0",
                 "port_info": "TCP    0.0.0.0:445    LISTENING\nTCP    0.0.0.0:3389   LISTENING",
                 "service_info": "RemoteRegistry     Running\nSpooler            Running",

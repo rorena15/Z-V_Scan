@@ -56,7 +56,7 @@ class LegalDisclaimerDialog(QDialog):
         
         # 1. 경고 아이콘 및 제목
         title_layout = QHBoxLayout()
-        title_label = QLabel("⚠️ Security Tool Usage Warning")
+        title_label = QLabel("Security Tool Usage Warning")
         title_label.setStyleSheet("font-size: 18pt; font-weight: bold; color: #ff5555;")
         title_layout.addWidget(title_label)
         title_layout.addStretch()
@@ -211,10 +211,10 @@ class LicenseDialog(QDialog):
         if is_valid:
             if LicenseValidator.save_license(key):
                 self.verified_tier = tier
-                QMessageBox.information(self, "Activation Successful", 
-                                        f"✅ 정품 인증이 완료되었습니다.\n\n[Active Tier]: {tier}")
+                QMessageBox.information(self, "Activation Successful",
+                                        f"정품 인증이 완료되었습니다.\n\n[Active Tier]: {tier}")
                 self.accept()
             else:
                 QMessageBox.warning(self, "System Error", "라이선스 파일을 저장할 수 없습니다.\n권한을 확인하세요.")
         else:
-            QMessageBox.warning(self, "Invalid Key", "⛔ 유효하지 않은 라이선스 키입니다.\n입력한 내용을 다시 확인해주세요.")
+            QMessageBox.warning(self, "Invalid Key", "유효하지 않은 라이선스 키입니다.\n입력한 내용을 다시 확인해주세요.")

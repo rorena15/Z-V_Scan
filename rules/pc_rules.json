@@ -4,13 +4,21 @@
     "name": "비밀번호의 주기적 변경",
     "category": "계정 관리",
     "importance": "상",
-    "command": "secedit /export /cfg C:\\secpol_pc01.cfg; Select-String 'MaximumPasswordAge' C:\\secpol_pc01.cfg; Remove-Item C:\\secpol_pc01.cfg -Force",
+    "command": "Select-String '^MaximumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "safe_keyword": "MaximumPasswordAge",
     "description": "비밀번호의 주기적 변경 (net accounts 화면 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
     "remediation": "net accounts /maxpwage:90 /minpwage:1 설정, 암호 사용 기간 제한 없음으로 설정된 계정 확인",
     "criteria": [
-      {"label": "최대 암호 사용 기간 90일 이하", "command": "secedit /export /cfg C:\\secpol_pc01a.cfg | Out-Null; $v = (Select-String 'MaximumPasswordAge' C:\\secpol_pc01a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_pc01a.cfg -Force; if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "암호 만료 미설정 계정 존재하지 않음", "command": "$u = Get-WmiObject -Query \"SELECT Name FROM Win32_UserAccount WHERE LocalAccount='True' AND Disabled='False' AND PasswordExpires='False'\"; if (-not $u) { 'OK' } else { ($u | Select-Object -ExpandProperty Name) -join ',' }", "safe_keyword": "OK"}
+      {
+        "label": "최대 암호 사용 기간 90일 이하",
+        "command": "$v = (Select-String '^MaximumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 만료 미설정 계정 존재하지 않음",
+        "command": "$u = Get-WmiObject -Query \"SELECT Name FROM Win32_UserAccount WHERE LocalAccount='True' AND Disabled='False' AND PasswordExpires='False'\"; if (-not $u) { 'OK' } else { ($u | Select-Object -ExpandProperty Name) -join ',' }",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -18,13 +26,21 @@
     "name": "비밀번호 관리정책 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "secedit /export /cfg C:\\secpol_pc02.cfg; Select-String 'MinimumPasswordLength','PasswordComplexity' C:\\secpol_pc02.cfg; Remove-Item C:\\secpol_pc02.cfg -Force",
+    "command": "Select-String '^MinimumPasswordLength\\s*=','^PasswordComplexity\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "safe_keyword": "MinimumPasswordLength",
     "description": "비밀번호 관리정책 설정 (기존 방식은 PasswordComplexity 문자열이 존재하기만 하면 통과되어 PasswordComplexity=0(사용 안 함)도 양호로 오판하는 결함이 있어, secedit 기반 실제 수치/값으로 점검합니다)",
     "remediation": "최소 암호 길이 8자 이상, 암호 복잡성 사용함으로 설정",
     "criteria": [
-      {"label": "최소 암호 길이 8자 이상", "command": "secedit /export /cfg C:\\secpol_pc02a.cfg | Out-Null; $v = (Select-String 'MinimumPasswordLength' C:\\secpol_pc02a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_pc02a.cfg -Force; if([int]$v -ge 8){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "암호 복잡성(PasswordComplexity) 사용", "command": "secedit /export /cfg C:\\secpol_pc02b.cfg | Out-Null; $v = (Select-String 'PasswordComplexity' C:\\secpol_pc02b.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_pc02b.cfg -Force; if([int]$v -eq 1){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {
+        "label": "최소 암호 길이 8자 이상",
+        "command": "$v = (Select-String '^MinimumPasswordLength\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 8){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 복잡성(PasswordComplexity) 사용",
+        "command": "$v = (Select-String '^PasswordComplexity\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -47,8 +63,15 @@
     "description": "공유폴더 제거 (AutoShareWks 기본 공유뿐 아니라, 수동으로 만든 공유에 Everyone 권한이 부여된 경우도 함께 점검합니다)",
     "remediation": "net share <공유명> /delete로 불필요한 공유 제거, AutoShareWks 값을 0으로 설정",
     "criteria": [
-      {"label": "AutoShareWks 비활성화(0x0)", "vulnerable_keyword": "0x1"},
-      {"label": "공유별 Everyone 권한 없음", "command": "$bad=$false; try{ $shares = Get-CimInstance Win32_Share -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch '^(ADMIN\\$|IPC\\$|[A-Za-z]\\$)$'}; foreach($sh in $shares){ $out = net share $sh.Name 2>$null; if($out -match 'Everyone'){$bad=$true} } }catch{}; if($bad){'FAIL'}else{'OK'}", "safe_keyword": "OK"}
+      {
+        "label": "AutoShareWks 비활성화(0x0)",
+        "vulnerable_keyword": "0x1"
+      },
+      {
+        "label": "공유별 Everyone 권한 없음",
+        "command": "$bad=$false; try{ $shares = Get-CimInstance Win32_Share -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch '^(ADMIN\\$|IPC\\$|[A-Za-z]\\$)$'}; foreach($sh in $shares){ $out = net share $sh.Name 2>$null; if($out -match 'Everyone'){$bad=$true} } }catch{}; if($bad){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -70,10 +93,25 @@
     "description": "비인가 상용 메신저 사용 금지 (프로세스 스냅샷만으로는 '설치되어 있지만 현재 실행 중이 아닌' 경우를 놓치므로, 설치 폴더/WindowsApps 패키지/Messenger 서비스/GPO 실행 제한 설정도 함께 점검합니다)",
     "remediation": "업무 목적 외 상용 메신저 제거 및 실행 제한(GPO Windows Messenger 정책) 설정",
     "criteria": [
-      {"label": "메신저 프로세스 미실행", "vulnerable_keyword": "ProcessName"},
-      {"label": "카카오톡 설치 폴더 없음", "command": "if((Test-Path 'C:\\Program Files\\Kakao\\KakaoTalk') -or (Test-Path 'C:\\Program Files (x86)\\Kakao\\KakaoTalk')){'FAIL'}else{'OK'}", "safe_keyword": "OK"},
-      {"label": "WindowsApps 메신저 패키지(facebook/telegram) 없음", "command": "$p = Get-ChildItem 'C:\\Program Files\\WindowsApps' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'facebook|telegram' }; if($p){'FAIL'}else{'OK'}", "safe_keyword": "OK"},
-      {"label": "Windows Messenger 서비스 없음 또는 GPO로 실행 제한(PreventRun=1)", "command": "$svc = Get-Service -Name Messenger -ErrorAction SilentlyContinue; if(-not $svc){'OK'} else { $pr = reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client\" /v PreventRun 2>$null | Select-String 'PreventRun'; if($pr -and ($pr.ToString() -match '0x1')){'OK'}else{'FAIL'} }", "safe_keyword": "OK"}
+      {
+        "label": "메신저 프로세스 미실행",
+        "vulnerable_keyword": "ProcessName"
+      },
+      {
+        "label": "카카오톡 설치 폴더 없음",
+        "command": "if((Test-Path 'C:\\Program Files\\Kakao\\KakaoTalk') -or (Test-Path 'C:\\Program Files (x86)\\Kakao\\KakaoTalk')){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "WindowsApps 메신저 패키지(facebook/telegram) 없음",
+        "command": "$p = Get-ChildItem 'C:\\Program Files\\WindowsApps' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'facebook|telegram' }; if($p){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "Windows Messenger 서비스 없음 또는 GPO로 실행 제한(PreventRun=1)",
+        "command": "$svc = Get-Service -Name Messenger -ErrorAction SilentlyContinue; if(-not $svc){'OK'} else { $pr = reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client\" /v PreventRun 2>$null | Select-String 'PreventRun'; if($pr -and ($pr.ToString() -match '0x1')){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -173,9 +211,20 @@
     "description": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
     "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600(10분 이하), ScreenSaverIsSecure=1 설정",
     "criteria": [
-      {"label": "ScreenSaveActive=1(화면보호기 사용)", "safe_keyword": "1"},
-      {"label": "ScreenSaverIsSecure=1(재시작 시 암호 보호)", "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure", "safe_keyword": "1"},
-      {"label": "ScreenSaveTimeOut 600초(10분) 이하", "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null | Select-String 'ScreenSaveTimeOut'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -gt 0 -and $v -le 600){'OK'}else{'FAIL'} }", "safe_keyword": "OK"}
+      {
+        "label": "ScreenSaveActive=1(화면보호기 사용)",
+        "safe_keyword": "1"
+      },
+      {
+        "label": "ScreenSaverIsSecure=1(재시작 시 암호 보호)",
+        "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure",
+        "safe_keyword": "1"
+      },
+      {
+        "label": "ScreenSaveTimeOut 600초(10분) 이하",
+        "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null | Select-String 'ScreenSaveTimeOut'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -gt 0 -and $v -le 600){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -188,9 +237,20 @@
     "description": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립 (NoDriveTypeAutoRun만으로는 CD-ROM 자동실행이 별도로 켜져 있는 경우를 놓치므로 DisableAutoplay, cdrom AutoRun도 함께 점검합니다)",
     "remediation": "NoDriveTypeAutoRun 값을 0xff(모든 드라이브 자동 실행 끄기), DisableAutoplay=1, cdrom AutoRun=0으로 설정",
     "criteria": [
-      {"label": "NoDriveTypeAutoRun=0xff(모든 드라이브 자동 실행 끄기)", "safe_keyword": "0xff"},
-      {"label": "DisableAutoplay=1(자동 실행 사용 안 함)", "command": "reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\AutoplayHandlers\" /v DisableAutoplay", "safe_keyword": "0x1"},
-      {"label": "CD-ROM AutoRun 사용 안 함", "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\services\\cdrom\" /v AutoRun 2>$null | Select-String 'AutoRun'; if(-not $o){'OK'} elseif($o.ToString() -match '0x1'){'FAIL'}else{'OK'}", "safe_keyword": "OK"}
+      {
+        "label": "NoDriveTypeAutoRun=0xff(모든 드라이브 자동 실행 끄기)",
+        "safe_keyword": "0xff"
+      },
+      {
+        "label": "DisableAutoplay=1(자동 실행 사용 안 함)",
+        "command": "reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\AutoplayHandlers\" /v DisableAutoplay",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "CD-ROM AutoRun 사용 안 함",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\services\\cdrom\" /v AutoRun 2>$null | Select-String 'AutoRun'; if(-not $o){'OK'} elseif($o.ToString() -match '0x1'){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {

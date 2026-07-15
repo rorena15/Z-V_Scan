@@ -16,6 +16,7 @@ from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
 from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
+from utils.expert_profile import get_excluded_codes
 
 class SSHInspector:
     def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False):
@@ -201,9 +202,13 @@ class SSHInspector:
             AppLogger.log_error(f"Linux rules file not found: {self.rules_path}")
 
         throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
+        # [Phase 3: 전문가 모드] 사용자가 이 룰셋에서 제외한 코드는 아예 실행하지 않는다
+        excluded_codes = get_excluded_codes(self.ruleset)
 
         for rule in rules:
             code = rule['code']
+            if code in excluded_codes:
+                continue
             # [추가 1] KISA 코드 매핑 (없으면 내부 코드 사용)
             kisa_code = rule.get('kisa_code', rule.get('code', ''))
 

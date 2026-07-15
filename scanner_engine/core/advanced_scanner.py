@@ -209,8 +209,8 @@ class AdvancedScanner:
                 time.sleep(delay)
         return open_ports
 
-    def udp_scan(self, ip, ports=None):
-        target_ports = ports if ports else [53, 123, 137, 161, 1900] 
+    def udp_scan(self, ip, ports=None, delay=0):
+        target_ports = ports if ports else [53, 123, 137, 161, 1900]
         open_ports = []
         timeout = 1.0
 
@@ -227,6 +227,9 @@ class AdvancedScanner:
                         pass
             except:
                 pass
+            # [OT/저속 모드] tcp_scan과 동일하게 포트 사이에 소폭의 대기시간을 둠
+            if delay:
+                time.sleep(delay)
         return open_ports
 
     def extract_http_title(self, banner):

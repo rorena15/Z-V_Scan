@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
+from utils.app_settings import get_report_output_dir
 import core.vuln_matcher as Vuln
 
 class ExcelGenerator:
@@ -56,14 +57,9 @@ class ExcelGenerator:
 
     def __init__(self):
         self.db = DBConnector()
-        if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-        else:
-            current_file = os.path.abspath(__file__)
-            base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-            
-        self.output_dir = os.path.join(base_path, 'reports')
-        
+        # [Phase 3: 설정 페이지] 사용자가 지정한 리포트 출력 경로가 있으면 그것을 사용
+        self.output_dir = get_report_output_dir()
+
         if not os.path.exists(self.output_dir):
             try:
                 os.makedirs(self.output_dir, exist_ok=True)
@@ -151,15 +147,16 @@ class ExcelGenerator:
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         try:
-            query = """
-                SELECT 
-                    A.ip_addr, A.hostname, 
-                    R.kisa_code, R.vuln_code, R.vuln_name, 
-                    R.risk_level, R.status, R.detected_value, 
+            query = f"""
+                SELECT
+                    A.ip_addr, A.hostname,
+                    R.kisa_code, R.vuln_code, R.vuln_name,
+                    R.risk_level, R.status, R.detected_value,
                     R.raw_output, R.remediation, R.waiver_status, R.waiver_reason
                 FROM TBL_SCAN_RESULT R
                 JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
                 WHERE R.vuln_code NOT LIKE 'SYS-%'
+                AND {DBConnector.latest_round_condition('R')}
                 ORDER BY A.ip_addr ASC, R.kisa_code ASC
             """
             cursor.execute(query)
@@ -251,20 +248,29 @@ class ExcelGenerator:
         total_vuln = 0
         vuln_high = 0
         vuln_medium = 0
+        # [버그 수정] "부분만족(PARTIAL)" 항목이 종합점수/요약건수 집계에서 통째로 빠져있던 문제
+        partial_cnt = 0
+        partial_high = 0
+        partial_medium = 0
         waived_cnt = 0
-        
+
         for r in scan_data:
             if r[10] == 1: waived_cnt += 1; continue
             if r[6] == "VULNERABLE":
                 total_vuln += 1
-                if r[5] in ['Critical', 'High']: vuln_high += 1
+                if r[5] == '상': vuln_high += 1
                 else: vuln_medium += 1
-        
-        deduction = (vuln_high * 5) + (vuln_medium * 2)
-        score = max(0, 100 - deduction)
-        
-        headers = ["진단 대상 수", "취약 항목 수", "예외 처리 수", "종합 점수"]
-        values = [f"{len(asset_data)} 대", f"{total_vuln} 건", f"{waived_cnt} 건", f"{score} 점"]
+            elif r[6] == "PARTIAL":
+                partial_cnt += 1
+                if r[5] == '상': partial_high += 1
+                else: partial_medium += 1
+
+        # 부분만족은 미충족(취약) 대비 절반 가중치로 감점에 반영
+        deduction = (vuln_high * 5) + (vuln_medium * 2) + (partial_high * 2.5) + (partial_medium * 1)
+        score = max(0, round(100 - deduction))
+
+        headers = ["진단 대상 수", "취약 항목 수", "부분만족 항목 수", "예외 처리 수", "종합 점수"]
+        values = [f"{len(asset_data)} 대", f"{total_vuln} 건", f"{partial_cnt} 건", f"{waived_cnt} 건", f"{score} 점"]
         
         for i, h in enumerate(headers):
             col_idx = 2 + i

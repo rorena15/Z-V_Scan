@@ -33,7 +33,7 @@
     "name": "계정 잠금 임계값 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "secedit /export /cfg C:\\secpol_w04.cfg; Select-String 'LockoutBadCount' C:\\secpol_w04.cfg; Remove-Item C:\\secpol_w04.cfg -Force",
+    "command": "Select-String '^LockoutBadCount\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "vulnerable_keyword": "LockoutBadCount = 0",
     "description": "계정 잠금 임계값이 없으면 무차별 대입 공격에 무방비로 노출됩니다. (net accounts의 'Never'/'없음' 표시는 시스템 언어에 따라 달라 secedit 기반으로 점검합니다)",
     "remediation": "net accounts /lockoutthreshold:5"
@@ -73,13 +73,21 @@
     "name": "계정 잠금 기간 설정",
     "category": "계정 관리",
     "importance": "중",
-    "command": "secedit /export /cfg C:\\secpol_w08.cfg; Select-String 'LockoutDuration','ResetLockoutCount' C:\\secpol_w08.cfg; Remove-Item C:\\secpol_w08.cfg -Force",
+    "command": "Select-String '^LockoutDuration\\s*=','^ResetLockoutCount\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "safe_keyword": "LockoutDuration",
     "description": "계정 잠금 기간이 설정되지 않으면 잠금이 곧바로 해제되어 재시도 공격이 가능합니다. (net accounts의 시간 단위 문구는 시스템 언어에 따라 달라 secedit 기반으로 점검합니다)",
     "remediation": "net accounts /lockoutduration:60 /lockoutwindow:60",
     "criteria": [
-      {"label": "계정 잠금 기간(LockoutDuration) 60분 이상", "command": "secedit /export /cfg C:\\secpol_w08a.cfg | Out-Null; $v = (Select-String 'LockoutDuration' C:\\secpol_w08a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w08a.cfg -Force; if([int]$v -ge 60){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "잠금 카운터 재설정 시간(ResetLockoutCount) 60분 이상", "command": "secedit /export /cfg C:\\secpol_w08b.cfg | Out-Null; $v = (Select-String 'ResetLockoutCount' C:\\secpol_w08b.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w08b.cfg -Force; if([int]$v -ge 60){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {
+        "label": "계정 잠금 기간(LockoutDuration) 60분 이상",
+        "command": "$v = (Select-String '^LockoutDuration\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 60){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "잠금 카운터 재설정 시간(ResetLockoutCount) 60분 이상",
+        "command": "$v = (Select-String '^ResetLockoutCount\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 60){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -87,16 +95,36 @@
     "name": "비밀번호 관리정책 설정",
     "category": "계정 관리",
     "importance": "상",
-    "command": "secedit /export /cfg C:\\secpol_w09.cfg; Select-String 'MaximumPasswordAge','MinimumPasswordLength' C:\\secpol_w09.cfg; Remove-Item C:\\secpol_w09.cfg -Force",
+    "command": "Select-String '^MaximumPasswordAge\\s*=','^MinimumPasswordLength\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "safe_keyword": "MaximumPasswordAge",
     "description": "비밀번호 정책이 미흡하면 취약한 비밀번호 사용 및 장기 미변경으로 인한 노출 위험이 있습니다. (net accounts 화면 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
     "remediation": "net accounts /minpwlen:8 /maxpwage:90 /minpwage:1 /uniquepw:4",
     "criteria": [
-      {"label": "최대 암호 사용 기간 90일 이하", "command": "secedit /export /cfg C:\\secpol_w09a.cfg | Out-Null; $v = (Select-String 'MaximumPasswordAge' C:\\secpol_w09a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09a.cfg -Force; if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "최소 암호 길이 8자 이상", "command": "secedit /export /cfg C:\\secpol_w09b.cfg | Out-Null; $v = (Select-String 'MinimumPasswordLength' C:\\secpol_w09b.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09b.cfg -Force; if([int]$v -ge 8){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "최소 암호 사용 기간 1일 이상", "command": "secedit /export /cfg C:\\secpol_w09c.cfg | Out-Null; $v = (Select-String 'MinimumPasswordAge' C:\\secpol_w09c.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09c.cfg -Force; if([int]$v -ge 1){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "암호 기록 개수(PasswordHistorySize) 0 초과", "command": "secedit /export /cfg C:\\secpol_w09d.cfg | Out-Null; $v = (Select-String 'PasswordHistorySize' C:\\secpol_w09d.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09d.cfg -Force; if([int]$v -gt 0){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "암호 복잡성(PasswordComplexity) 사용", "command": "secedit /export /cfg C:\\secpol_w09e.cfg | Out-Null; $v = (Select-String 'PasswordComplexity' C:\\secpol_w09e.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w09e.cfg -Force; if([int]$v -eq 1){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {
+        "label": "최대 암호 사용 기간 90일 이하",
+        "command": "$v = (Select-String '^MaximumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "최소 암호 길이 8자 이상",
+        "command": "$v = (Select-String '^MinimumPasswordLength\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 8){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "최소 암호 사용 기간 1일 이상",
+        "command": "$v = (Select-String '^MinimumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 1){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 기록 개수(PasswordHistorySize) 0 초과",
+        "command": "$v = (Select-String '^PasswordHistorySize\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -gt 0){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 복잡성(PasswordComplexity) 사용",
+        "command": "$v = (Select-String '^PasswordComplexity\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -114,7 +142,7 @@
     "name": "로컬 로그온 허용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "secedit /export /cfg C:\\secpol_w11.cfg | Out-Null; $line = Select-String 'SeInteractiveLogonRight' C:\\secpol_w11.cfg -ErrorAction SilentlyContinue; Remove-Item C:\\secpol_w11.cfg -Force; if(-not $line){'FAIL'} else { $v = $line.ToString().Split('=')[1]; if($v -notmatch 'S-1-5-32-544'){'FAIL'} else { $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-17','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL'} } }",
+    "command": "$line = Select-String '^SeInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL'} else { $v = $line.ToString().Split('=')[1]; if($v -notmatch 'S-1-5-32-544'){'FAIL'} else { $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-17','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL'} } }",
     "safe_keyword": "OK",
     "description": "불필요한 계정에 로컬 로그온이 허용되면 물리적 접근을 통한 침해 위험이 있습니다. Administrators(S-1-5-32-544) 및 IUSR(S-1-5-17) 외 SID/계정이 포함되면 취약으로 판정합니다.",
     "remediation": "로컬 로그온 허용 대상을 Administrators 등으로 제한"
@@ -144,7 +172,7 @@
     "name": "원격터미널 접속 가능한 사용자 그룹 제한",
     "category": "계정 관리",
     "importance": "중",
-    "command": "$deny = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections 2>$null | Select-String 'fDenyTSConnections'; if($deny){ $d = [int](($deny.ToString() -split '\\s+')[-1]); if($d -eq 1){'DISABLED_OK'} else { secedit /export /cfg C:\\secpol_w14.cfg | Out-Null; $line = Select-String 'SeRemoteInteractiveLogonRight' C:\\secpol_w14.cfg -ErrorAction SilentlyContinue; Remove-Item C:\\secpol_w14.cfg -Force; if(-not $line){'FAIL_NORIGHT'} else { $v = $line.ToString().Split('=')[1]; $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-32-555','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL_EXTRA'} } } } else {'FAIL_NOVALUE'}",
+    "command": "$deny = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections 2>$null | Select-String 'fDenyTSConnections'; if($deny){ $d = [int](($deny.ToString() -split '\\s+')[-1]); if($d -eq 1){'DISABLED_OK'} else { $line = Select-String '^SeRemoteInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL_NORIGHT'} else { $v = $line.ToString().Split('=')[1]; $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-32-555','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL_EXTRA'} } } } else {'FAIL_NOVALUE'}",
     "safe_keyword": "OK",
     "description": "원격 데스크톱 접속 그룹에 불필요한 계정이 있으면 공격 표면이 늘어납니다. (Remote Desktop Users는 그룹명 로케일 의존적이라, fDenyTSConnections와 SeRemoteInteractiveLogonRight 사용자 권한 할당(Administrators/Remote Desktop Users SID)만으로 점검합니다)",
     "remediation": "불필요한 계정을 Remote Desktop Users 그룹에서 제거 (수동 검토 필요)"
@@ -395,17 +423,41 @@
     "name": "정책에 따른 시스템 로깅 설정",
     "category": "로그 관리",
     "importance": "중",
-    "command": "secedit /export /cfg C:\\secpol_w40.cfg; Select-String 'AuditAccountManage','AuditLogonEvents','AuditDSAccess','AuditAccountLogon','AuditSystemEvents','AuditPolicyChange' C:\\secpol_w40.cfg; Remove-Item C:\\secpol_w40.cfg -Force",
+    "command": "Select-String '^AuditAccountManage\\s*=','^AuditLogonEvents\\s*=','^AuditDSAccess\\s*=','^AuditAccountLogon\\s*=','^AuditSystemEvents\\s*=','^AuditPolicyChange\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "safe_keyword": "AuditLogonEvents",
     "description": "감사 정책이 미흡하면 침해사고 발생 시 원인 분석이 어렵습니다. (auditpol 표 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
     "remediation": "주요 이벤트(로그온, 계정관리, 시스템 이벤트 등) 감사 정책 활성화",
     "criteria": [
-      {"label": "AuditAccountManage(1 또는 3)", "command": "secedit /export /cfg C:\\secpol_w40a.cfg | Out-Null; $v = (Select-String 'AuditAccountManage' C:\\secpol_w40a.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40a.cfg -Force; if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "AuditLogonEvents(3)", "command": "secedit /export /cfg C:\\secpol_w40b.cfg | Out-Null; $v = (Select-String 'AuditLogonEvents' C:\\secpol_w40b.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40b.cfg -Force; if([int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "AuditDSAccess(1 또는 3)", "command": "secedit /export /cfg C:\\secpol_w40c.cfg | Out-Null; $v = (Select-String 'AuditDSAccess' C:\\secpol_w40c.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40c.cfg -Force; if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "AuditAccountLogon(1 또는 3)", "command": "secedit /export /cfg C:\\secpol_w40d.cfg | Out-Null; $v = (Select-String 'AuditAccountLogon' C:\\secpol_w40d.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40d.cfg -Force; if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "AuditSystemEvents(3)", "command": "secedit /export /cfg C:\\secpol_w40e.cfg | Out-Null; $v = (Select-String 'AuditSystemEvents' C:\\secpol_w40e.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40e.cfg -Force; if([int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "AuditPolicyChange(1 또는 3)", "command": "secedit /export /cfg C:\\secpol_w40f.cfg | Out-Null; $v = (Select-String 'AuditPolicyChange' C:\\secpol_w40f.cfg).ToString().Split('=')[1].Trim(); Remove-Item C:\\secpol_w40f.cfg -Force; if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {
+        "label": "AuditAccountManage(1 또는 3)",
+        "command": "$v = (Select-String '^AuditAccountManage\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "AuditLogonEvents(3)",
+        "command": "$v = (Select-String '^AuditLogonEvents\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "AuditDSAccess(1 또는 3)",
+        "command": "$v = (Select-String '^AuditDSAccess\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "AuditAccountLogon(1 또는 3)",
+        "command": "$v = (Select-String '^AuditAccountLogon\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "AuditSystemEvents(3)",
+        "command": "$v = (Select-String '^AuditSystemEvents\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "AuditPolicyChange(1 또는 3)",
+        "command": "$v = (Select-String '^AuditPolicyChange\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1 -or [int]$v -eq 3){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -492,7 +544,7 @@
     "name": "원격 시스템에서 강제로 시스템 종료",
     "category": "보안 관리",
     "importance": "상",
-    "command": "secedit /export /cfg C:\\secpol_tmp.cfg; Select-String 'SeRemoteShutdownPrivilege' C:\\secpol_tmp.cfg; Remove-Item C:\\secpol_tmp.cfg -Force",
+    "command": "Select-String '^SeRemoteShutdownPrivilege\\s*=' C:\\zvulnscan_secpol_cache.cfg",
     "description": "관리자 외 계정이 원격 종료 권한을 가지면 서비스 거부 공격에 악용될 수 있습니다.",
     "remediation": "해당 권한 보유자를 Administrators로 제한 (수동 검토 필요)"
   },
@@ -516,8 +568,15 @@
     "description": "익명 열거가 허용되면 계정/공유 목록이 노출되어 공격 정찰에 악용될 수 있습니다.",
     "remediation": "RestrictAnonymous, RestrictAnonymousSAM 값을 1로 설정",
     "criteria": [
-      {"label": "RestrictAnonymous=1", "safe_keyword": "0x1"},
-      {"label": "RestrictAnonymousSAM=1", "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RestrictAnonymousSAM", "safe_keyword": "0x1"}
+      {
+        "label": "RestrictAnonymous=1",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "RestrictAnonymousSAM=1",
+        "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RestrictAnonymousSAM",
+        "safe_keyword": "0x1"
+      }
     ]
   },
   {
@@ -540,8 +599,15 @@
     "description": "일반 사용자도 이동식 미디어를 포맷·제거할 수 있으면 데이터 유출·손실 위험이 있습니다.",
     "remediation": "AllocateDASD 값을 0(Administrators만 허용)으로 설정",
     "criteria": [
-      {"label": "AllocateDASD=0(일반 사용자 이동식 미디어 포맷 제한)", "safe_keyword": "0"},
-      {"label": "SeManageVolumePrivilege가 Administrators만 존재", "command": "$line = (reg query \"HKLM\\SECURITY\\Policy\\Rights\" /s 2>$null | Select-String 'SeManageVolumePrivilege'); if(-not $line){'FAIL'} else { $val = $line.ToString(); $rest = ($val -replace 'S-1-5-32-544',''); if($rest -match 'S-1-'){'FAIL'} elseif($val -match 'S-1-5-32-544'){'OK'} else {'FAIL'} }", "safe_keyword": "OK"}
+      {
+        "label": "AllocateDASD=0(일반 사용자 이동식 미디어 포맷 제한)",
+        "safe_keyword": "0"
+      },
+      {
+        "label": "SeManageVolumePrivilege가 Administrators만 존재",
+        "command": "$line = (reg query \"HKLM\\SECURITY\\Policy\\Rights\" /s 2>$null | Select-String 'SeManageVolumePrivilege'); if(-not $line){'FAIL'} else { $val = $line.ToString(); $rest = ($val -replace 'S-1-5-32-544',''); if($rest -match 'S-1-'){'FAIL'} elseif($val -match 'S-1-5-32-544'){'OK'} else {'FAIL'} }",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -574,8 +640,16 @@
     "description": "SMB 유휴 세션이 자동 종료되지 않으면 방치된 세션이 침해 경로가 될 수 있습니다. (이전 버전은 AutoDisconnect 값의 타입 라벨(REG_DWORD의 '0x' 접두어)만 검사해 항상 통과하는 결함이 있어, 실제 수치 및 EnableForcedLogOff 설정을 함께 점검합니다)",
     "remediation": "EnableForcedLogOff를 1로 설정하고 AutoDisconnect를 15(분) 이하로 설정",
     "criteria": [
-      {"label": "EnableForcedLogOff=1", "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v EnableForcedLogOff", "safe_keyword": "0x1"},
-      {"label": "AutoDisconnect 15분 이하", "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoDisconnect 2>$null | Select-String 'AutoDisconnect'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -le 15){'OK'}else{'FAIL'} }", "safe_keyword": "OK"}
+      {
+        "label": "EnableForcedLogOff=1",
+        "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v EnableForcedLogOff",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "AutoDisconnect 15분 이하",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoDisconnect 2>$null | Select-String 'AutoDisconnect'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -le 15){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -588,8 +662,16 @@
     "description": "로그온 경고 메시지가 없으면 비인가 접근에 대한 법적 경고 효과가 없습니다. (REG_SZ라는 타입 라벨만 검사하면 빈 문자열도 통과하는 결함이 있어 실제 값 내용을 검사하며, Policies\\System 키가 존재하면 Winlogon보다 우선 적용됩니다)",
     "remediation": "LegalNoticeCaption, LegalNoticeText에 경고 문구 설정",
     "criteria": [
-      {"label": "로그온 경고 제목(Caption) 값이 비어있지 않음", "command": "function Get-RegVal($path,$name){ $lines = reg query $path /v $name 2>$null; $line = $lines | Where-Object { $_ -match 'REG_SZ' }; if($line){ ($line -replace '^.*REG_SZ\\s*','').Trim() } else { $null } }; $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' 'LegalNoticeCaption'; if(-not $v){ $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' 'LegalNoticeCaption' }; if($v -and $v.Trim() -ne ''){'OK'}else{'FAIL'}", "safe_keyword": "OK"},
-      {"label": "로그온 경고 문구(Text) 값이 비어있지 않음", "command": "function Get-RegVal($path,$name){ $lines = reg query $path /v $name 2>$null; $line = $lines | Where-Object { $_ -match 'REG_SZ' }; if($line){ ($line -replace '^.*REG_SZ\\s*','').Trim() } else { $null } }; $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' 'LegalNoticeText'; if(-not $v){ $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' 'LegalNoticeText' }; if($v -and $v.Trim() -ne ''){'OK'}else{'FAIL'}", "safe_keyword": "OK"}
+      {
+        "label": "로그온 경고 제목(Caption) 값이 비어있지 않음",
+        "command": "function Get-RegVal($path,$name){ $lines = reg query $path /v $name 2>$null; $line = $lines | Where-Object { $_ -match 'REG_SZ' }; if($line){ ($line -replace '^.*REG_SZ\\s*','').Trim() } else { $null } }; $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' 'LegalNoticeCaption'; if(-not $v){ $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' 'LegalNoticeCaption' }; if($v -and $v.Trim() -ne ''){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "로그온 경고 문구(Text) 값이 비어있지 않음",
+        "command": "function Get-RegVal($path,$name){ $lines = reg query $path /v $name 2>$null; $line = $lines | Where-Object { $_ -match 'REG_SZ' }; if($line){ ($line -replace '^.*REG_SZ\\s*','').Trim() } else { $null } }; $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' 'LegalNoticeText'; if(-not $v){ $v = Get-RegVal 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' 'LegalNoticeText' }; if($v -and $v.Trim() -ne ''){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -622,9 +704,20 @@
     "description": "보안 채널 데이터가 암호화·서명되지 않으면 도메인 인증 트래픽이 변조될 수 있습니다.",
     "remediation": "RequireSignOrSeal, SealSecureChannel, SignSecureChannel 값을 1로 설정",
     "criteria": [
-      {"label": "RequireSignOrSeal=1", "safe_keyword": "0x1"},
-      {"label": "SealSecureChannel=1", "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v SealSecureChannel", "safe_keyword": "0x1"},
-      {"label": "SignSecureChannel=1", "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v SignSecureChannel", "safe_keyword": "0x1"}
+      {
+        "label": "RequireSignOrSeal=1",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "SealSecureChannel=1",
+        "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v SealSecureChannel",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "SignSecureChannel=1",
+        "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters\" /v SignSecureChannel",
+        "safe_keyword": "0x1"
+      }
     ]
   },
   {
@@ -665,9 +758,21 @@
     "description": "방화벽이 비활성화되어 있으면 비인가 트래픽 유입을 차단할 수 없습니다. Domain 프로필만 확인하면 Private/Public 프로필이 꺼져 있는 경우를 놓치므로 3개 프로필을 모두 점검합니다.",
     "remediation": "Set-NetFirewallProfile로 모든 프로필(Domain/Private/Public)의 방화벽을 활성화",
     "criteria": [
-      {"label": "Domain 프로필 방화벽 활성화", "command": "(Get-NetFirewallProfile -Profile Domain).Enabled", "safe_keyword": "True"},
-      {"label": "Private 프로필 방화벽 활성화", "command": "(Get-NetFirewallProfile -Profile Private).Enabled", "safe_keyword": "True"},
-      {"label": "Public 프로필 방화벽 활성화", "command": "(Get-NetFirewallProfile -Profile Public).Enabled", "safe_keyword": "True"}
+      {
+        "label": "Domain 프로필 방화벽 활성화",
+        "command": "(Get-NetFirewallProfile -Profile Domain).Enabled",
+        "safe_keyword": "True"
+      },
+      {
+        "label": "Private 프로필 방화벽 활성화",
+        "command": "(Get-NetFirewallProfile -Profile Private).Enabled",
+        "safe_keyword": "True"
+      },
+      {
+        "label": "Public 프로필 방화벽 활성화",
+        "command": "(Get-NetFirewallProfile -Profile Public).Enabled",
+        "safe_keyword": "True"
+      }
     ]
   }
 ]

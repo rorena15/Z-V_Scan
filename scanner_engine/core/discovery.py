@@ -10,12 +10,14 @@ import concurrent.futures
 from utils.logger import AppLogger
 
 class HostDiscovery:
-    def __init__(self):
+    def __init__(self, max_workers=50):
         # TCP SYN/ACK 스캔을 흉내내어 가장 흔한 포트만 빠르게 찌릅니다.
         # 우선순위 변경: 445(Win) -> 22(Linux) -> 80(Web) -> 135(RPC)
         # 이유: 445/22번이 열려있을 확률이 가장 높으므로 먼저 확인하여 루프 탈출 유도
-        self.check_ports = [445, 22, 80, 135] 
+        self.check_ports = [445, 22, 80, 135]
         self.timeout = 1
+        # [OT 모드 연동] 생존 확인 단계도 동시성을 낮출 수 있도록 외부에서 지정 가능
+        self.max_workers = max_workers
 
     def check_host(self, ip):
         #단일 호스트 생존 확인 (TCP Connect 방식 - Non-Root 가능)
@@ -45,8 +47,8 @@ class HostDiscovery:
         # 로그 간소화 (너무 많은 로그 방지)
         AppLogger.log_info(f"Starting Host Discovery for {len(ip_list)} IPs...")
         
-        # 스레드 풀: I/O Bound 작업이므로 50개 유지
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        # 스레드 풀: I/O Bound 작업 (OT 모드에서는 max_workers를 낮춰 동시 연결 시도를 최소화)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # futures 딕셔너리 생성
             future_to_ip = {executor.submit(self.check_host, ip): ip for ip in ip_list}
             

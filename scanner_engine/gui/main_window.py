@@ -7,18 +7,28 @@
 # --------------------------------------------------------------------------
 import sys
 import os
+import csv
+import re
 import requests
 import threading
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, 
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QComboBox, QMessageBox,
     QSplitter, QTextEdit, QMenu,
     QGroupBox,
     QAbstractItemView,
     QSizePolicy,
-    QCheckBox
+    QCheckBox,
+    QFileDialog,
+    QSpinBox,
+    QDialog,
+    QStackedWidget,
+    QScrollArea,
+    QFrame,
+    QSlider,
+    QToolButton,
 )
 # [PySide6 핵심 기능]
 from PySide6.QtCore import Qt, QTimer
@@ -46,9 +56,10 @@ from output.text_report import TextReportGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
-from utils.network_visualizer import NetworkVisualizer
-from gui.styles import STYLESHEET
+from gui.styles import STYLESHEET, LIGHT_STYLESHEET
+from gui.help_texts import HELP_TEXTS
 from gui.dialogs import LicenseDialog
+from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, COLORS
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -94,7 +105,11 @@ class ScannerApp(QMainWindow):
         
         # 스캔 결과 임시 저장소 (UI 렉 방지용 버퍼)
         self.scan_result_buffer = []
-        
+
+        # [Phase 2] 이번 스캔 결과를 Excel/PDF/TXT 중 하나로 한 번이라도 출력했는지 여부.
+        # False인 상태에서 DB를 초기화하려 하면 경고를 띄운다 (출력 전 데이터 유실 방지).
+        self.report_exported = True
+
         self.initUI()
         self.license_mgr = LicenseManager()
         self.update_ui_by_license()
@@ -110,285 +125,308 @@ class ScannerApp(QMainWindow):
     # -- UI 세팅 --
     def initUI(self):
         self.setWindowTitle('Z-Vuln Scan')
-        self.resize(1200, 850)
+        self.resize(1100, 750)
         self.setWindowIcon(QIcon(resource_path('app_icon.ico')))
-        
-        # [테마] 전체 스타일시트 (Deep Dark 모드 + 가독성 개선)
-        self.setStyleSheet(STYLESHEET)
 
-        # [1. 상단 툴바]
-        self.toolbar = self.addToolBar("Main Toolbar")
-        self.toolbar.setMovable(False)
-        self.toolbar.setStyleSheet("""
-            QToolBar { background: #252526; border-bottom: 1px solid #333; spacing: 10px; padding: 5px; }
-            QToolButton { color: #cccccc; background: transparent; padding: 6px; border-radius: 4px; font-weight: bold; }
-            QToolButton:hover { background: #3e3e42; color: white; }
-        """)
+        # [테마] 전체 스타일시트 (Deep Dark 모드 + 가독성 개선) - [Phase 3] 설정에서 라이트 테마 선택 가능
+        from utils.app_settings import load_settings as _load_app_settings
+        self._app_settings = _load_app_settings()
+        self.setStyleSheet(LIGHT_STYLESHEET if self._app_settings.get("theme") == "light" else STYLESHEET)
 
-        # 툴바 액션
-        self.action_db = QAction("📂 DB Manager", self)
-        self.action_db.triggered.connect(self.open_db_manager)
-        self.toolbar.addAction(self.action_db)
-        
-        self.toolbar.addSeparator()
-        
-        self.action_map = QAction("🗺️ Topology", self)
-        self.action_map.triggered.connect(self.show_topology)
-        self.toolbar.addAction(self.action_map)
-        
-        self.toolbar.addSeparator()
-
-        self.action_pdf = QAction("📄 PDF", self)
-        self.action_pdf.triggered.connect(self.generate_pdf)
-        self.toolbar.addAction(self.action_pdf)
-        
-        self.toolbar.addSeparator()
-        
-        self.action_xls = QAction("📊 Excel", self)
-        self.action_xls.triggered.connect(self.generate_excel)
-        self.toolbar.addAction(self.action_xls)
-
-        self.toolbar.addSeparator()
-
-        self.action_txt = QAction("📝 TXT", self)
-        self.action_txt.setToolTip("스크립트 결과 텍스트 리포트 (ICTIS 스타일)")
-        self.action_txt.triggered.connect(self.generate_text_report)
-        self.toolbar.addAction(self.action_txt)
-        
-        #self.toolbar.addSeparator()
-        
-        # ------------------------------------------------------------------
-        # [TODO] 나중에 배포 시 주석 해제 (클라우드 연동 버튼)
-        # ------------------------------------------------------------------
-        #self.action_cloud = QAction("☁️ Cloud Sync", self)
-        #self.action_cloud.triggered.connect(self.sync_to_cloud)
-        #self.toolbar.addAction(self.action_cloud)
-        #self.toolbar.addSeparator()
-        # ------------------------------------------------------------------
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.toolbar.addWidget(spacer)
-        
-        # ------------------------------------------------------------------
-        # [TODO] 나중에 배포 시 주석 해제 (라이선스 인증 버튼)
-        # ------------------------------------------------------------------
-        # self.action_license = QAction("Activate License", self)
-        # self.action_license.triggered.connect(self.open_license_dialog)
-        # self.toolbar.addAction(self.action_license) 
-        # ------------------------------------------------------------------
-        
-        self.toolbar.addSeparator()
-        
-        # [임시] 개발용 데모 버튼 (나중에 위 코드를 풀면 이건 삭제)
-        self.action_license_switch = QAction("Change License (Demo)", self)
-        self.action_license_switch.triggered.connect(self.demo_toggle_license)
-        self.toolbar.addAction(self.action_license_switch)
-        
-        # --- 메인 컨텐츠 ---
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        root_layout = QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        # [2. 헤더 영역]
-        header_layout = QHBoxLayout()
-        
-        # 타이틀
-        title_widget = QWidget()
-        title_widget.setStyleSheet("background-color: #1e1e1e; border-radius: 6px;")
-        title_layout = QHBoxLayout(title_widget)
-        title_layout.setContentsMargins(15, 8, 15, 8)
-        
-        self.title_label = QLabel("Z-Vuln Scan Standard")
-        self.title_label.setStyleSheet("color: #e0e0e0; font-size: 14pt; font-weight: bold; border: none;")
-        #self.ver_label = QLabel(AppConfig.VERSION)
-        #self.ver_label.setStyleSheet("color: #666; font-weight: bold; border: none; margin-left: 5px; margin-top: 5px;")
-        
-        title_layout.addWidget(self.title_label)
-        #title_layout.addWidget(self.ver_label)
-        header_layout.addWidget(title_widget)
-        
+        body = QWidget()
+        outer_layout = QHBoxLayout(body)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        outer_layout.addWidget(self._build_sidebar())
+
+        self.content_stack = QStackedWidget()
+        self.content_stack.addWidget(self._build_dashboard_page())  # index 0: Dashboard
+        self.content_stack.addWidget(self._build_scan_page())       # index 1: Scan
+        self.content_stack.addWidget(self._build_assets_page())     # index 2: Assets
+        outer_layout.addWidget(self.content_stack, 1)
+
+        root_layout.addWidget(body, 1)
+
+        # [로그 패널] 도킹/플로팅 없이 메인 창에 고정 임베드. 기본은 숨김이며,
+        # 설정(Settings > 테마·UI) 체크박스로 표시 여부를 켤 수 있다.
+        self.log_panel = self._build_log_panel()
+        self.log_panel.setVisible(self._app_settings.get("show_log_panel", False))
+        root_layout.addWidget(self.log_panel)
+
+        # [상태바] QMainWindow 기본 상태바 대신 central layout 하단에 직접 배치
+        self.setStatusBar(None)
+        status_bar_widget = QWidget()
+        status_bar_widget.setStyleSheet(
+            f"background-color: {COLORS['surface_1']}; color: {COLORS['text_secondary']}; border-top: 1px solid {COLORS['border']};"
+        )
+        status_layout = QHBoxLayout(status_bar_widget)
+        status_layout.setContentsMargins(15, 5, 15, 5)
+
+        self.time_label = QLabel("Ready")
+        self.time_label.setStyleSheet(f"font-weight: bold; font-size: 9pt; color: {COLORS['text']};")
+
+        self.pbar = QProgressBar()
+        self.pbar.setFixedHeight(14)
+        self.pbar.setTextVisible(False)
+        self.pbar.setStyleSheet(
+            f"QProgressBar {{ background: {COLORS['surface_2']}; border: 1px solid {COLORS['border']}; border-radius: 3px; }}"
+            f"QProgressBar::chunk {{ background: {COLORS['accent']}; }}"
+        )
+
+        status_layout.addWidget(self.time_label)
+        status_layout.addStretch()
+        status_layout.addWidget(self.pbar, 1)
+
+        root_layout.addWidget(status_bar_widget)
+
+        # [Phase 3] 전문가 모드/설정 등에서 쓰는 라이선스 데모 전환용 (개발 편의, 숨김 처리)
+        self.action_license_switch = QAction("Change License (Demo)", self)
+        self.action_license_switch.triggered.connect(self.demo_toggle_license)
+        self.addAction(self.action_license_switch)
+
+    # ------------------------------------------------------------------
+    # [Phase 3: UI 재구성] 좌측 아이콘 사이드바
+    # ------------------------------------------------------------------
+    def _build_sidebar(self):
+        sidebar = QWidget()
+        sidebar.setFixedWidth(80)
+        sidebar.setStyleSheet(f"background-color: {COLORS['surface_1']}; border-right: 1px solid {COLORS['border']};")
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(0, 12, 0, 12)
+        layout.setSpacing(3)
+
+        brand = QLabel("Z-VS")
+        brand.setAlignment(Qt.AlignCenter)
+        brand.setStyleSheet(f"font-size: 12pt; font-weight: bold; color: {COLORS['accent']}; margin-bottom: 8px;")
+        layout.addWidget(brand)
+
+        def make_nav_button(label_text, tooltip, checkable=True):
+            btn = QToolButton()
+            btn.setText(label_text)
+            btn.setToolTip(tooltip)
+            btn.setCheckable(checkable)
+            btn.setFixedSize(66, 42)
+            btn.setStyleSheet(f"""
+                QToolButton {{ font-size: 9pt; font-weight: bold; border-radius: 8px; color: {COLORS['text_secondary']}; background: transparent; }}
+                QToolButton:hover {{ background: {COLORS['accent_bg']}; color: {COLORS['text']}; }}
+                QToolButton:checked {{ background: {COLORS['accent_bg']}; color: {COLORS['accent']}; border: 1px solid {COLORS['accent']}; }}
+            """)
+            layout.addWidget(btn, 0, Qt.AlignCenter)
+            return btn
+
+        self.nav_dashboard = make_nav_button("대시보드", "Dashboard")
+        self.nav_dashboard.setChecked(True)
+        self.nav_dashboard.clicked.connect(lambda: self._on_nav_clicked("dashboard"))
+
+        self.nav_scan = make_nav_button("스캔", HELP_TEXTS["discovery"]["title"] + " / " + HELP_TEXTS["audit"]["title"])
+        self.nav_scan.clicked.connect(lambda: self._on_nav_clicked("scan"))
+
+        self.nav_assets = make_nav_button("자산", "Assets")
+        self.nav_assets.clicked.connect(lambda: self._on_nav_clicked("assets"))
+
+        self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], checkable=False)
+        self.nav_reports.clicked.connect(self._show_reports_menu)
+
+        layout.addStretch()
+
+        self.nav_help = make_nav_button("도움말", HELP_TEXTS["settings"]["tooltip"], checkable=False)
+        self.nav_help.clicked.connect(self.open_help)
+
+        self.nav_settings = make_nav_button("설정", HELP_TEXTS["settings"]["tooltip"], checkable=False)
+        self.nav_settings.clicked.connect(self.open_settings)
+
+        self._nav_buttons = {"dashboard": self.nav_dashboard, "scan": self.nav_scan, "assets": self.nav_assets}
+        return sidebar
+
+    def _on_nav_clicked(self, key):
+        for name, btn in self._nav_buttons.items():
+            btn.setChecked(name == key)
+
+        index_map = {"dashboard": 0, "scan": 1, "assets": 2}
+        self.content_stack.setCurrentIndex(index_map[key])
+
+        if key == "dashboard":
+            self.refresh_dashboard_metrics()
+            self.refresh_findings_table()
+        elif key == "scan":
+            self.scan_config.setFocus()
+        elif key == "assets":
+            self.refresh_dashboard()
+
+    def _show_reports_menu(self):
+        menu = QMenu(self)
+        menu.addAction("PDF", self.generate_pdf)
+        menu.addAction("Excel", self.generate_excel)
+        menu.addAction("TXT (ICTIS)", self.generate_text_report)
+        menu.exec(self.nav_reports.mapToGlobal(self.nav_reports.rect().bottomLeft()))
+
+    def _wrap_scrollable_page(self, widgets, trailing_stretch=False):
+        """대시보드/스캔 페이지 공통 - 세로 스크롤만 허용하는 카드 컨테이너.
+        widgets: QWidget 또는 (QWidget, stretch) 튜플의 리스트."""
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(16)
+        scroll.setWidget(content)
+
+        for w in widgets:
+            if isinstance(w, tuple):
+                widget, stretch = w
+                layout.addWidget(widget, stretch)
+            else:
+                layout.addWidget(w)
+
+        if trailing_stretch:
+            layout.addStretch()
+
+        return page
+
+    # ------------------------------------------------------------------
+    # [Phase 3: UI 재구성] 대시보드 페이지 (요약 지표 + 결과 테이블 - 모니터링/조회 전용)
+    # ------------------------------------------------------------------
+    def _build_dashboard_page(self):
+        header = self._build_page_header("Dashboard")
+        return self._wrap_scrollable_page([header, self._build_metrics_row(), (self._build_results_card(), 1)])
+
+    # ------------------------------------------------------------------
+    # [Phase 3: UI 재구성] 스캔 페이지 (Scan configuration - 입력/실행 전용)
+    # ------------------------------------------------------------------
+    def _build_scan_page(self):
+        header = self._build_page_header("Scan", show_operator=True)
+        return self._wrap_scrollable_page([header, self._build_scan_config_card()], trailing_stretch=True)
+
+    def _build_page_header(self, title_text, show_operator=False):
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        accent_bar = QFrame()
+        accent_bar.setFixedSize(4, 22)
+        accent_bar.setStyleSheet(f"background-color: {COLORS['accent']}; border-radius: 2px;")
+        header_layout.addWidget(accent_bar)
+
+        self.title_label = QLabel(title_text)
+        self.title_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 16pt; font-weight: bold;")
+        header_layout.addWidget(self.title_label)
         header_layout.addStretch()
-        
-        # 통계 컨테이너
-        stats_container = QWidget()
-        stats_container.setStyleSheet("background-color: #1e1e1e; border-radius: 6px; ali")
-        stats_layout = QHBoxLayout(stats_container)
-        stats_layout.setContentsMargins(15, 8, 15, 8)
-        
-        self.lbl_stats_assets = QLabel("Assets: 0")
-        self.lbl_stats_assets.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11pt; border: none;")
-        
-        #self.lbl_stats_vulns = QLabel("Issues: 0")
-        #self.lbl_stats_vulns.setStyleSheet("color: #ff6b6b; font-weight: bold; font-size: 11pt; border: none; margin-left: 15px;")
-        
-        stats_layout.addWidget(self.lbl_stats_assets)
-        #stats_layout.addWidget(self.lbl_stats_vulns)
-        
-        header_layout.addWidget(stats_container)
-        main_layout.addLayout(header_layout)
 
-        # [3. 설정 영역] (탭 제거 -> 통합 뷰)
-        # 깔끔한 그룹박스로 감싸서 시각적 분리
-        config_group = QGroupBox("Scan Configuration")
-        config_group.setStyleSheet("""
-            QGroupBox { 
-                border: 1px solid #333; 
-                border-radius: 6px; 
-                margin-top: 10px; 
-                background-color: #252526; 
-                color: #ddd; 
-                font-weight: bold;
-                padding-top: 15px;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; }
-        """)
-        config_layout = QVBoxLayout(config_group)
-        config_layout.setContentsMargins(15, 15, 15, 15)
-        config_layout.setSpacing(15)
+        if show_operator:
+            # [Phase 2] 운영자 태깅 입력 - 스캔을 실행하는 화면에 배치
+            header_layout.addWidget(QLabel("Operator:"))
+            self.operator_input = QLineEdit()
+            self.operator_input.setPlaceholderText("담당자")
+            self.operator_input.setToolTip("이 스캔을 수행하는 담당자 이름입니다. 진단 결과에 함께 기록되어 감사 추적에 사용됩니다.")
+            self.operator_input.setFixedWidth(160)
+            header_layout.addWidget(self.operator_input)
 
-        # Row 1: Target & Mode (가장 중요한 정보)
-        row1_layout = QHBoxLayout()
-        
-        lbl_target = QLabel("Target:")
-        lbl_target.setStyleSheet("color: #ccc; font-weight: bold;")
-        
-        self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("Target IP Address (e.g., 192.168.1.1 or 192.168.1.0/24)")
-        self.ip_input.setStyleSheet("font-size: 11pt; padding: 8px;") # 중요하니까 조금 크게
-        
-        lbl_mode = QLabel("Port Scan Mode:")
-        lbl_mode.setStyleSheet("color: #ccc; font-weight: bold;")
-        
-        self.port_mode_combo = QComboBox()
-        self.port_mode_combo.addItems(["⚡ Fast Scan (Major)", "📝 Custom Range", "🐢 Full Scan(1~ 65535)"])
-        self.port_mode_combo.setStyleSheet("padding: 8px;")
+        return header
+
+    def _build_scan_config_card(self):
+        """[Phase 3: UI 재구성] 사용자가 보내준 라이트 테마 설계(dashboard_widgets.ScanConfigCard)를
+        그대로 쓰고, 기존 코드가 참조하는 속성명으로 alias만 걸어준다."""
+        self.scan_config = ScanConfigCard()
+
+        # 위젯 alias - main_window.py 나머지 코드는 예전 이름으로 그대로 접근
+        self.ip_input = self.scan_config.target_input
+        self.btn_import_assets = self.scan_config.import_btn
+        self.port_mode_combo = self.scan_config.scan_mode_combo
+        self.port_input = self.scan_config.port_input
+        self.user_input = self.scan_config.user_input
+        self.pw_input = self.scan_config.pw_input
+        self.slider_max_workers = self.scan_config.concurrency_slider
+        self.spin_max_workers = self.scan_config.concurrency_slider  # 기존 코드 호환용 alias
+        self.chk_ot_mode = self.scan_config.ot_mode_check
+        self.chk_demo_mode = self.scan_config.demo_mode_check
+        self.btn_scan = self.scan_config.discovery_btn
+        self.btn_audit = self.scan_config.audit_btn
+        self.btn_stop = self.scan_config.stop_btn
+
+        default_user = getattr(self, '_app_settings', {}).get("default_username", "")
+        if default_user:
+            self.user_input.setText(default_user)
+
+        self.ip_input.setToolTip(HELP_TEXTS["discovery"]["tooltip"])
+        self.btn_import_assets.setToolTip(HELP_TEXTS["import_assets"]["tooltip"])
+        self.chk_ot_mode.setToolTip(HELP_TEXTS["ot_demo_mode"]["ot_tooltip"])
+        self.chk_demo_mode.setToolTip(HELP_TEXTS["ot_demo_mode"]["demo_tooltip"])
+        self.btn_scan.setToolTip(HELP_TEXTS["discovery"]["tooltip"])
+        self.btn_audit.setToolTip(HELP_TEXTS["audit"]["tooltip"])
+
+        self.btn_import_assets.clicked.connect(self.import_asset_list)
         self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
-
-        self.chk_ot_mode = QCheckBox("🛡️ OT 안전 모드")
-        self.chk_ot_mode.setToolTip(
-            "동시 스캔 대상 수를 최소화하고, 대상 응답이 느려지면 자동으로 명령 간격을 늘립니다.\n"
-            "레거시/임베디드 장비가 많은 OT·제어망 환경에서 사용을 권장합니다."
-        )
-        self.chk_ot_mode.setStyleSheet("color: #ccc; font-weight: bold;")
-
-        # [실전 안전장치] 기본값 OFF. 켜져 있을 때만 127.0.0.1 등 데모 IP를 가짜 데이터로 처리하고,
-        # 실제 접속 실패 시 시뮬레이션으로 자동 대체합니다. 꺼져 있으면 접속 실패는 항상 정직하게 실패로 보고됩니다.
-        self.chk_demo_mode = QCheckBox("🎭 데모 모드")
-        self.chk_demo_mode.setToolTip(
-            "체크 시에만 127.0.0.1/localhost 등 데모 IP 및 접속 실패 시 가상 데이터를 사용합니다.\n"
-            "실제 현장 진단 시에는 반드시 꺼두세요 (기본값 OFF)."
-        )
-        self.chk_demo_mode.setStyleSheet("color: #f0ad4e; font-weight: bold;")
-
-        row1_layout.addWidget(lbl_target)
-        row1_layout.addWidget(self.ip_input, 3) # 비율 3
-        row1_layout.addSpacing(15)
-        row1_layout.addWidget(lbl_mode)
-        row1_layout.addWidget(self.port_mode_combo, 1) # 비율 1
-        row1_layout.addSpacing(15)
-        row1_layout.addWidget(self.chk_ot_mode)
-        row1_layout.addWidget(self.chk_demo_mode)
-
-        config_layout.addLayout(row1_layout)
-
-        # Row 2: Auth & Advanced (한 줄에 정렬)
-        row2_layout = QHBoxLayout()
-        
-        self.user_input = QLineEdit()
-        self.user_input.setPlaceholderText("SSH/WinRM User")
-        
-        self.pw_input = QLineEdit()
-        self.pw_input.setPlaceholderText("Password")
-        self.pw_input.setEchoMode(QLineEdit.Password)
-        
-        self.port_input = QLineEdit()
-        self.port_input.setPlaceholderText("Custom Ports (80, 443...)")
-        self.port_input.setEnabled(False) # 모드 선택 시 활성화
-
-        # 라벨 없이 Placeholder로 깔끔하게 처리하거나, 아이콘 사용 가능
-        # 여기선 공간 절약을 위해 라벨 최소화
-        row2_layout.addWidget(QLabel("User:"))
-        row2_layout.addWidget(self.user_input, 2)
-        row2_layout.addSpacing(10)
-        row2_layout.addWidget(QLabel("Pass:"))
-        row2_layout.addWidget(self.pw_input, 2)
-        row2_layout.addSpacing(10)
-        row2_layout.addWidget(QLabel("Ports:"))
-        row2_layout.addWidget(self.port_input, 2)
-        
-        config_layout.addLayout(row2_layout)
-        
-        main_layout.addWidget(config_group)
-
-        # [4. 액션 버튼]
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(15)
-        
-        btn_scan_style = """
-            QPushButton { background-color: #383838; color: white; font-weight: bold; font-size: 11pt; padding: 12px; border: 1px solid #555; border-radius: 4px; }
-            QPushButton:hover { background-color: #4d4d4d; border-color: #777; }
-            QPushButton:pressed { background-color: #2b2b2b; }
-        """
-        btn_audit_style = """
-            QPushButton { background-color: #7b1fa2; color: white; font-weight: bold; font-size: 11pt; padding: 12px; border: 1px solid #6a1b9a; border-radius: 4px; }
-            QPushButton:hover { background-color: #9c27b0; }
-        """
-        
-        self.btn_scan = QPushButton("🚀 Network Discovery Scan")
-        self.btn_scan.setToolTip("네트워크 스캔 수행")
-        self.btn_scan.setStyleSheet(btn_scan_style)
+        self.chk_ot_mode.toggled.connect(self._on_ot_mode_toggled)
         self.btn_scan.clicked.connect(self.start_network_scan)
-        
-        self.btn_audit = QPushButton("🛡️ Vulnerability Audit")
-        self.btn_audit.setToolTip("취약점 진단 수행")
-        self.btn_audit.setStyleSheet(btn_audit_style)
         self.btn_audit.clicked.connect(self.start_audit)
-        
-        self.btn_stop = QPushButton("🛑 STOP")
-        self.btn_stop.setFixedWidth(100)
-        self.btn_stop.setStyleSheet("""
-            QPushButton { background-color: #1e1e1e; color: #ff5555; border: 1px solid #555; padding: 12px; border-radius: 4px; font-weight: bold; }
-            QPushButton:hover { background-color: #2d2d30; border-color: #ff5555; }
-            QPushButton:disabled { color: #555; border-color: #333; }
-        """)
-        self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
 
-        action_layout.addWidget(self.btn_scan, 4)
-        action_layout.addWidget(self.btn_audit, 4)
-        action_layout.addWidget(self.btn_stop, 1)
-        
-        main_layout.addLayout(action_layout)
+        return self.scan_config
 
-        # [5. 결과 뷰]
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(2)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #333; }")
-        
-        # [LEFT] 자산 리스트
-        left_widget = QWidget()
-        left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        
+    def _build_metrics_row(self):
+        self.metrics_row = MetricsRow()
+        # refresh_dashboard_metrics()가 예전처럼 metric_labels로 접근할 수 있게 alias
+        self.metric_labels = {k: card.value_label for k, card in self.metrics_row.cards.items()}
+        return self.metrics_row
+
+    def _build_results_card(self):
+        self.assets_table_card = AssetsTableCard()
+
+        btn_waiver = QPushButton("Waiver")
+        btn_waiver.setToolTip(HELP_TEXTS["waiver"]["tooltip"])
+        btn_waiver.clicked.connect(self.open_waiver_manager)
+        self.assets_table_card.actions_layout.addWidget(btn_waiver)
+        btn_expert = QPushButton("Expert")
+        btn_expert.setToolTip(HELP_TEXTS["expert_mode"]["tooltip"])
+        btn_expert.clicked.connect(self.open_expert_mode)
+        self.assets_table_card.actions_layout.addWidget(btn_expert)
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.clicked.connect(self.refresh_dashboard)
+        self.assets_table_card.actions_layout.addWidget(btn_refresh)
+
+        return self.assets_table_card
+
+    # ------------------------------------------------------------------
+    # [Phase 3: UI 재구성] Assets 페이지 (기존 자산 테이블 + 컨텍스트 메뉴 유지)
+    # ------------------------------------------------------------------
+    def _build_assets_page(self):
+        page = QWidget()
+        left_layout = QVBoxLayout(page)
+        left_layout.setContentsMargins(28, 28, 28, 28)
+
         list_header = QHBoxLayout()
-        lbl_list = QLabel("📋 Asset List")
-        lbl_list.setStyleSheet("font-weight: bold; color: #ddd; font-size: 10pt;")
-        
+        lbl_list = QLabel("Asset List")
+        lbl_list.setStyleSheet(f"font-weight: bold; color: {COLORS['text']}; font-size: 12pt;")
+
         self.btn_clear_assets = QPushButton("Clear List")
         self.btn_clear_assets.setFixedSize(90, 40)
-        self.btn_clear_assets.setStyleSheet("""
-            QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
-            QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
+        self.btn_clear_assets.setStyleSheet(f"""
+            QPushButton {{ background: {COLORS['surface_1']}; color: {COLORS['text_secondary']}; border: 1px solid {COLORS['border']}; border-radius: 4px; }}
+            QPushButton:hover {{ background: {COLORS['danger_bg']}; color: {COLORS['danger_text']}; border-color: {COLORS['danger_text']}; }}
         """)
         self.btn_clear_assets.clicked.connect(self.clear_asset_table)
-        
+
         list_header.addWidget(lbl_list)
         list_header.addStretch()
         list_header.addWidget(self.btn_clear_assets)
         left_layout.addLayout(list_header)
-        
+
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(6)
         self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Memo", "Vender"])
@@ -399,90 +437,81 @@ class ScannerApp(QMainWindow):
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.asset_table.setAlternatingRowColors(False)
-        self.asset_table.setStyleSheet("""
-            QTableWidget { background-color: #1e1e1e; gridline-color: #333; border: 1px solid #444; border-radius: 4px; }
-            QHeaderView::section { background-color: #252526; color: #ccc; padding: 8px; border: none; border-bottom: 1px solid #444; font-weight: bold; }
-            QTableWidget::item { padding: 5px; color: #ddd; }
-            QTableWidget::item:selected { background-color: #37373d; color: white; border-left: 2px solid #ff5555; }
-            QTableWidget::item:hover { background-color: #2a2a2e; }
+        self.asset_table.setStyleSheet(f"""
+            QTableWidget {{ background-color: {COLORS['surface_2']}; gridline-color: {COLORS['border']}; border: 1px solid {COLORS['border']}; border-radius: 4px; }}
+            QHeaderView::section {{ background-color: {COLORS['surface_1']}; color: {COLORS['text_secondary']}; padding: 8px; border: none; border-bottom: 1px solid {COLORS['border']}; font-weight: bold; }}
+            QTableWidget::item {{ padding: 5px; color: {COLORS['text']}; }}
+            QTableWidget::item:selected {{ background-color: {COLORS['accent_bg']}; color: {COLORS['text']}; border-left: 2px solid {COLORS['accent']}; }}
+            QTableWidget::item:hover {{ background-color: {COLORS['surface_1']}; }}
         """)
         self.asset_table.doubleClicked.connect(self.on_asset_double_click)
         self.asset_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.asset_table.customContextMenuRequested.connect(self.show_context_menu)
-        
+
         left_layout.addWidget(self.asset_table)
-        left_widget.setLayout(left_layout)
-        
-        # [RIGHT] 로그 콘솔
-        right_widget = QWidget()
-        right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        
+        return page
+
+    def _build_log_panel(self):
+        """[Phase 3] 도킹/플로팅 창이 아니라 메인 창에 고정 임베드되는 로그 패널.
+        기본적으로 숨겨져 있고, Settings > 테마·UI 탭의 체크박스로 표시 여부를 켠다."""
+        panel = QWidget()
+        panel.setFixedHeight(180)
+        panel.setStyleSheet(
+            f"background: {COLORS['surface_1']}; border-top: 1px solid {COLORS['border']};"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(12, 8, 12, 8)
+
         log_header = QHBoxLayout()
-        lbl_log = QLabel("📟 System Log")
-        lbl_log.setStyleSheet("font-weight: bold; color: #4ec9b0; font-size: 10pt;")
-        
-        self.btn_clear_logs = QPushButton("Clear Log")
-        self.btn_clear_logs.setFixedSize(90, 40)
-        self.btn_clear_logs.setStyleSheet("""
-            QPushButton { background: #2d2d30; color: #aaa; border: 1px solid #444; border-radius: 4px; }
-            QPushButton:hover { background: #3e3e42; color: white; border-color: #666; }
-        """)
-        self.btn_clear_logs.clicked.connect(self.clear_logs)
-        
-        log_header.addWidget(lbl_log)
+        log_title = QLabel("System Log")
+        log_title.setStyleSheet(f"font-weight: bold; color: {COLORS['text']};")
+        log_header.addWidget(log_title)
         log_header.addStretch()
+        self.btn_clear_logs = QPushButton("Clear Log")
+        self.btn_clear_logs.setFixedSize(90, 28)
+        self.btn_clear_logs.clicked.connect(self.clear_logs)
         log_header.addWidget(self.btn_clear_logs)
-        right_layout.addLayout(log_header)
-        
+        layout.addLayout(log_header)
+
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
-        self.log_console.setStyleSheet("""
-            QTextEdit {
-                background-color: #101010;
-                color: #cccccc;
+        self.log_console.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {COLORS['surface_2']};
+                color: {COLORS['text']};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 9pt;
-                border: 1px solid #444;
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 padding: 5px;
-            }
+            }}
         """)
-        right_layout.addWidget(self.log_console)
-        right_widget.setLayout(right_layout)
+        layout.addWidget(self.log_console)
 
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setSizes([650, 500])
-        main_layout.addWidget(splitter)
+        return panel
 
-        # [6. 상태바]
-        self.setStatusBar(None)
-        
-        status_bar_widget = QWidget()
-        status_bar_widget.setStyleSheet("background-color: #2d2d30; color: #bbb; border-top: 1px solid #3e3e42;")
-        status_layout = QHBoxLayout(status_bar_widget)
-        status_layout.setContentsMargins(15, 5, 15, 5)
-        
-        self.time_label = QLabel("Ready")
-        self.time_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #ddd;")
-        
-        self.pbar = QProgressBar()
-        self.pbar.setFixedHeight(14)
-        self.pbar.setTextVisible(False)
-        self.pbar.setStyleSheet("QProgressBar { background: #1e1e1e; border: 1px solid #444; border-radius: 3px; } QProgressBar::chunk { background: #888; }")
-        
-        status_layout.addWidget(self.time_label)
-        status_layout.addStretch()
-        status_layout.addWidget(self.pbar, 1)
-        
-        docked_status_container = QWidget()
-        docked_layout = QVBoxLayout(docked_status_container)
-        docked_layout.setContentsMargins(0,0,0,0)
-        docked_layout.addWidget(status_bar_widget)
-        main_layout.addWidget(docked_status_container)
+    def refresh_dashboard_metrics(self):
+        if not hasattr(self, 'metrics_row'):
+            return
+        try:
+            metrics = self.db.get_dashboard_metrics()
+            self.metrics_row.update_counts(metrics)
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Dashboard Metrics Failed", e)
 
-        central_widget.setLayout(main_layout)
+    def refresh_findings_table(self):
+        if not hasattr(self, 'assets_table_card'):
+            return
+        try:
+            findings = self.db.get_all_latest_findings()
+        except Exception:
+            findings = []
+
+        self.assets_table_card.clear_rows()
+        for ip, hostname, os_type, kisa_code, name, status, risk, waived in findings:
+            host = hostname if hostname and hostname != "-" else ip
+            self.assets_table_card.add_row(host, os_type or "", kisa_code or "", status or "", risk or "")
+
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
     def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor):
@@ -529,19 +558,19 @@ class ScannerApp(QMainWindow):
         item_memo = QTableWidgetItem(memo_text if memo_text else "")
         item_vendor = QTableWidgetItem(vendor)
         
-        # 4. 스타일링 (색상 설정)
-        item_ip.setForeground(QBrush(QColor("#ffffff")))      
-        item_host.setForeground(QBrush(QColor("#dddddd")))    
-        item_mac.setForeground(QBrush(QColor("#aaaaaa")))     
-        item_vendor.setForeground(QBrush(QColor("#aaaaaa")))  
-        item_memo.setForeground(QBrush(QColor("#00ff00")))    
-        
+        # 4. 스타일링 (색상 설정) - 라이트 테마 배경(흰색) 위에서도 읽히는 색상 사용
+        item_ip.setForeground(QBrush(QColor(COLORS["text"])))
+        item_host.setForeground(QBrush(QColor(COLORS["text_secondary"])))
+        item_mac.setForeground(QBrush(QColor(COLORS["text_muted"])))
+        item_vendor.setForeground(QBrush(QColor(COLORS["text_muted"])))
+        item_memo.setForeground(QBrush(QColor(COLORS["success_text"])))
+
         if "Linux" in os_type or "Ubuntu" in os_type:
-            item_os.setForeground(QBrush(QColor("#ff9900"))) 
+            item_os.setForeground(QBrush(QColor("#B36B00")))
         elif "Windows" in os_type:
-            item_os.setForeground(QBrush(QColor("#00bfff"))) 
+            item_os.setForeground(QBrush(QColor("#0B6FB3")))
         else:
-            item_os.setForeground(QBrush(QColor("#777777"))) 
+            item_os.setForeground(QBrush(QColor(COLORS["text_muted"])))
 
         # 가운데 정렬
         for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
@@ -559,10 +588,22 @@ class ScannerApp(QMainWindow):
         if self.asset_table.rowCount() == 0:
             return
 
+        # [Phase 2] 아직 Excel/PDF/TXT로 한 번도 출력하지 않은 스캔 결과가 있으면 별도 경고
+        if not self.report_exported:
+            warn_reply = QMessageBox.warning(
+                self, "리포트 미출력 경고",
+                "이번 스캔 결과를 아직 Excel/PDF/TXT로 한 번도 출력하지 않았습니다.\n"
+                "지금 초기화하면 해당 결과가 그대로 사라집니다.\n\n"
+                "정말로 출력 없이 초기화를 계속하시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if warn_reply != QMessageBox.Yes:
+                return
+
         reply = QMessageBox.question(
-            self, "Confirm Delete", 
-            "⚠️ 모든 자산 데이터와 메모가 삭제됩니다.\n초기화하시겠습니까?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No 
+            self, "Confirm Delete",
+            "모든 자산 데이터와 메모가 삭제됩니다.\n초기화하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
@@ -571,7 +612,8 @@ class ScannerApp(QMainWindow):
                 self.asset_table.setRowCount(0)
                 if hasattr(self, 'scanned_ip_cache'):
                     self.scanned_ip_cache.clear()
-                self.log_message("[System] 🗑️ All assets cleared.")
+                self.report_exported = True
+                self.log_message("[System] All assets cleared.")
                 QMessageBox.information(self, "Cleared", "초기화되었습니다.")
 
     def clear_logs(self):
@@ -637,19 +679,15 @@ class ScannerApp(QMainWindow):
         self.btn_audit.setDisabled(busy)
         self.btn_stop.setEnabled(busy)
         
-        # [핵심] 이제 self.action_XXX 로 접근 가능
-        if hasattr(self, 'action_pdf'): self.action_pdf.setEnabled(not busy)
-        if hasattr(self, 'action_xls'): 
-            # 바쁠 때는 무조건 비활성, 안 바쁠 때는 라이선스 체크
-            should_enable = (not busy) and self.license_mgr.can_export_excel()
-            self.action_xls.setEnabled(should_enable)
-        if hasattr(self, 'action_map'): self.action_map.setEnabled(not busy)
-        if hasattr(self, 'action_db'):  self.action_db.setEnabled(not busy)
+        self.nav_reports.setDisabled(busy)
+        self.nav_scan.setDisabled(busy)
+        self.nav_assets.setDisabled(busy)
 
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)
         self.chk_ot_mode.setDisabled(busy)
         self.chk_demo_mode.setDisabled(busy)
+        self.spin_max_workers.setDisabled(busy)
         self.user_input.setDisabled(busy)
         self.pw_input.setDisabled(busy)
 
@@ -676,9 +714,16 @@ class ScannerApp(QMainWindow):
 
     def scan_finished(self, msg):
         self.timer.stop()
-        self.pbar.setValue(100) 
-        self.set_ui_busy(False) 
-        
+        self.pbar.setValue(100)
+        self.set_ui_busy(False)
+
+        # [Phase 2] 실제로 뭔가 점검을 수행한 경우(Discovery/Audit 공통) 아직 리포트로
+        # 출력되지 않은 새 결과가 생긴 것으로 표시한다. Audit이 캐시된 Discovery를 재사용하면
+        # scan_result_buffer는 비어있을 수 있어도 새 진단(W-xx 등) 결과는 DB에 쌓이므로,
+        # "대상이 아예 없었던" 경우만 제외하고 그 외에는 모두 False로 처리한다.
+        if msg not in ("No Targets", "No Live Hosts", "Security Error"):
+            self.report_exported = False
+
         if self.scan_result_buffer:
             count = len(self.scan_result_buffer)
             self.log_message(f"[System] Registering {count} assets to table...")
@@ -710,10 +755,13 @@ class ScannerApp(QMainWindow):
         user = self.user_input.text().strip()
         SecureStorage.delete_credential(target_ip, user)
         
-        # [2단계 연동 추가] 스캔 종료 시 위험 IP 미들웨어로 보고 (실제 진단 결과 기준 취약 건수)
-        if target_ip:
+        # [2단계 연동] 스캔 종료 시 위험 IP 미들웨어로 보고 (실제 진단 결과 기준 취약 건수)
+        # [버그 수정] Discovery(NETWORK_SCAN)만 끝나도 보고되던 문제 - Audit(AUDIT_VULN)이
+        # 완료됐을 때만 보고한다 (Discovery는 딥 인스펙션을 하지 않으므로 취약점 수 자체가 무의미함)
+        is_audit_run = bool(self.worker) and getattr(self.worker, 'mode', None) == "AUDIT_VULN"
+        if target_ip and is_audit_run:
             actual_vuln_count = self.db.get_vuln_count(target_ip)
-            self.log_message(f"[System] 📡 미들웨어에 취약점 진단 결과 전송 중... ({target_ip}, 취약 {actual_vuln_count}건)")
+            self.log_message(f"[System] 미들웨어에 취약점 진단 결과 전송 중... ({target_ip}, 취약 {actual_vuln_count}건)")
             threading.Thread(target=self.report_to_middleware, args=(target_ip, actual_vuln_count), daemon=True).start()
         
     def report_to_middleware(self, ip, vuln_count):
@@ -752,7 +800,7 @@ class ScannerApp(QMainWindow):
         elif mode_idx == 2: 
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("⚠️ Full Scan Warning")
+            msg.setWindowTitle("Full Scan Warning")
             msg.setText("<b>전체 포트(1-65535) 스캔을 시작하시겠습니까?</b>")
             msg.setInformativeText("시간이 매우 오래 걸리며 네트워크 부하가 발생할 수 있습니다.")
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
@@ -773,7 +821,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked())
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -803,7 +851,7 @@ class ScannerApp(QMainWindow):
                 return
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked())
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
         self.connect_worker()
         self.worker.start()
 
@@ -813,6 +861,7 @@ class ScannerApp(QMainWindow):
             generator = PDFGenerator()
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
+            self.report_exported = True
             self.log_message(f"[Success] PDF Saved: {filepath}")
             if QMessageBox.question(self, "Success", "PDF를 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
                 self.open_file_platform_safe(filepath)
@@ -824,11 +873,14 @@ class ScannerApp(QMainWindow):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             generator = TextReportGenerator()
-            filepath = generator.generate()
+            # [매크로 호환] 호스트별로 별도 .txt 파일이 생성되므로 단일 파일이 아니라 목록으로 반환됨
+            filepaths = generator.generate()
             QApplication.restoreOverrideCursor()
-            self.log_message(f"[Success] TXT Report Saved: {filepath}")
-            if QMessageBox.question(self, "Success", "텍스트 리포트를 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
-                self.open_file_platform_safe(filepath)
+            self.report_exported = True
+            out_dir = os.path.dirname(filepaths[0])
+            self.log_message(f"[Success] TXT Report Saved: {len(filepaths)}개 파일 -> {out_dir}")
+            if QMessageBox.question(self, "Success", f"호스트별 TXT 파일 {len(filepaths)}개가 생성되었습니다.\n저장 폴더를 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
+                self.open_file_platform_safe(out_dir)
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", str(e))
@@ -842,43 +894,13 @@ class ScannerApp(QMainWindow):
             generator = ExcelGenerator()
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
+            self.report_exported = True
             self.log_message(f"[Success] Excel Saved: {filepath}")
             if QMessageBox.question(self, "Success", "Excel을 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
                 self.open_file_platform_safe(filepath)
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", str(e))
-
-    def show_topology(self):
-        # 1. 자산 데이터 가져오기
-        assets = self.db.get_all_assets()
-        if not assets:
-            QMessageBox.warning(self, "No Data", "표시할 자산 데이터가 없습니다.\n스캔을 먼저 수행해주세요.")
-            return
-        # 2. 로딩 표시 (선택사항)
-        self.statusBar().showMessage("Generating Topology Map...")
-        try:
-            viz = NetworkVisualizer()
-            # HTML 파일 생성
-            html_path = viz.create_topology(assets)
-            
-            if html_path and os.path.exists(html_path):
-                # [수정됨] 다이얼로그 모듈 로드 실패 시 브라우저로 열기 (안전장치)
-                try:
-                    from gui.topology_dialog import TopologyDialog
-                    dlg = TopologyDialog(html_path, self)
-                    dlg.exec()
-                except ImportError:
-                    self.log_message("[Info] GUI Dialog missing. Opening in browser.")
-                    self.open_file_platform_safe(html_path)
-                
-                self.statusBar().showMessage("Ready", 3000)
-            else:
-                QMessageBox.critical(self, "Error", "토폴로지 맵 생성에 실패했습니다.")
-                
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred:\n{str(e)}")
-            self.statusBar().showMessage("Error generating map.")
 
     def open_file_platform_safe(self, filepath):
         if not OSUtils.open_file(filepath):
@@ -918,6 +940,12 @@ class ScannerApp(QMainWindow):
             print(f"[System] Credentials for {target_ip} wiped.")
         
         event.accept()
+
+    def _on_ot_mode_toggled(self, checked):
+        # [Phase 3] OT 모드를 켜면 동시처리량을 3으로 낮춰서 제안하되, 이미 더 낮게
+        # 설정돼 있으면 건드리지 않는다 (사용자가 더 낮춰둔 값을 존중)
+        if checked and self.spin_max_workers.value() > 3:
+            self.spin_max_workers.setValue(3)
 
     def toggle_port_input(self, index):
         # 1. 인덱스가 1(Custom Range)일 때만 입력창 활성화
@@ -976,40 +1004,161 @@ class ScannerApp(QMainWindow):
         menu.addSeparator()
         """
         menu = QMenu()
-        menu.addAction(f"📡 Ping Check ({ip})", lambda: OSUtils.open_ping_test(ip))
+        menu.addAction(f"Ping Check ({ip})", lambda: OSUtils.open_ping_test(ip))
         menu.addSeparator()
-        
+
         if "Windows" in os_type:
-            menu.addAction("🖥️ RDP Connect", lambda: OSUtils.open_rdp(ip))
+            menu.addAction("RDP Connect", lambda: OSUtils.open_rdp(ip))
         elif "Linux" in os_type:
             user = self.user_input.text().strip() or "root"
-            menu.addAction("🐧 SSH Connect", lambda: OSUtils.open_ssh(ip, user))
-            
-        menu.addAction("📄 Copy IP", lambda: QApplication.clipboard().setText(ip))
+            menu.addAction("SSH Connect", lambda: OSUtils.open_ssh(ip, user))
+
+        menu.addAction("Copy IP", lambda: QApplication.clipboard().setText(ip))
         menu.exec(self.asset_table.viewport().mapToGlobal(pos))
         
+    def import_asset_list(self):
+        """
+        [Phase 1] 고객사 제공 정보자산목록(CSV/Excel)에서 IP를 읽어와 스캔 대상 입력란에 채운다.
+        협의된 범위(파일)와 실제 스캔 대상이 1:1로 일치한다는 감사 증적이 되고,
+        목록에 없는 IP는 애초에 후보에 들어가지 않는 "하드 제외" 효과도 겸한다.
+        """
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "정보자산목록 불러오기", "",
+            "자산목록 파일 (*.csv *.xlsx *.xls);;CSV (*.csv);;Excel (*.xlsx *.xls);;모든 파일 (*)"
+        )
+        if not filepath:
+            return
+
+        try:
+            if filepath.lower().endswith((".xlsx", ".xls")):
+                rows = self._read_asset_rows_excel(filepath)
+            else:
+                rows = self._read_asset_rows_csv(filepath)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"파일을 읽는 중 오류가 발생했습니다:\n{e}")
+            return
+
+        if not rows:
+            QMessageBox.warning(self, "Notice", "파일에서 읽어들인 행이 없습니다.")
+            return
+
+        ip_pattern = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
+
+        def _looks_like_ip(cell):
+            cell = str(cell).strip()
+            m = ip_pattern.match(cell)
+            if not m:
+                return None
+            if not all(0 <= int(g) <= 255 for g in m.groups()):
+                return None
+            return cell
+
+        # 1) 헤더에서 "IP"가 들어간 컬럼을 우선 탐색
+        header = rows[0]
+        ip_col = None
+        for idx, col in enumerate(header):
+            if col and re.search(r'ip', str(col), re.IGNORECASE):
+                ip_col = idx
+                break
+
+        found_ips = []
+        data_rows = rows[1:] if ip_col is not None else rows
+        if ip_col is not None:
+            for r in data_rows:
+                if ip_col < len(r):
+                    ip = _looks_like_ip(r[ip_col])
+                    if ip:
+                        found_ips.append(ip)
+        else:
+            # 헤더에서 IP 컬럼을 못 찾으면 모든 셀을 훑어 IP처럼 보이는 값을 수집 (수동 검토 필요)
+            for r in rows:
+                for cell in r:
+                    ip = _looks_like_ip(cell)
+                    if ip:
+                        found_ips.append(ip)
+
+        # [보안] Command Injection 등으로 이어질 수 있는 값은 여기서도 한 번 더 걸러낸다
+        safe_ips = sorted(set(ip for ip in found_ips if OSUtils.is_safe_host(ip)))
+
+        if not safe_ips:
+            QMessageBox.warning(self, "Notice", "파일에서 유효한 IP 주소를 찾지 못했습니다.\n'IP' 헤더가 포함된 컬럼이 있는지 확인해주세요.")
+            return
+
+        self.ip_input.setText(",".join(safe_ips))
+        self.log_message(f"[System] 자산목록 가져오기 완료: {len(safe_ips)}개 IP ({os.path.basename(filepath)})")
+        QMessageBox.information(self, "가져오기 완료", f"{len(safe_ips)}개의 IP를 스캔 대상으로 불러왔습니다.\n(목록에 없는 IP는 스캔 후보에서 제외됩니다)")
+
+    @staticmethod
+    def _read_asset_rows_csv(filepath):
+        rows = []
+        # 정보자산목록은 EUC-KR/CP949로 작성된 경우가 흔해 UTF-8 실패 시 폴백한다
+        encodings = ["utf-8-sig", "cp949", "utf-8"]
+        last_err = None
+        for enc in encodings:
+            try:
+                with open(filepath, "r", encoding=enc, newline="") as f:
+                    rows = [row for row in csv.reader(f) if any(c.strip() for c in row)]
+                return rows
+            except (UnicodeDecodeError, UnicodeError) as e:
+                last_err = e
+                continue
+        if last_err:
+            raise last_err
+        return rows
+
+    @staticmethod
+    def _read_asset_rows_excel(filepath):
+        import openpyxl
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        ws = wb.active
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            cleaned = ["" if c is None else str(c) for c in row]
+            if any(c.strip() for c in cleaned):
+                rows.append(cleaned)
+        wb.close()
+        return rows
+
     def open_db_manager(self):
         from gui.db_manager import DatabaseManagerDialog
-        
+
         # DB 커넥터 인스턴스를 넘겨줍니다
         dlg = DatabaseManagerDialog(self.db, self)
         dlg.exec()
-        
+
         # 매니저 창이 닫히면 메인 화면의 통계나 리스트도 갱신하는 것이 좋음
         self.refresh_dashboard() # (만약 이런 기능이 있다면)
-        
+
+    def open_expert_mode(self):
+        from gui.expert_mode_dialog import ExpertModeDialog
+        dlg = ExpertModeDialog(self)
+        dlg.exec()
+
+    def open_waiver_manager(self):
+        from gui.waiver_dialog import WaiverManagerDialog
+        dlg = WaiverManagerDialog(self.db, self)
+        dlg.exec()
+
+    def open_settings(self):
+        from gui.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self.db, self)
+        if dlg.exec() == QDialog.Accepted:
+            from utils.app_settings import load_settings as _load_app_settings
+            self._app_settings = _load_app_settings()
+            self.log_panel.setVisible(self._app_settings.get("show_log_panel", False))
+
+    def open_help(self):
+        from gui.help_dialog import HelpDialog
+        dlg = HelpDialog(self)
+        dlg.exec()
+
     def refresh_dashboard(self):
         # [DB Sync] 최신 데이터로 화면 갱신
-        
-        # 1. 통계 갱신 (에러 방지 처리)
-        try:
-            stats = self.db.get_dashboard_stats()
-            if hasattr(self, 'lbl_stats_assets'):
-                self.lbl_stats_assets.setText(f"Assets: {stats['total_assets']}")
-            if hasattr(self, 'lbl_stats_vulns'):
-                self.lbl_stats_vulns.setText(f"Issues: {stats['vuln_critical']}")
-        except: pass
-            
+
+        # 1. [Phase 3] 대시보드 요약 카드 + 결과 테이블 갱신
+        self.refresh_dashboard_metrics()
+        self.refresh_findings_table()
+
         # 2. 테이블 초기화
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set()
@@ -1052,27 +1201,8 @@ class ScannerApp(QMainWindow):
         if hasattr(self, 'title_label'):
             self.title_label.setText(new_title)
 
-        # 2. 엑셀 버튼 활성화/비활성화 (Feature Flag)
-        can_excel = self.license_mgr.can_export_excel()
-        if hasattr(self, 'action_xls') and hasattr(self, 'toolbar'):
-            self.action_xls.setEnabled(can_excel)
-            
-            # 툴바에서 실제 버튼 위젯 가져오기
-            btn_widget = self.toolbar.widgetForAction(self.action_xls)
-            
-            if btn_widget:
-                if can_excel:
-                    # [Pro 모드] 활성 상태: 흰색 (기존 스타일 유지)
-                    self.action_xls.setText("📊 Excel Export")
-                    self.action_xls.setToolTip("Export Scan Results to Excel (Professional)")
-                    # 기본 텍스트 색상(흰색)으로 복구
-                    btn_widget.setStyleSheet("color: #ffffff; font-weight: bold;")
-                else:
-                    # [Standard 모드] 비활성 상태: 회색 (#7f8c8d)
-                    self.action_xls.setText("📊 Excel Export") # 텍스트도 그대로 유지 (잠금 아이콘 X)
-                    self.action_xls.setToolTip("🔒 Locked (Requires Professional License)")
-                    # 비활성 느낌의 회색 적용
-                    btn_widget.setStyleSheet("color: #7f8c8d;")
+        # 2. 엑셀 내보내기는 클릭 시점에 generate_excel()에서 라이선스를 강제하므로
+        #    (Reports 메뉴 항목이라 상시 위젯이 없어) 여기서는 별도 처리 없음.
 
     # 데모용 라이선스 토글 함수
     def demo_toggle_license(self):
@@ -1097,7 +1227,7 @@ class ScannerApp(QMainWindow):
     def sync_to_cloud(self):
         # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도
         QMessageBox.information(self, "Enterprise Feature", 
-            "☁️ [Cloud Sync]\n\n"
+            "[Cloud Sync]\n\n"
             "자산 데이터를 중앙 관제 대시보드(SaaS)로 전송합니다.\n"
             "(현재 데모 버전에서는 시뮬레이션만 수행됩니다.)")
         
@@ -1130,7 +1260,8 @@ class ScannerApp(QMainWindow):
         
         self.asset_table.setUpdatesEnabled(True)
         self.asset_table.setSortingEnabled(True)
-        
-        # 상태 업데이트
-        self.lbl_stats_assets.setText(f"Assets: {count}")
+
+        # [Phase 3] 대시보드 요약 카드 갱신
+        self.refresh_dashboard_metrics()
+        self.refresh_findings_table()
         self.log_message(f"[System] Successfully loaded {count} assets.")

@@ -10,6 +10,8 @@ import ipaddress
 import queue
 import os
 import sys
+import time
+import uuid
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PySide6.QtCore import QThread, Signal
@@ -41,7 +43,7 @@ class ScanWorker(QThread):
     # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
     asset_found_signal = Signal(str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False):
+    def __init__(self, mode, target_input, user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -60,9 +62,16 @@ class ScanWorker(QThread):
         self.ports = ports
         # [OT/저속 모드] 켜면 동시 스캔 대상 수를 줄이고, 진단 명령 사이에 적응형 딜레이를 적용
         self.ot_mode = ot_mode
+        # [Phase 3: 병렬처리량 수동 제어] None이면 mode/ot_mode 기반 기존 자동 로직을 사용
+        self.max_workers_override = max_workers
         # [실전 안전장치] 기본값 False. True일 때만 127.0.0.1 등 데모 IP/접속 실패 시 가상 데이터를 사용하며,
         # False면 접속 실패는 항상 정직하게 실패로 보고된다 (실제 현장 진단용 기본값).
         self.demo_mode = demo_mode
+        # [Phase 2: 스캔 이력 보존] 이 실행(run)을 식별하는 세션 ID - 같은 자산을 여러 번 스캔해도
+        # 회차별로 구분해 이력을 남길 수 있게 한다.
+        self.session_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        # [Phase 2: 운영자 태깅] 스캔을 수행한 운영자 식별값 - 결과에 함께 기록된다.
+        self.operator = operator or ""
         self._security_token = get_engine_token()
 
     def run(self):
@@ -89,7 +98,13 @@ class ScanWorker(QThread):
                 # 1. 실제 스캔 (시뮬레이션 IP 제외)
                 real_targets = [ip for ip in target_ips if ip not in sim_ips]
                 if real_targets:
-                    discovery = HostDiscovery()
+                    # [버그 수정] OT 모드에서는 생존확인 단계의 동시 연결 시도 수도 낮춘다
+                    # [Phase 3] 사용자가 병렬처리량을 직접 지정했으면 생존확인 단계에도 동일하게 적용
+                    if self.max_workers_override is not None:
+                        discovery_workers = max(1, self.max_workers_override)
+                    else:
+                        discovery_workers = 3 if self.ot_mode else 50
+                    discovery = HostDiscovery(max_workers=discovery_workers)
                     live_hosts = discovery.scan_network(real_targets)
                 
                 # 2. 시뮬레이션 IP는 무조건 생존 처리
@@ -108,14 +123,22 @@ class ScanWorker(QThread):
                 self.finish_signal.emit("No Live Hosts")
                 return
 
-            max_workers = 10 if self.mode == "FULL" else 30
+            # [Phase 3] 사용자가 병렬처리량을 직접 지정했으면 그 값을 우선 사용
+            if self.max_workers_override is not None:
+                max_workers = max(1, self.max_workers_override)
+            else:
+                max_workers = 10 if self.mode == "FULL" else 30
+                if self.ot_mode:
+                    # [OT/저속 모드] 동시에 여러 호스트를 두드리는 것 자체가 부하이므로 동시성을 크게 낮춤
+                    max_workers = min(max_workers, 3)
             if self.ot_mode:
-                # [OT/저속 모드] 동시에 여러 호스트를 두드리는 것 자체가 부하이므로 동시성을 크게 낮춤
-                max_workers = min(max_workers, 3)
-                self.log_signal.emit("[OT 모드] 저속/적응형 스로틀링 활성화 - 동시 스캔 대상 수를 최소화합니다.")
+                self.log_signal.emit(f"[OT 모드] 저속/적응형 스로틀링 활성화 - 동시 스캔 대상 수: {max_workers}")
+
+            # [Phase 1] Discovery/Audit 분리: 모드에 따라 서로 다른 메서드로 디스패치
+            target_fn = self.audit_target if self.mode == "AUDIT_VULN" else self.discover_target
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(self.scan_target, ip): ip for ip in live_hosts}
+                futures = {executor.submit(target_fn, ip): ip for ip in live_hosts}
                 
                 processed_count = 0
                 for future in as_completed(futures):
@@ -193,8 +216,9 @@ class ScanWorker(QThread):
             asset_id = db.get_asset_id(ip)
             if asset_id:
                 db.save_result(
-                    asset_id, code, name, risk, status, detail, 
-                    remediation, raw_output, kisa_code
+                    asset_id, code, name, risk, status, detail,
+                    remediation, raw_output, kisa_code,
+                    session_id=self.session_id, operator=self.operator
                 )
         except ValueError as e:
             AppLogger.log_error(f"DB Save Mismatch: {data}", e)
@@ -243,19 +267,21 @@ class ScanWorker(QThread):
     # ----------------------------------------------------------------------
     # [Module 3] Scanning Phases (Modularized)
     # ----------------------------------------------------------------------
-    def scan_target(self, ip):
-        """단일 타겟에 대한 전체 스캔 프로세스 오케스트레이션"""
-        if self.stop_flag: return
-        
+    def discover_target(self, ip):
+        """
+        [Phase 1 리팩터링] Discovery 전용: 순수 자산 식별(생존/OS/포트/배너)만 수행.
+        계정 정보가 있어도 여기서는 딥 인스펙션(KISA 점검)을 절대 하지 않는다.
+        Return: {"os_type": str, "open_ports": list[int]} 또는 중단 시 None
+        """
+        if self.stop_flag: return None
+
         # [핵심] 시뮬레이션 타겟 확인 (데모 모드가 꺼져 있으면 이 IP들도 실제 대상처럼 취급)
         is_sim = self.demo_mode and (ip in ["0.0.0.0", "127.0.0.2", "localhost", "127.0.0.1"])
-        
+
         scanner = AdvancedScanner()
-        
+
         # 1. Host Discovery & OS Detection (가짜 데이터 주입)
         if is_sim:
-            is_alive = True
-            # IP에 따라 가짜 OS 구분
             if ip in ["0.0.0.0", "127.0.0.2"]:
                 os_type = "Windows Server 2019"
                 vendor = "Microsoft"
@@ -264,12 +290,14 @@ class ScanWorker(QThread):
                 vendor = "Ubuntu"
             mac_addr = "00:00:00:00:00:00"
         else:
-            is_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
-        
-        if not is_alive and self.mode != "CUSTOM": return
-        
+            # [버그 수정: 이중 생존확인 통합] run()의 HostDiscovery(TCP 445/22/80/135)가
+            # 이미 생존을 확인한 IP만 여기 도달한다. host_discovery()의 ICMP 결과는
+            # OS 추정(TTL)용 "참고 정보"로만 쓰고, ICMP가 차단됐다고 자산을 스킵하지 않는다
+            # (예전에는 ICMP 차단망에서 TCP로 확인된 자산이 조용히 스킵되는 문제가 있었음).
+            _icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
+
         hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
-        
+
         # [Phase 1] TCP Port Scan (가짜 포트 주입)
         open_ports = []
         if is_sim:
@@ -281,15 +309,14 @@ class ScanWorker(QThread):
             self.log_signal.emit(f"[Simulation] Injecting fake ports for {ip}: {open_ports}")
         else:
             # 실제 스캔 로직
-            if self.mode == "FULL" and self.ports is None: target_ports = range(1, 65536)
-            elif self.ports: target_ports = self.ports
+            if self.ports: target_ports = self.ports
             elif self.custom_ports: target_ports = scanner.parse_ports(self.custom_ports)
             else: target_ports = scanner.default_ports
-            
+
             target_ports = list(target_ports)
             scan_delay = 0.05 if self.ot_mode else 0  # OT 모드: 포트당 소폭의 대기시간으로 연결 시도 폭주 방지
             for i in range(0, len(target_ports), 500):
-                if self.stop_flag: return
+                if self.stop_flag: return None
                 open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500], delay=scan_delay))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
@@ -325,8 +352,10 @@ class ScanWorker(QThread):
             )))
 
         # [Phase 2] UDP Scan (시뮬레이션은 생략 가능)
-        if not is_sim and self.mode != "FAST" and not self.stop_flag:
-            udp_results = scanner.udp_scan(ip)
+        if not is_sim and not self.stop_flag:
+            # [버그 수정] OT 모드 딜레이가 UDP 스캔에는 적용되지 않던 문제
+            udp_delay = 0.05 if self.ot_mode else 0
+            udp_results = scanner.udp_scan(ip, delay=udp_delay)
             for u_port, u_msg, u_len in udp_results:
                 udp_desc = f"UDP Port {u_port} is Open/Response. Payload Size: {u_len} bytes"
                 self.db_queue.put(("SCAN_RESULT", (
@@ -336,84 +365,107 @@ class ScanWorker(QThread):
                     ""         # kisa_code (UDP는 매핑 없음)
                 )))
 
-        # [Phase 3] Deep Inspection (증적 확보)
-        should_inspect = False
-        username = ""
+        return {"os_type": os_type, "open_ports": open_ports}
 
-        # 시뮬레이션이거나, 계정 정보가 있으면 진단 수행
+    def audit_target(self, ip):
+        """
+        [Phase 1 리팩터링] Audit 전용: 계정 기반 딥 인스펙션(KISA 점검)만 수행.
+        [버그 수정] 딥 인스펙션 진입 여부는 "계정정보 유무"가 아니라 run()에서
+        self.mode == 'AUDIT_VULN'일 때만 이 메서드가 호출된다는 사실 자체로 결정된다.
+        가능하면 TBL_ASSETS에 저장된 이전 Discovery 결과(os_type/open_ports)를 재사용해
+        포트스캔을 다시 하지 않는다 (처음 진단하는 자산이면 1회 Discovery를 수행한다).
+        """
+        if self.stop_flag: return
+
+        is_sim = self.demo_mode and (ip in ["0.0.0.0", "127.0.0.2", "localhost", "127.0.0.1"])
+
+        cached = None
+        if not is_sim:
+            db = DBConnector()
+            cached = db.get_discovery_info(ip)
+
+        if cached:
+            os_type = cached["os_type"]
+            open_ports = cached["open_ports"]
+        else:
+            # 사전 Discovery 이력이 없는 자산 (또는 시뮬레이션) - 1회 Discovery로 채운다
+            discovered = self.discover_target(ip)
+            if discovered is None or self.stop_flag: return
+            os_type = discovered["os_type"]
+            open_ports = discovered["open_ports"]
+
+        if self.stop_flag: return
+
         if is_sim:
-            should_inspect = True
             username = "Administrator" if "Windows" in os_type else "root"
-        elif (self.user_info.get(ip) or self.default_user):
-            should_inspect = True
+        else:
             # IP별 계정이 없으면 기본 계정 사용
             username = self.user_info.get(ip, {}).get('user', self.default_user)
 
-        if should_inspect and not self.stop_flag:
-            os_inspector = None  # SYSTEM Detail 부록 수집 대상 (Windows/Linux 대표 1개만)
-            inspectors = []
-            # Windows 진단 조건
-            if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
-                os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
-                inspectors.append(os_inspector)
-            # Linux 진단 조건
-            elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-                os_inspector = SSHInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
-                inspectors.append(os_inspector)
+        os_inspector = None  # SYSTEM Detail 부록 수집 대상 (Windows/Linux 대표 1개만)
+        inspectors = []
+        # Windows 진단 조건
+        if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
+            os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
+            inspectors.append(os_inspector)
+        # Linux 진단 조건
+        elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
+            os_inspector = SSHInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
+            inspectors.append(os_inspector)
 
-            # DB 진단 조건 (OS 진단과 별개로, 열린 DB 포트가 있으면 추가 수행)
-            if 3306 in open_ports:
-                inspectors.append(DatabaseInspector(ip, username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode))
-            if 5432 in open_ports:
-                inspectors.append(DatabaseInspector(ip, username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+        # DB 진단 조건 (OS 진단과 별개로, 열린 DB 포트가 있으면 추가 수행)
+        if 3306 in open_ports:
+            inspectors.append(DatabaseInspector(ip, username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+        if 5432 in open_ports:
+            inspectors.append(DatabaseInspector(ip, username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
 
-            # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
-            if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
-               22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-                inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode, demo_mode=self.demo_mode))
+        # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
+        if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
+           22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
+            inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode, demo_mode=self.demo_mode))
 
-            for inspector in inspectors:
-                if self.stop_flag: break
-                if not inspector.connect():
-                    # [실전 안전장치] 접속 실패를 조용히 건너뛰면 "취약점 없음"과 구분이 안 되므로,
-                    # 점검 자체를 수행하지 못했다는 사실을 보고서에 명시적으로 남긴다.
-                    tag = getattr(inspector, 'ruleset', None) or getattr(inspector, 'engine', type(inspector).__name__)
+        for inspector in inspectors:
+            if self.stop_flag: break
+            if not inspector.connect():
+                # [실전 안전장치] 접속 실패를 조용히 건너뛰면 "취약점 없음"과 구분이 안 되므로,
+                # 점검 자체를 수행하지 못했다는 사실을 보고서에 명시적으로 남긴다.
+                tag = getattr(inspector, 'ruleset', None) or getattr(inspector, 'engine', type(inspector).__name__)
+                self.db_queue.put(("SCAN_RESULT", (
+                    ip, f"CONN-{tag}", "원격 접속/인증 실패", "High", "ERROR",
+                    "원격 접속에 실패하여 이 항목들을 점검하지 못했습니다 (계정/네트워크/방화벽 확인 필요)",
+                    "-", "-", ""
+                )))
+                continue
+
+            # [SYSTEM Detail] OS 대표 인스펙터 1개에서만 시스템/IP/PORT/서비스 원시 정보 수집
+            if inspector is os_inspector and hasattr(inspector, 'get_system_detail'):
+                detail_info = inspector.get_system_detail()
+                for key, label in (("os_info", "시스템 정보"), ("ip_info", "IP 정보"),
+                                    ("port_info", "PORT 정보"), ("service_info", "서비스 정보")):
                     self.db_queue.put(("SCAN_RESULT", (
-                        ip, f"CONN-{tag}", "원격 접속/인증 실패", "High", "ERROR",
-                        "원격 접속에 실패하여 이 항목들을 점검하지 못했습니다 (계정/네트워크/방화벽 확인 필요)",
-                        "-", "-", ""
-                    )))
-                    continue
-
-                # [SYSTEM Detail] OS 대표 인스펙터 1개에서만 시스템/IP/PORT/서비스 원시 정보 수집
-                if inspector is os_inspector and hasattr(inspector, 'get_system_detail'):
-                    detail_info = inspector.get_system_detail()
-                    for key, label in (("os_info", "시스템 정보"), ("ip_info", "IP 정보"),
-                                        ("port_info", "PORT 정보"), ("service_info", "서비스 정보")):
-                        self.db_queue.put(("SCAN_RESULT", (
-                            ip, f"SYS-{key.upper()}", label, "Info", "Safe",
-                            "SYSTEM Detail 부록 (판정 대상 아님)", "-", detail_info.get(key, ""), ""
-                        )))
-
-                    # [PC vs Windows 서버 자동 분류] systeminfo의 OS 이름으로 룰셋 재선택
-                    # ("Server"가 없으면 업무용 PC로 간주하여 PC-01~18 룰셋 적용)
-                    if isinstance(inspector, WindowsInspector) and "Server" not in detail_info.get("os_info", ""):
-                        inspector.set_ruleset("pc_rules.json")
-
-                results = inspector.run_all_checks()
-                for code, (status, detail, name, remediation, raw_output, kisa_code, importance) in results.items():
-                    if status == "VULNERABLE":
-                        # KISA 중요도(상/중/하)를 위험도로 변환하여 리포트 통계에 정확히 반영
-                        risk = {"상": "Critical", "중": "High", "하": "Medium"}.get(importance, "High")
-                    elif status == "PARTIAL":
-                        # 부분만족: 세부기준 일부만 충족 = 미충족(VULNERABLE) 대비 한 단계 낮은 위험도
-                        risk = {"상": "High", "중": "Medium", "하": "Low"}.get(importance, "Medium")
-                    else:
-                        risk = "Info"
-                    # [중요] 9개 요소 (증적 포함) 전송
-                    self.db_queue.put(("SCAN_RESULT", (
-                        ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
+                        ip, f"SYS-{key.upper()}", label, "Info", "Safe",
+                        "SYSTEM Detail 부록 (판정 대상 아님)", "-", detail_info.get(key, ""), ""
                     )))
 
-                if hasattr(inspector, 'close'):
-                    inspector.close()
+                # [PC vs Windows 서버 자동 분류] systeminfo의 OS 이름으로 룰셋 재선택
+                # ("Server"가 없으면 업무용 PC로 간주하여 PC-01~18 룰셋 적용)
+                if isinstance(inspector, WindowsInspector) and "Server" not in detail_info.get("os_info", ""):
+                    inspector.set_ruleset("pc_rules.json")
+
+            results = inspector.run_all_checks()
+            for code, (status, detail, name, remediation, raw_output, kisa_code, importance) in results.items():
+                if status == "VULNERABLE":
+                    # KISA 중요도(상/중/하)를 위험도로 변환하여 리포트 통계에 정확히 반영
+                    risk = {"상": "Critical", "중": "High", "하": "Medium"}.get(importance, "High")
+                elif status == "PARTIAL":
+                    # 부분만족: 세부기준 일부만 충족 = 미충족(VULNERABLE) 대비 한 단계 낮은 위험도
+                    risk = {"상": "High", "중": "Medium", "하": "Low"}.get(importance, "Medium")
+                else:
+                    risk = "Info"
+                # [중요] 9개 요소 (증적 포함) 전송
+                self.db_queue.put(("SCAN_RESULT", (
+                    ip, code, name, risk, status, detail, remediation, raw_output, kisa_code
+                )))
+
+            if hasattr(inspector, 'close'):
+                inspector.close()

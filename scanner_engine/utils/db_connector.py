@@ -100,7 +100,24 @@ class DBConnector:
                 cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_status INTEGER DEFAULT 0")
                 cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_reason TEXT")
             except sqlite3.OperationalError: pass
-            
+
+            # [Phase 2: 스캔 이력 보존] 삭제-후-삽입 대신 회차(scan_round)별로 누적 저장
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN session_id TEXT")
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN scan_round INTEGER DEFAULT 1")
+            except sqlite3.OperationalError: pass
+
+            # [Phase 2: Waiver 승인자 필드] 예외처리 시 누가/언제 승인했는지 기록
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_approver TEXT")
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN waiver_date TEXT")
+            except sqlite3.OperationalError: pass
+
+            # [Phase 2: 운영자 태깅] 어떤 운영자가 수행한 스캔인지 결과에 함께 기록
+            try:
+                cursor.execute("ALTER TABLE TBL_SCAN_RESULT ADD COLUMN operator TEXT")
+            except sqlite3.OperationalError: pass
+
             # 4. 오픈 포트 테이블
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS TBL_OPEN_PORTS (
@@ -170,28 +187,66 @@ class DBConnector:
             except: return None
             finally: conn.close()
 
-    # [수정됨] 증적(raw_output) 및 KISA 코드(kisa_code) 저장 지원
-    def save_result(self, asset_id, code, name, risk, status, detail, remediation="-", raw_output="", kisa_code=""):
+    def get_discovery_info(self, ip):
+        """Audit이 재스캔 없이 재사용할 이전 Discovery 결과 (os_type/open_ports)"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT os_type, open_ports FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+                row = cursor.fetchone()
+                if not row or not row[1]:
+                    return None
+                os_type, ports_str = row
+                open_ports = [int(p.strip()) for p in ports_str.split(',') if p.strip().isdigit()]
+                return {"os_type": os_type or "Unknown", "open_ports": open_ports}
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Get Discovery Info Failed ({ip})", e)
+                return None
+            finally: conn.close()
+
+    # [Phase 2: 스캔 이력 보존] 삭제-후-삽입(덮어쓰기) 대신, 자산+코드별 회차(scan_round)를 증가시켜
+    # 이전 회차 결과를 보존한 채 새 회차를 누적한다. 리포트/조회는 항상 최신 회차만 보도록
+    # get_latest_round_filter()가 만드는 서브쿼리 조건을 함께 사용해야 한다.
+    def save_result(self, asset_id, code, name, risk, status, detail, remediation="-", raw_output="", kisa_code="",
+                     session_id=None, operator=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # 기존 결과 삭제 (덮어쓰기)
-                cursor.execute("DELETE FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?", (asset_id, code))
-                
-                # 새로운 컬럼 포함하여 Insert
+                cursor.execute(
+                    "SELECT COALESCE(MAX(scan_round), 0) + 1 FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?",
+                    (asset_id, code)
+                )
+                next_round = cursor.fetchone()[0]
+
                 cursor.execute("""
-                    INSERT INTO TBL_SCAN_RESULT 
-                    (asset_id, vuln_code, kisa_code, vuln_name, risk_level, status, detected_value, raw_output, remediation, scan_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (asset_id, code, kisa_code, name, risk, status, detail, raw_output, remediation, now))
+                    INSERT INTO TBL_SCAN_RESULT
+                    (asset_id, vuln_code, kisa_code, vuln_name, risk_level, status, detected_value, raw_output,
+                     remediation, scan_date, session_id, scan_round, operator)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (asset_id, code, kisa_code, name, risk, status, detail, raw_output, remediation,
+                      now, session_id, next_round, operator))
                 conn.commit()
                 return True
             except Exception as e:
                 AppLogger.log_error(f"[DB] Save Result Error", e)
                 return False
             finally: conn.close()
+
+    @staticmethod
+    def latest_round_condition(table_alias="R"):
+        """
+        [Phase 2] 스캔 이력이 누적되므로, "현재 상태"를 보여줘야 하는 모든 조회(리포트/대시보드/
+        미들웨어 연동 등)는 자산+코드별 최신 회차(scan_round)만 걸러내야 한다. 공용 서브쿼리 조건을
+        여기서 한 곳에 모아 SQL 문자열마다 따로 작성하다 실수하는 것을 방지한다.
+        """
+        return (
+            f"{table_alias}.scan_round = ("
+            f"SELECT MAX(R2.scan_round) FROM TBL_SCAN_RESULT R2 "
+            f"WHERE R2.asset_id = {table_alias}.asset_id AND R2.vuln_code = {table_alias}.vuln_code)"
+        )
 
     # 하위 호환성 유지용 (기존 코드가 이 메서드를 호출할 경우 대비)
     def save_scan_result(self, asset_id, vuln_code, status, detail, vuln_name=None, remediation=None):
@@ -207,29 +262,75 @@ class DBConnector:
             except: return []
             finally: conn.close()
 
-    def get_dashboard_stats(self):
+    # [Phase 3: 대시보드] ---------------------------------------------------
+    def get_dashboard_metrics(self):
+        """
+        대시보드 요약 지표 4개: 점검 자산 수 / Critical 발견 수 / 부분만족 수 / 접속 실패 수.
+        전부 최신 회차(latest_round_condition) 기준이며, 예외처리(waiver)된 항목은 제외한다.
+        """
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
-            stats = {"total_assets": 0, "vuln_critical": 0, "last_scan": "-"}
+            metrics = {"assets_scanned": 0, "critical_findings": 0, "partial_compliance": 0, "connection_errors": 0}
             try:
                 cursor.execute("SELECT COUNT(*) FROM TBL_ASSETS")
                 row = cursor.fetchone()
-                if row: stats["total_assets"] = row[0]
+                if row: metrics["assets_scanned"] = row[0]
 
-                cursor.execute("""
-                    SELECT COUNT(*) FROM TBL_SCAN_RESULT 
-                    WHERE risk_level IN ('Critical', 'High') AND waiver_status = 0
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM TBL_SCAN_RESULT R
+                    WHERE status = 'VULNERABLE' AND risk_level = '상' AND waiver_status = 0
+                    AND {self.latest_round_condition('R')}
                 """)
                 row = cursor.fetchone()
-                if row: stats["vuln_critical"] = row[0]
+                if row: metrics["critical_findings"] = row[0]
 
-                cursor.execute("SELECT MAX(last_seen) FROM TBL_ASSETS")
-                last = cursor.fetchone()[0]
-                if last: stats["last_scan"] = last
-            except: pass
-            finally: conn.close()
-            return stats
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM TBL_SCAN_RESULT R
+                    WHERE status = 'PARTIAL' AND waiver_status = 0
+                    AND {self.latest_round_condition('R')}
+                """)
+                row = cursor.fetchone()
+                if row: metrics["partial_compliance"] = row[0]
+
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM TBL_SCAN_RESULT R
+                    WHERE vuln_code LIKE 'CONN-%'
+                    AND {self.latest_round_condition('R')}
+                """)
+                row = cursor.fetchone()
+                if row: metrics["connection_errors"] = row[0]
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Dashboard Metrics Failed", e)
+            finally:
+                conn.close()
+            return metrics
+
+    def get_all_latest_findings(self):
+        """
+        대시보드 결과 테이블용: 모든 자산의 최신 회차 진단 결과 (SYS-/CONN- 메타 항목 제외)를
+        Host/OS/KISA 코드/Status/Risk 형태로 반환한다.
+        """
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT A.ip_addr, A.hostname, A.os_type,
+                           CASE WHEN R.kisa_code IS NOT NULL AND R.kisa_code != '' THEN R.kisa_code ELSE R.vuln_code END,
+                           R.vuln_name, R.status, R.risk_level, R.waiver_status
+                    FROM TBL_SCAN_RESULT R
+                    JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
+                    WHERE R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'CONN-%'
+                    AND {self.latest_round_condition('R')}
+                    ORDER BY A.ip_addr ASC, R.vuln_code ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get All Latest Findings Failed", e)
+                return []
+            finally:
+                conn.close()
 
     def get_vuln_count(self, ip):
         """미들웨어 연동 등에 사용할, 특정 자산의 실제 취약(VULNERABLE) 항목 수 (예외처리 제외)"""
@@ -237,10 +338,11 @@ class DBConnector:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT COUNT(*) FROM TBL_SCAN_RESULT R
                     JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
                     WHERE A.ip_addr = ? AND R.status = 'VULNERABLE' AND R.waiver_status = 0
+                    AND {self.latest_round_condition('R')}
                 """, (ip,))
                 row = cursor.fetchone()
                 return row[0] if row else 0
@@ -249,6 +351,49 @@ class DBConnector:
                 return 0
             finally:
                 conn.close()
+
+    # [Phase 3: Waiver 관리] ------------------------------------------------
+    def get_latest_results_for_asset(self, asset_id):
+        """자산의 최신 회차 진단 결과 (SYSTEM Detail 제외) - Waiver 관리 UI용"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT result_id, vuln_code, kisa_code, vuln_name, risk_level, status,
+                           waiver_status, waiver_reason, waiver_approver, waiver_date
+                    FROM TBL_SCAN_RESULT R
+                    WHERE asset_id = ? AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
+                    AND {self.latest_round_condition('R')}
+                    ORDER BY vuln_code ASC
+                """, (asset_id,))
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Get Latest Results Failed ({asset_id})", e)
+                return []
+            finally: conn.close()
+
+    def set_waiver(self, result_id, waived, reason="", approver=""):
+        """
+        result_id(TBL_SCAN_RESULT.result_id) 단위로 예외처리를 설정/해제한다.
+        [Phase 2/3] 예외처리 시 사유(reason)와 승인자(approver)를 함께 기록한다.
+        """
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if waived else None
+                cursor.execute("""
+                    UPDATE TBL_SCAN_RESULT
+                    SET waiver_status=?, waiver_reason=?, waiver_approver=?, waiver_date=?
+                    WHERE result_id=?
+                """, (1 if waived else 0, reason if waived else "", approver if waived else "", now, result_id))
+                conn.commit()
+                return True
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Set Waiver Failed (result_id={result_id})", e)
+                return False
+            finally: conn.close()
 
     def get_memo(self, ip):
         with self._db_lock:
@@ -286,6 +431,24 @@ class DBConnector:
             except: return False
             finally: conn.close()
             
+    def purge_old_results(self, days):
+        """[Phase 3: 설정 페이지] scan_date 기준 days일보다 오래된 이력을 정리한다."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "DELETE FROM TBL_SCAN_RESULT WHERE scan_date < datetime('now', ?)",
+                    (f'-{int(days)} days',)
+                )
+                deleted = cursor.rowcount
+                conn.commit()
+                return deleted
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Purge Old Results Failed", e)
+                return -1
+            finally: conn.close()
+
     def get_assets_for_manager(self):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)

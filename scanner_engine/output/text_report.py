@@ -6,6 +6,7 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 import os
+import re
 import sys
 import json
 import sqlite3
@@ -13,6 +14,7 @@ from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
+from utils.app_settings import get_report_output_dir
 from utils.logger import AppLogger
 
 # 엔진별 룰 파일과, database_inspector.py가 내부 저장 키에 붙이는 접두어
@@ -42,6 +44,13 @@ class TextReportGenerator:
       1) Discovery  - 자산 탐지/포트 스캔 결과 (TCP-xx, UDP-xx, INFO-00)
       2) Audit      - KISA 진단 항목 (U-xx/W-xx/D-xx/WEB-xx), 카테고리별 그룹핑
       3) SYSTEM Detail - 시스템/IP/PORT/서비스 원시 정보 부록
+
+    [매크로 호환 - 중요] 대외비 결과보고서 엑셀(UNIX/WINDOWS/PC/DBMS)의 가져오기 매크로
+    (ProcessSecurityLogs)는 한 폴더 안의 여러 .txt 파일을 순회하며, 각 파일의 hostname을
+    "파일 내용"이 아니라 "파일명"에서 뽑는다 (첫 ']' 다음부터 다음 '_' 전까지). 그래서
+    호스트당 파일을 하나씩 별도로 저장하고, 파일명은 반드시 `[TAG]hostname_timestamp.txt`
+    형식이어야 한다. 예전처럼 전체 호스트를 한 파일에 합치면 매크로가 파일명에서 엉뚱한
+    값(예: "Z-VulnScan")을 hostname으로 읽어버린다.
     """
 
     def __init__(self):
@@ -52,7 +61,8 @@ class TextReportGenerator:
             current_file = os.path.abspath(__file__)
             base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 
-        self.output_dir = os.path.join(base_path, 'reports')
+        # [Phase 3: 설정 페이지] 사용자가 지정한 리포트 출력 경로가 있으면 그것을 사용
+        self.output_dir = get_report_output_dir()
         if not os.path.exists(self.output_dir):
             try:
                 os.makedirs(self.output_dir, exist_ok=True)
@@ -89,6 +99,30 @@ class TextReportGenerator:
     def _is_system_detail_code(vuln_code):
         return vuln_code.startswith("SYS-")
 
+    @staticmethod
+    def _extract_real_hostname(os_info, fallback):
+        """
+        대외비 매크로(ProcessSecurityLogs)는 엑셀 결과의 hostname을 파일 내용이 아니라
+        '파일명'에서 뽑아낸다 (첫 ']' 다음부터 첫 '_' 전까지). 그래서 placeholder
+        ("(vendor) Device")가 아니라 실제 호스트명이 필요해, 이미 수집해 둔
+        SYS-OS_INFO 원문(uname -a / systeminfo)에서 직접 추출한다.
+        """
+        if os_info:
+            m = re.search(r'Host Name:\s*(\S+)', os_info)
+            if m:
+                return m.group(1)
+            m = re.match(r'^\s*Linux\s+(\S+)', os_info)
+            if m:
+                return m.group(1)
+        return fallback
+
+    @staticmethod
+    def _sanitize_filename(name):
+        # 대외비 매크로는 파일명의 첫 ']' ~ 다음 '_' 구간을 hostname으로 그대로 읽으므로
+        # 파일시스템 금지 문자만 제거하고 hostname 자체는 최대한 원형 유지
+        cleaned = re.sub(r'[\\/:*?"<>|\s\[\]]+', '-', str(name)).strip('-')
+        return cleaned or "unknown"
+
     def generate(self):
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
@@ -99,28 +133,37 @@ class TextReportGenerator:
             if not assets:
                 raise Exception("진단된 자산 데이터가 없습니다.")
 
-            blocks = []
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            written_files = []
+
             for asset_id, ip, hostname, os_type in assets:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT vuln_code, kisa_code, vuln_name, status, detected_value,
                            raw_output, remediation, waiver_status
-                    FROM TBL_SCAN_RESULT
+                    FROM TBL_SCAN_RESULT R
                     WHERE asset_id = ?
+                    AND {DBConnector.latest_round_condition('R')}
                     ORDER BY vuln_code ASC
                 """, (asset_id,))
                 rows = cursor.fetchall()
                 if not rows:
                     continue
-                blocks.append(self._render_host_block(ip, hostname, os_type, rows))
 
-            content = "\n\n".join(blocks)
+                content, real_host = self._render_host_block(ip, hostname, os_type, rows)
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"Z-VulnScan_Result_{timestamp}.txt"
-            filepath = os.path.join(self.output_dir, filename)
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return filepath
+                # [매크로 호환] 대상 워크북(UNIX/WINDOWS/PC/DBMS)들은 파일명 태그가 아니라
+                # 본문의 [U-xx]/[W-xx]/[PC-xx]/[D-xx] 코드로 필터링하므로 태그는 구분용일 뿐이다
+                tag = "WINDOWS" if "windows" in (os_type or "").lower() else "UNIX"
+                safe_host = self._sanitize_filename(real_host)
+                filename = f"[{tag}]{safe_host}_{timestamp}.txt"
+                filepath = os.path.join(self.output_dir, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                written_files.append(filepath)
+
+            if not written_files:
+                raise Exception("내보낼 스캔 결과가 없습니다.")
+            return written_files
         finally:
             conn.close()
 
@@ -138,7 +181,9 @@ class TextReportGenerator:
                 audit_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived))
 
         buf = []
-        display_host = hostname if hostname and hostname != "-" else ip
+        fallback_host = hostname if hostname and hostname != "-" else ip
+        real_host = self._extract_real_hostname(sys_detail.get("SYS-OS_INFO", ""), fallback_host)
+        display_host = real_host
 
         buf.append("** [주요정보통신기반시설] ")
         buf.append("")
@@ -230,4 +275,4 @@ class TextReportGenerator:
             content = sys_detail.get(code, "").strip()
             buf.append(content if content else "(수집된 정보 없음)")
 
-        return "\n".join(buf)
+        return "\n".join(buf), real_host

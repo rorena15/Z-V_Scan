@@ -15,6 +15,7 @@ from utils.secure_storage import SecureStorage
 from utils.logger import AppLogger
 from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
+from utils.expert_profile import get_excluded_codes
 
 DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432}
 
@@ -187,8 +188,12 @@ class DatabaseInspector:
             AppLogger.log_error(f"{self.engine} rules file not found: {self.rules_path}")
 
         throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
+        # [Phase 3: 전문가 모드] 사용자가 이 룰셋에서 제외한 코드는 아예 실행하지 않는다
+        excluded_codes = get_excluded_codes(f"{self.engine}_rules.json")
 
         for rule in rules:
+            if rule['code'] in excluded_codes:
+                continue
             # [주의] MySQL/PostgreSQL 룰셋이 동일한 "D-xx" 코드를 공유하므로,
             # 한 호스트에 두 DB가 동시에 열려 있을 때 DB 저장 시 서로 덮어쓰지 않도록
             # 내부 키(code)는 엔진명을 붙여 구분하고, 화면 표시용 KISA 코드는 원본 그대로 둔다.

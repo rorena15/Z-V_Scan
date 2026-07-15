@@ -28,6 +28,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.os_utils import OSUtils
 from utils.oui_lookup import OUILookup
 from utils.db_connector import DBConnector
+from utils.app_settings import get_report_output_dir
 
 class PDFGenerator:
     # 색상 팔레트
@@ -51,14 +52,9 @@ class PDFGenerator:
 
     def __init__(self):
         self.db = DBConnector() # DB 커넥터 재사용
-        if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-        else:
-            current_file = os.path.abspath(__file__)
-            base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-            
-        self.output_dir = os.path.join(base_path, 'reports')
-        
+        # [Phase 3: 설정 페이지] 사용자가 지정한 리포트 출력 경로가 있으면 그것을 사용
+        self.output_dir = get_report_output_dir()
+
         if not os.path.exists(self.output_dir):
             try:
                 os.makedirs(self.output_dir, exist_ok=True)
@@ -159,31 +155,38 @@ class PDFGenerator:
             if not all_assets:
                 raise Exception("No assets found.")
 
-            # 통계 조회 (예외처리 제외, 실제 취약 판정 건만 집계)
-            cursor.execute("""
-                SELECT risk_level, COUNT(*) FROM TBL_SCAN_RESULT
-                WHERE waiver_status=0 AND status='VULNERABLE'
-                GROUP BY risk_level
+            # 통계 조회 (예외처리 제외, 최신 회차만 집계)
+            # [버그 수정] status='VULNERABLE'만 집계해 "부분만족(PARTIAL)" 항목이 통째로 빠지던 문제
+            cursor.execute(f"""
+                SELECT status, risk_level, COUNT(*) FROM TBL_SCAN_RESULT R
+                WHERE waiver_status=0 AND status IN ('VULNERABLE', 'PARTIAL')
+                AND {DBConnector.latest_round_condition('R')}
+                GROUP BY status, risk_level
             """)
-            risk_stats = dict(cursor.fetchall())
-            
-            total_vulns = sum(risk_stats.values())
-            critical_high = risk_stats.get('Critical', 0) + risk_stats.get('High', 0)
+            vuln_risk_stats = {}
+            partial_risk_stats = {}
+            for status, risk, cnt in cursor.fetchall():
+                (vuln_risk_stats if status == 'VULNERABLE' else partial_risk_stats)[risk] = cnt
+
+            total_vulns = sum(vuln_risk_stats.values())
+            total_partial = sum(partial_risk_stats.values())
+            critical_high = vuln_risk_stats.get('상', 0)
 
             # === 1. Executive Summary ===
             elements.append(Spacer(1, 1*cm))
-            elements.append(Paragraph("<b>주요정보통신기반시설 취약점 분석 요약</b>", 
-                                   ParagraphStyle(name='cover', fontName=self.bold_font, fontSize=24, 
+            elements.append(Paragraph("<b>주요정보통신기반시설 취약점 분석 요약</b>",
+                                   ParagraphStyle(name='cover', fontName=self.bold_font, fontSize=24,
                                                 textColor=self.DARK_BLUE, alignment=1)))
             elements.append(Spacer(1, 1.5*cm))
-            
+
             # KPI
             kpi_data = [[
                 self._create_kpi_box("점검 자산 수", len(all_assets), colors.HexColor('#E8F4F8')),
                 self._create_kpi_box("발견 취약점", total_vulns, colors.HexColor('#FFF4E6')),
+                self._create_kpi_box("부분만족", total_partial, colors.HexColor('#FFF9E0')),
                 self._create_kpi_box("조치 필요(상/중)", critical_high, colors.HexColor('#FFE5E5'))
             ]]
-            elements.append(Table(kpi_data, colWidths=[140, 140, 140], style=[('ALIGN',(0,0),(-1,-1),'CENTER')]))
+            elements.append(Table(kpi_data, colWidths=[110, 110, 110, 110], style=[('ALIGN',(0,0),(-1,-1),'CENTER')]))
             elements.append(PageBreak())
 
             # === 2. 상세 리포트 ===
@@ -196,17 +199,18 @@ class PDFGenerator:
                 # [수정된 SQL Query] KISA Code와 증적 로직 반영
                 # PDF에서는 공간 제약상 'raw_output' 전체를 출력하지 않고 'detected_value(요약)'를 출력함
                 # 하지만 vuln_code 대신 kisa_code를 우선 표시하도록 COALESCE 사용
-                sql = """
-                    SELECT 
+                sql = f"""
+                    SELECT
                         CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' THEN kisa_code ELSE vuln_code END as code_display,
                         vuln_name, risk_level, status, detected_value, remediation
-                    FROM TBL_SCAN_RESULT
+                    FROM TBL_SCAN_RESULT R
                     WHERE asset_id = ? AND waiver_status = 0 AND vuln_code NOT LIKE 'SYS-%'
+                    AND {DBConnector.latest_round_condition('R')}
                     ORDER BY
                         CASE risk_level
-                            WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 
-                            WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 
-                            ELSE 5 END ASC
+                            WHEN '상' THEN 1 WHEN '중' THEN 2
+                            WHEN '하' THEN 3
+                            ELSE 4 END ASC
                 """
                 cursor.execute(sql, (asset_id,))
                 rows = cursor.fetchall()
