@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 # [PySide6 핵심 기능]
 from PySide6.QtCore import Qt, QTimer
 # [PySide6 그래픽 및 액션]
-from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor
+from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QKeySequence
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -65,31 +65,33 @@ class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
     #- Standard: PDF만 가능 / 증적은 취약·부분만족 항목만 / 조치방안 없음
     #- Professional: Excel+PDF 가능 / 증적 전체 / 조치방안은 중요도 상·중 항목만
-    #- Enterprise: 모든 기능 / 증적·조치방안 전체
+    #- Enterprise: 모든 기능(전문가 모드 포함) / 증적·조치방안 전체
     #
     TIER_STANDARD = "STANDARD"
     TIER_PROFESSIONAL = "PROFESSIONAL"
     TIER_ENTERPRISE = "ENTERPRISE"
+    _TIER_CYCLE = [TIER_STANDARD, TIER_PROFESSIONAL, TIER_ENTERPRISE]
 
     def __init__(self):
-        # [등급 실구현 준비 완료, 강제 적용은 보류] AppConfig.LICENSE_ENFORCEMENT_ENABLED가
-        # True가 되기 전까지는 current_tier 값과 무관하게 effective_tier()가 항상
-        # PROFESSIONAL을 반환하므로, 이 기본값 자체는 지금 당장 어떤 동작에도 영향을 주지 않는다.
-        self.current_tier = self.TIER_PROFESSIONAL
+        # [기본값 = Enterprise] license.dat에 유효한 키가 없으면(본인 자체 사용 단계 기본
+        # 상태) 소유자 기본 모드로 전체 기능이 열린 채로 동작한다. 나중에 고객사에 STD/PRO
+        # 키를 발급하면 ScannerApp.__init__에서 그 키가 검증되는 즉시 이 값을 낮춘다.
+        self.current_tier = self.TIER_ENTERPRISE
+        # 실제 라이선스 키가 로드된 경우에만 채워짐 (없으면 무제한으로 취급)
+        self.expiry_date = None
 
     def effective_tier(self):
-        """실제 기능 제한에 쓰이는 등급. 라이선스 강제 적용이 꺼져 있으면(기본값)
-        실제 키 상태와 무관하게 항상 PROFESSIONAL로 취급해 지금 당장은 아무것도 막지 않는다."""
-        if not AppConfig.LICENSE_ENFORCEMENT_ENABLED:
-            return self.TIER_PROFESSIONAL
         return self.current_tier
 
     def toggle_tier(self):
-        #"""데모/개발용: 등급 스위칭 (Standard <-> Pro). 강제 적용이 꺼져 있으면 효과 없음"""
-        if self.current_tier == self.TIER_STANDARD:
-            self.current_tier = self.TIER_PROFESSIONAL
-        else:
-            self.current_tier = self.TIER_STANDARD
+        """숨겨진 개발자 전용 동작(Ctrl+Shift+L, 메뉴/버튼에 노출되지 않음): 등급별
+        제한이 실제로 어떻게 보이는지 확인하기 위해 STD -> PRO -> ENT 순으로 순환한다.
+        메모리에서만 바뀌며 license.dat는 건드리지 않으므로, 재시작하면 원래 등급으로 돌아간다."""
+        try:
+            idx = self._TIER_CYCLE.index(self.current_tier)
+        except ValueError:
+            idx = -1
+        self.current_tier = self._TIER_CYCLE[(idx + 1) % len(self._TIER_CYCLE)]
         return self.current_tier
 
     def get_window_title(self):
@@ -107,6 +109,10 @@ class LicenseManager:
     def can_export_excel(self):
         #"""Professional 등급 이상만 엑셀 내보내기 허용"""
         return self.effective_tier() in (self.TIER_PROFESSIONAL, self.TIER_ENTERPRISE)
+
+    def can_use_expert_mode(self):
+        #"""전문가 모드는 Enterprise 등급 전용"""
+        return self.effective_tier() == self.TIER_ENTERPRISE
 
     def evidence_level(self):
         """리포트에 상세 증적(raw_output)을 얼마나 보여줄지.
@@ -141,17 +147,20 @@ class ScannerApp(QMainWindow):
 
         self.initUI()
         self.license_mgr = LicenseManager()
-        self.update_ui_by_license()
         saved_key = LicenseValidator.load_license()
         if saved_key:
-            is_valid, tier = LicenseValidator.validate_key(saved_key)
+            is_valid, tier, expiry_date = LicenseValidator.validate_key(saved_key)
             if is_valid:
-                # 3. 유효하면 해당 등급으로 즉시 적용 (Standard -> Pro/Ent)
-                # [실구현 준비 완료, 강제 적용은 보류] AppConfig.LICENSE_ENFORCEMENT_ENABLED가
-                # False인 동안은 current_tier를 설정해도 effective_tier()가 이를 무시하고
-                # 항상 PROFESSIONAL을 반환하므로 지금은 실제 기능 제한에 영향이 없다.
+                # 유효한 키가 있으면 그 등급/만료일로 낮추거나 갱신 (기본값은 Enterprise)
                 self.license_mgr.current_tier = tier
-                print(f"[System] Valid License Found: {tier}")
+                self.license_mgr.expiry_date = expiry_date
+                print(f"[System] Valid License Found: {tier} (expires {expiry_date})")
+            else:
+                print("[System] Saved license key invalid/expired - using default Enterprise mode")
+        # [버그 수정] 예전엔 이 호출이 위 키 로딩보다 먼저 있어서, 실제 키가 있어도
+        # 창 제목이 항상 기본값(Enterprise) 기준으로만 표시되던 문제가 있었음 - 반드시
+        # current_tier가 최종 확정된 뒤에 호출해야 한다.
+        self.update_ui_by_license()
         self.load_saved_data()
 
     # -- UI 세팅 --
@@ -222,8 +231,10 @@ class ScannerApp(QMainWindow):
 
         root_layout.addWidget(status_bar_widget)
 
-        # [Phase 3] 전문가 모드/설정 등에서 쓰는 라이선스 데모 전환용 (개발 편의, 숨김 처리)
-        self.action_license_switch = QAction("Change License (Demo)", self)
+        # [숨겨진 개발자 전용 동작] 메뉴/버튼 어디에도 노출하지 않고, 단축키로만 접근한다.
+        # 등급별 제한(전문가 모드 잠금 등)이 실제로 어떻게 보이는지 확인하기 위한 용도.
+        self.action_license_switch = QAction("Cycle License Tier (Dev Only)", self)
+        self.action_license_switch.setShortcut(QKeySequence("Ctrl+Shift+L"))
         self.action_license_switch.triggered.connect(self.demo_toggle_license)
         self.addAction(self.action_license_switch)
 
@@ -1194,6 +1205,11 @@ class ScannerApp(QMainWindow):
         self.refresh_dashboard() # (만약 이런 기능이 있다면)
 
     def open_expert_mode(self):
+        if not self.license_mgr.can_use_expert_mode():
+            QMessageBox.warning(self, "License Restricted",
+                "전문가 모드는 Enterprise 등급 전용 기능입니다.\n"
+                f"(현재 등급: {self.license_mgr.effective_tier()})")
+            return
         from gui.expert_mode_dialog import ExpertModeDialog
         dlg = ExpertModeDialog(self)
         dlg.exec()
@@ -1268,25 +1284,23 @@ class ScannerApp(QMainWindow):
         # 2. 엑셀 내보내기는 클릭 시점에 generate_excel()에서 라이선스를 강제하므로
         #    (Reports 메뉴 항목이라 상시 위젯이 없어) 여기서는 별도 처리 없음.
 
-    # 데모용 라이선스 토글 함수
+    # [숨겨진 개발자 전용 동작] Ctrl+Shift+L로만 접근 (메뉴/버튼 노출 없음).
+    # 등급별 제한이 실제로 어떻게 보이는지 미리보기용 - license.dat는 건드리지 않는다.
     def demo_toggle_license(self):
         new_tier = self.license_mgr.toggle_tier()
         self.update_ui_by_license()
-        
-        msg = "Professional Mode Activated! (Full Features Unlocked)" if new_tier == "PROFESSIONAL" else "Reverted to Standard Mode. (Excel Export Locked)"
-        QMessageBox.information(self, "License Change", msg)
+        QMessageBox.information(self, "License Tier Changed (Dev Preview)",
+            f"[미리보기] 등급을 {new_tier}로 전환했습니다.\n"
+            "(license.dat는 그대로이며, 프로그램을 재시작하면 원래 등급으로 돌아갑니다)")
 
-    # ----------------------------------------------------------------------
-    # [TODO] 나중에 주석 해제하여 사용 (라이선스 다이얼로그 연동)
-    # ----------------------------------------------------------------------
     def open_license_dialog(self):
-        pass # 주석 처리된 동안 에러 방지용
-        # dlg = LicenseDialog(self)
-        # if dlg.exec():
-        #     if dlg.verified_tier:
-        #         self.license_mgr.current_tier = dlg.verified_tier
-        #         self.update_ui_by_license()
-        #         self.log_message(f"[System] License Activated: {dlg.verified_tier}")
+        dlg = LicenseDialog(self)
+        if dlg.exec():
+            if dlg.verified_tier:
+                self.license_mgr.current_tier = dlg.verified_tier
+                self.license_mgr.expiry_date = dlg.verified_expiry
+                self.update_ui_by_license()
+                self.log_message(f"[System] License Activated: {dlg.verified_tier} (expires {dlg.verified_expiry})")
         
     def sync_to_cloud(self):
         # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도

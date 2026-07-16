@@ -13,21 +13,22 @@ class AppConfig:
     # ----------------------------------------------------------------------
     # [2] 라이선스 키 생성 정책 (License Policy)
     # ----------------------------------------------------------------------
-    # 구조: ZV3-{TIER}-{RANDOM}-{HASH}
-    # 예시: ZV3-ENT-X9A2-B7F1
+    # 구조: ZV3-{TIER}-{EXPIRY:YYYYMMDD}-{RANDOM}-{HASH}
+    # 예시: ZV3-ENT-20270717-X9A2-B7F1
     #
     # [TIER 코드 목록 및 리포트 노출 범위]
-    # - STD : Standard   - PDF만 가능(Excel 불가) / 증적(raw_output)은 취약·부분만족 항목만 / 조치방안 없음
+    # - STD : Standard     - PDF만 가능(Excel 불가) / 증적(raw_output)은 취약·부분만족 항목만 / 조치방안 없음
     # - PRO : Professional - Excel+PDF 가능 / 증적 전체 제공 / 조치방안은 중요도 상·중 항목만
-    # - ENT : Enterprise - 모든 기능 / 증적 전체 / 조치방안 전체(중요도 무관)
+    # - ENT : Enterprise   - 모든 기능(전문가 모드 포함) / 증적 전체 / 조치방안 전체(중요도 무관)
     #
-    # [실구현 상태]
-    # 등급별 차등 로직(LicenseManager, ExcelGenerator, PDFGenerator)은 이미 개발되어 있으나,
-    # LICENSE_ENFORCEMENT_ENABLED가 False인 동안은 실제 라이선스 파일/키와 무관하게
-    # 항상 PROFESSIONAL로 동작한다 (상용화 전 자체 사용 단계 - 본인 작업이 라이선스 때문에
-    # 막히지 않도록 하는 임시 조치). 나중에 실제로 등급 판매/제한이 필요해지면 아래 값을
-    # True로 바꾸기만 하면 이미 만들어진 로직이 그대로 적용된다.
-    LICENSE_ENFORCEMENT_ENABLED = False
+    # [실구현 상태 및 기본 동작]
+    # 등급별 차등 로직(LicenseManager, ExcelGenerator, PDFGenerator)은 실제로 항상 적용된다
+    # (별도 on/off 스위치 없음). 다만 `license.dat`에 유효한 키가 없으면(본인 자체 사용 단계
+    # 기본값) LicenseManager가 ENTERPRISE로 시작하므로 지금 당장은 아무것도 제한되지 않는다.
+    # 나중에 고객사에 STD/PRO 키를 발급하면, 그 키가 검증되는 순간부터 해당 등급 제한이
+    # 실제로 적용된다. 등급별 화면을 미리 확인하고 싶으면 숨겨진 개발자 단축키(Ctrl+Shift+L,
+    # main_window.py의 action_license_switch)로 STD->PRO->ENT 순으로 순환 전환할 수 있다
+    # (메모리에만 반영되며, 재시작하면 license.dat 기준으로 다시 초기화됨).
     #
     # [보안 주의]
     # 이 SALT 값은 해커가 절대 알면 안 됩니다.

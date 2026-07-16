@@ -7,15 +7,16 @@
 # --------------------------------------------------------------------------
 """
 [Phase 3] 설정 페이지: 로그/이력 보관 기간 · 테마 · 리포트 출력 경로 · 룰셋/전문가 프로필 ·
-기본 계정/자격증명 관리를 5개 탭으로 구성한다.
+기본 계정/자격증명 · 호스트 키 · 라이선스 정보를 좌측 사이드바 메뉴 + 우측 상세 화면으로 구성한다.
 """
 import os
 import sys
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QDialog, QVBoxLayout, QHBoxLayout, QWidget,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
-    QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget
+    QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget,
+    QStackedWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -29,20 +30,38 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("설정")
-        self.resize(560, 460)
+        self.resize(760, 500)
 
         self.settings = load_settings()
 
-        layout = QVBoxLayout(self)
-        self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
+        root_layout = QVBoxLayout(self)
 
-        self.tabs.addTab(self._build_log_tab(), "로그/이력 보관")
-        self.tabs.addTab(self._build_theme_tab(), "테마·UI")
-        self.tabs.addTab(self._build_report_tab(), "리포트 출력")
-        self.tabs.addTab(self._build_ruleset_tab(), "룰셋/전문가 프로필")
-        self.tabs.addTab(self._build_credential_tab(), "기본 계정/자격증명")
-        self.tabs.addTab(self._build_known_hosts_tab(), "호스트 키(known_hosts)")
+        body_layout = QHBoxLayout()
+        root_layout.addLayout(body_layout, 1)
+
+        # 좌측 사이드바 메뉴
+        self.nav_list = QListWidget()
+        self.nav_list.setFixedWidth(170)
+        self.nav_list.currentRowChanged.connect(self._on_nav_changed)
+        body_layout.addWidget(self.nav_list)
+
+        # 우측 상세 화면
+        self.pages = QStackedWidget()
+        body_layout.addWidget(self.pages, 1)
+
+        pages = [
+            ("로그/이력 보관", self._build_log_tab()),
+            ("테마·UI", self._build_theme_tab()),
+            ("리포트 출력", self._build_report_tab()),
+            ("룰셋/전문가 프로필", self._build_ruleset_tab()),
+            ("기본 계정/자격증명", self._build_credential_tab()),
+            ("호스트 키(known_hosts)", self._build_known_hosts_tab()),
+            ("라이선스", self._build_license_tab()),
+        ]
+        for label, page in pages:
+            self.nav_list.addItem(label)
+            self.pages.addWidget(page)
+        self.nav_list.setCurrentRow(0)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -52,7 +71,11 @@ class SettingsDialog(QDialog):
         btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(btn_save)
         btn_layout.addWidget(btn_close)
-        layout.addLayout(btn_layout)
+        root_layout.addLayout(btn_layout)
+
+    def _on_nav_changed(self, row):
+        if row >= 0:
+            self.pages.setCurrentIndex(row)
 
     # ------------------------------------------------------------------
     # 탭 1: 로그/이력 보관 기간
@@ -179,6 +202,12 @@ class SettingsDialog(QDialog):
         return w
 
     def _open_expert_mode(self):
+        main_win = self.parent()
+        if main_win is not None and hasattr(main_win, 'license_mgr') and not main_win.license_mgr.can_use_expert_mode():
+            QMessageBox.warning(self, "License Restricted",
+                "전문가 모드는 Enterprise 등급 전용 기능입니다.\n"
+                f"(현재 등급: {main_win.license_mgr.effective_tier()})")
+            return
         from gui.expert_mode_dialog import ExpertModeDialog
         dlg = ExpertModeDialog(self)
         dlg.exec()
@@ -309,6 +338,93 @@ class SettingsDialog(QDialog):
         else:
             QMessageBox.critical(self, "Error", "호스트 키 초기화 중 오류가 발생했습니다.")
         self._refresh_known_hosts()
+
+    # ------------------------------------------------------------------
+    # 탭 7: 라이선스 정보
+    # ------------------------------------------------------------------
+    def _build_license_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        license_mgr = getattr(self.parent(), 'license_mgr', None)
+
+        box = QGroupBox("현재 라이선스")
+        box_layout = QVBoxLayout(box)
+
+        if license_mgr:
+            tier = license_mgr.effective_tier()
+            expiry_str = self._format_expiry(license_mgr)
+        else:
+            tier = "-"
+            expiry_str = "-"
+
+        self.lbl_current_tier = QLabel(f"현재 등급: {tier}")
+        self.lbl_current_tier.setStyleSheet("font-size: 13pt; font-weight: bold;")
+        box_layout.addWidget(self.lbl_current_tier)
+        self.lbl_expiry = QLabel(f"사용 가능 기간: {expiry_str}")
+        box_layout.addWidget(self.lbl_expiry)
+
+        btn_activate = QPushButton("라이선스 키 입력/변경")
+        btn_activate.clicked.connect(self._open_license_dialog)
+        box_layout.addWidget(btn_activate)
+        v.addWidget(box)
+
+        matrix_box = QGroupBox("등급별 제공 기능")
+        matrix_layout = QVBoxLayout(matrix_box)
+        matrix_layout.addWidget(QLabel(
+            "기본 진단(포트/배너/KISA 룰셋 판정)은 모든 등급에서 동일하게 제공되며,\n"
+            "등급이 높아질수록 리포트 상세도와 편의 기능이 추가로 열립니다."
+        ))
+
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["기능", "Standard", "Professional", "Enterprise"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.NoSelection)
+
+        rows = [
+            ("PDF 리포트", "O", "O", "O"),
+            ("Excel 리포트", "-", "O", "O"),
+            ("상세 증적(Evidence)", "취약 항목만", "전체", "전체"),
+            ("조치 방안", "미제공", "중요도 상/중만", "전체"),
+            ("전문가 모드(룰 세부 제어)", "-", "-", "O"),
+        ]
+        table.setRowCount(len(rows))
+        for r, (feature, std, pro, ent) in enumerate(rows):
+            for c, val in enumerate([feature, std, pro, ent]):
+                item = QTableWidgetItem(val)
+                if c > 0:
+                    item.setTextAlignment(0x0084)  # AlignCenter
+                table.setItem(r, c, item)
+        table.resizeRowsToContents()
+        matrix_layout.addWidget(table)
+        v.addWidget(matrix_box, 1)
+
+        return w
+
+    def _open_license_dialog(self):
+        main_win = self.parent()
+        if main_win is None or not hasattr(main_win, 'open_license_dialog'):
+            return
+        main_win.open_license_dialog()
+        # 활성화 결과를 화면에 즉시 반영
+        license_mgr = getattr(main_win, 'license_mgr', None)
+        if license_mgr:
+            self.lbl_current_tier.setText(f"현재 등급: {license_mgr.effective_tier()}")
+            self.lbl_expiry.setText(f"사용 가능 기간: {self._format_expiry(license_mgr)}")
+
+    @staticmethod
+    def _format_expiry(license_mgr):
+        if license_mgr.expiry_date:
+            return str(license_mgr.expiry_date)
+        if license_mgr.effective_tier() == license_mgr.TIER_ENTERPRISE:
+            return "무제한 (라이선스 키 미등록 - 기본 Enterprise 모드)"
+        return "무제한 (개발자 미리보기 모드 - 프로그램 재시작 시 초기화됨)"
 
     # ------------------------------------------------------------------
     def _save_and_close(self):
