@@ -27,9 +27,15 @@ from PySide6.QtGui import QColor
 
 
 # ----------------------------------------------------------------------
-# 색상 토큰
+# 색상 토큰 - [다크 테마 대응] COLORS는 항상 같은 dict "객체"를 유지하고
+# set_theme()이 그 내용만 in-place로 바꿔치기한다. 이 모듈의 위젯들은 전부
+# __init__ 안에서 COLORS[...]/STATUS_STYLE[...]을 그때그때 조회하므로,
+# set_theme()을 위젯 생성 "전"에 한 번만 호출해두면 이후 만들어지는 모든
+# 카드가 자동으로 맞는 테마 색을 쓴다 (COLORS 이름을 다른 dict로 재바인딩하면
+# 이미 `from ... import COLORS`로 참조를 가져간 다른 모듈에는 반영되지 않으므로
+# 반드시 .clear()+.update()로 내용만 바꾼다).
 # ----------------------------------------------------------------------
-COLORS = {
+LIGHT_COLORS = {
     "surface_1": "#F7F7F5",   # 지표카드 기본 배경, 사이드바
     "surface_2": "#FFFFFF",   # 카드 배경 (Scan configuration, Assets 테이블)
     "border": "#D8D8D2",      # 카드 윤곽이 또렷하게 보이도록 살짝 진하게
@@ -47,6 +53,63 @@ COLORS = {
     "muted_bg": "#E7E7E4",
 }
 
+DARK_COLORS = {
+    "surface_1": "#1A1A1A",   # 지표카드 기본 배경, 사이드바 (다른 크롬과 동일한 어두운 배경)
+    "surface_2": "#252526",   # 카드 배경 - surface_1보다 살짝 밝게 해서 입체감을 준다
+    "border": "#3A3A3A",
+    "text": "#E8E8E8",
+    "text_secondary": "#A8A8A8",
+    "text_muted": "#787878",
+    "accent": "#4EC9B0",      # 기존 다크 스타일시트/사이드바 강조색과 동일하게 통일
+    "accent_bg": "#1F3733",
+    "danger_bg": "#4A1F1F",
+    "danger_text": "#FF6B6B",
+    "warning_bg": "#4A3A18",
+    "warning_text": "#F0AD4E",
+    "success_bg": "#1C3A24",
+    "success_text": "#4CAF50",
+    "muted_bg": "#2C2C2C",
+}
+
+COLORS = dict(LIGHT_COLORS)
+STATUS_STYLE = {}
+RISK_TEXT_COLOR = {}
+
+
+def _rebuild_derived_styles():
+    """COLORS가 바뀔 때마다 그 값을 참조하는 STATUS_STYLE/RISK_TEXT_COLOR도 다시 만든다."""
+    STATUS_STYLE.clear()
+    STATUS_STYLE.update({
+        # status -> (배경, 텍스트, 표시라벨). 여기 하나만 고치면 배지/범례/리포트 전부 동기화됨.
+        "VULNERABLE": (COLORS["danger_bg"], COLORS["danger_text"], "Vulnerable"),
+        "PARTIAL":    (COLORS["warning_bg"], COLORS["warning_text"], "Partial"),
+        "SAFE":       (COLORS["success_bg"], COLORS["success_text"], "Safe"),
+        "WARNING":    (COLORS["warning_bg"], COLORS["warning_text"], "Warning"),
+        "MANUAL":     (COLORS["muted_bg"], COLORS["text_secondary"], "Manual check"),
+        "NA":         (COLORS["muted_bg"], COLORS["text_secondary"], "N/A"),
+        "ERROR":      (COLORS["muted_bg"], COLORS["text_secondary"], "Connection error"),
+    })
+    RISK_TEXT_COLOR.clear()
+    RISK_TEXT_COLOR.update({
+        # 실제 TBL_SCAN_RESULT.risk_level 저장값 - worker.py가 KISA importance(상/중/하)를
+        # 판정 상태(VULNERABLE/PARTIAL)에 따라 영문 5단계로 변환해서 저장한다 (worker.py 참고).
+        "Critical": COLORS["danger_text"],
+        "High": COLORS["warning_text"],
+        "Medium": COLORS["warning_text"],
+        "Low": COLORS["text_secondary"],
+        "Info": COLORS["text_muted"],
+    })
+
+
+def set_theme(theme_name):
+    """main_window.py가 위젯을 만들기 "전"에 한 번 호출한다 (theme_name: 'light' 또는 'dark')."""
+    COLORS.clear()
+    COLORS.update(DARK_COLORS if theme_name == "dark" else LIGHT_COLORS)
+    _rebuild_derived_styles()
+
+
+_rebuild_derived_styles()
+
 
 def _apply_card_shadow(widget, blur=22, y_offset=3, alpha=28):
     """[미니멀 인상 완화] 카드에 은은한 그림자를 줘서 배경과 구분되는 입체감을 준다."""
@@ -55,27 +118,6 @@ def _apply_card_shadow(widget, blur=22, y_offset=3, alpha=28):
     effect.setOffset(0, y_offset)
     effect.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(effect)
-
-# status -> (배경, 텍스트, 표시라벨). 여기 하나만 고치면 배지/범례/리포트 전부 동기화됨.
-STATUS_STYLE = {
-    "VULNERABLE": (COLORS["danger_bg"], COLORS["danger_text"], "Vulnerable"),
-    "PARTIAL":    (COLORS["warning_bg"], COLORS["warning_text"], "Partial"),
-    "SAFE":       (COLORS["success_bg"], COLORS["success_text"], "Safe"),
-    "WARNING":    (COLORS["warning_bg"], COLORS["warning_text"], "Warning"),
-    "MANUAL":     (COLORS["muted_bg"], COLORS["text_secondary"], "Manual check"),
-    "NA":         (COLORS["muted_bg"], COLORS["text_secondary"], "N/A"),
-    "ERROR":      (COLORS["muted_bg"], COLORS["text_secondary"], "Connection error"),
-}
-
-# 실제 TBL_SCAN_RESULT.risk_level 저장값 - worker.py가 KISA importance(상/중/하)를
-# 판정 상태(VULNERABLE/PARTIAL)에 따라 영문 5단계로 변환해서 저장한다 (worker.py 참고).
-RISK_TEXT_COLOR = {
-    "Critical": COLORS["danger_text"],
-    "High": COLORS["warning_text"],
-    "Medium": COLORS["warning_text"],
-    "Low": COLORS["text_secondary"],
-    "Info": COLORS["text_muted"],
-}
 
 
 # ----------------------------------------------------------------------
@@ -275,9 +317,31 @@ class ScanConfigCard(InfoCard):
         self.pw_input.setPlaceholderText("Password")
         self.pw_input.setEchoMode(QLineEdit.Password)
         cred_col.addWidget(self.pw_input)
+
+        # [DB 전용 계정] SSH/WinRM 계정과 DB(MySQL/PostgreSQL) 계정이 다른 경우가 실무에서
+        # 흔하므로(예: SSH는 개인 계정, DB는 DBA가 관리하는 별도 감사 계정), 체크할 때만
+        # 별도 입력칸을 보여준다. 비워두면 지금까지와 동일하게 위 SSH/WinRM 계정을 그대로 쓴다.
+        self.db_cred_diff_check = QCheckBox("DB 계정이 SSH/WinRM 계정과 다름")
+        cred_col.addWidget(self.db_cred_diff_check)
+
+        self.db_user_input = QLineEdit()
+        self.db_user_input.setPlaceholderText("DB User")
+        self.db_user_input.setVisible(False)
+        cred_col.addWidget(self.db_user_input)
+        self.db_pw_input = QLineEdit()
+        self.db_pw_input.setPlaceholderText("DB Password")
+        self.db_pw_input.setEchoMode(QLineEdit.Password)
+        self.db_pw_input.setVisible(False)
+        cred_col.addWidget(self.db_pw_input)
+
+        def _toggle_db_cred_inputs(checked):
+            self.db_user_input.setVisible(checked)
+            self.db_pw_input.setVisible(checked)
+        self.db_cred_diff_check.toggled.connect(_toggle_db_cred_inputs)
+
         cred_wrap = QWidget()
         cred_wrap.setLayout(cred_col)
-        row1.addWidget(LabelWithHelp("Credentials", "딥 진단(SSH/WinRM)에 필요합니다. 없으면 포트·배너만 점검합니다."), 0, 1)
+        row1.addWidget(LabelWithHelp("Credentials", "딥 진단(SSH/WinRM)에 필요합니다. 없으면 포트·배너만 점검합니다.\nDB(MySQL/PostgreSQL) 계정이 따로 있으면 아래 체크박스로 별도 입력할 수 있습니다."), 0, 1)
         row1.addWidget(cred_wrap, 1, 1)
 
         row1.setColumnStretch(0, 1)

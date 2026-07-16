@@ -15,12 +15,13 @@ import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
-    QMessageBox, QFileDialog, QGroupBox, QCheckBox
+    QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget
 )
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.app_settings import load_settings, save_settings, get_base_dir
 from utils.secure_storage import SecureStorage
+from core.ssh_inspector import SSHInspector
 
 
 class SettingsDialog(QDialog):
@@ -41,6 +42,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._build_report_tab(), "리포트 출력")
         self.tabs.addTab(self._build_ruleset_tab(), "룰셋/전문가 프로필")
         self.tabs.addTab(self._build_credential_tab(), "기본 계정/자격증명")
+        self.tabs.addTab(self._build_known_hosts_tab(), "호스트 키(known_hosts)")
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -225,6 +227,88 @@ class SettingsDialog(QDialog):
             return
         SecureStorage.delete_credential(ip, user)
         QMessageBox.information(self, "완료", f"{ip} ({user}) 자격증명을 삭제했습니다.\n(저장돼 있지 않았다면 아무 변화 없음)")
+
+    # ------------------------------------------------------------------
+    # 탭 6: 호스트 키(known_hosts) 관리
+    # ------------------------------------------------------------------
+    def _build_known_hosts_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        box = QGroupBox("등록된 SSH 호스트 키")
+        box_layout = QVBoxLayout(box)
+        box_layout.addWidget(QLabel(
+            "SSH로 접속한 서버의 호스트 키를 최초 접속 시 저장해두고, 다음부터 같은 IP에서\n"
+            "다른 키가 나오면 접속을 거부합니다(MITM 탐지). 서버를 정상적으로 재설치해서\n"
+            "호스트 키가 바뀐 경우에는 아래에서 해당 IP를 삭제해야 다시 접속할 수 있습니다."
+        ))
+
+        self.known_hosts_list = QListWidget()
+        box_layout.addWidget(self.known_hosts_list)
+
+        row = QHBoxLayout()
+        btn_refresh = QPushButton("새로고침")
+        btn_refresh.clicked.connect(self._refresh_known_hosts)
+        btn_remove = QPushButton("선택 항목 삭제")
+        btn_remove.clicked.connect(self._remove_selected_known_host)
+        btn_clear = QPushButton("전체 초기화")
+        btn_clear.clicked.connect(self._clear_all_known_hosts)
+        row.addWidget(btn_refresh)
+        row.addWidget(btn_remove)
+        row.addWidget(btn_clear)
+        box_layout.addLayout(row)
+
+        v.addWidget(box)
+        v.addStretch()
+
+        self._refresh_known_hosts()
+        return w
+
+    def _refresh_known_hosts(self):
+        self.known_hosts_list.clear()
+        entries = SSHInspector.list_known_hosts()
+        if not entries:
+            self.known_hosts_list.addItem("(등록된 호스트 키 없음)")
+            self.known_hosts_list.setEnabled(False)
+            return
+        self.known_hosts_list.setEnabled(True)
+        for hostname, key_types in entries:
+            self.known_hosts_list.addItem(f"{hostname}  [{', '.join(key_types)}]")
+
+    def _remove_selected_known_host(self):
+        item = self.known_hosts_list.currentItem()
+        if not item or not self.known_hosts_list.isEnabled():
+            QMessageBox.warning(self, "선택 필요", "삭제할 항목을 목록에서 선택하세요.")
+            return
+        hostname = item.text().split("  [")[0]
+        reply = QMessageBox.question(
+            self, "삭제 확인",
+            f"{hostname}의 저장된 호스트 키를 삭제합니다.\n"
+            "이후 이 IP로 접속하면 새 호스트 키를 다시 최초 등록합니다.\n계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        if SSHInspector.remove_known_host(hostname):
+            QMessageBox.information(self, "완료", f"{hostname} 호스트 키를 삭제했습니다.")
+        else:
+            QMessageBox.critical(self, "Error", "호스트 키 삭제 중 오류가 발생했습니다.")
+        self._refresh_known_hosts()
+
+    def _clear_all_known_hosts(self):
+        reply = QMessageBox.question(
+            self, "전체 초기화 확인",
+            "등록된 모든 SSH 호스트 키를 삭제합니다.\n"
+            "이후 모든 대상이 '최초 접속'으로 취급되어 호스트 키를 새로 등록합니다.\n계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        if SSHInspector.clear_known_hosts():
+            QMessageBox.information(self, "완료", "모든 호스트 키를 초기화했습니다.")
+        else:
+            QMessageBox.critical(self, "Error", "호스트 키 초기화 중 오류가 발생했습니다.")
+        self._refresh_known_hosts()
 
     # ------------------------------------------------------------------
     def _save_and_close(self):

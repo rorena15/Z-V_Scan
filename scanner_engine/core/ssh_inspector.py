@@ -71,6 +71,51 @@ class SSHInspector:
             pass
         return os.path.join(config_dir, 'known_hosts')
 
+    @staticmethod
+    def list_known_hosts():
+        # [설정 화면용] known_hosts에 등록된 호스트 목록을 (IP, 키타입 목록) 형태로 반환한다.
+        # 대상 서버가 정상적으로 재설치돼 호스트 키가 바뀐 경우, 사용자가 어떤 IP가
+        # 등록돼 있는지 확인하고 개별/전체 삭제할 수 있어야 파일을 직접 편집하지 않아도 된다.
+        path = SSHInspector._get_known_hosts_path()
+        if not os.path.exists(path):
+            return []
+        hk = paramiko.HostKeys()
+        try:
+            hk.load(path)
+        except Exception:
+            return []
+        result = []
+        for hostname in hk.keys():
+            key_types = list(hk[hostname].keys())
+            result.append((hostname, key_types))
+        return sorted(result, key=lambda x: x[0])
+
+    @staticmethod
+    def remove_known_host(hostname):
+        path = SSHInspector._get_known_hosts_path()
+        if not os.path.exists(path):
+            return False
+        hk = paramiko.HostKeys()
+        try:
+            hk.load(path)
+        except Exception:
+            return False
+        if hostname not in hk:
+            return False
+        del hk[hostname]
+        hk.save(path)
+        return True
+
+    @staticmethod
+    def clear_known_hosts():
+        path = SSHInspector._get_known_hosts_path()
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                return False
+        return True
+
     def connect(self):
         if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True

@@ -16,13 +16,21 @@ class AppConfig:
     # 구조: ZV3-{TIER}-{RANDOM}-{HASH}
     # 예시: ZV3-ENT-X9A2-B7F1
     #
-    # [TIER 코드 목록]
-    # - STD : Standard (개인용, PDF Only)
-    # - PRO : Professional (기업용, Excel Export, Update)
-    # - ENT : Enterprise (확장용, SaaS/AI 기능 활성화)
+    # [TIER 코드 목록 및 리포트 노출 범위]
+    # - STD : Standard   - PDF만 가능(Excel 불가) / 증적(raw_output)은 취약·부분만족 항목만 / 조치방안 없음
+    # - PRO : Professional - Excel+PDF 가능 / 증적 전체 제공 / 조치방안은 중요도 상·중 항목만
+    # - ENT : Enterprise - 모든 기능 / 증적 전체 / 조치방안 전체(중요도 무관)
+    #
+    # [실구현 상태]
+    # 등급별 차등 로직(LicenseManager, ExcelGenerator, PDFGenerator)은 이미 개발되어 있으나,
+    # LICENSE_ENFORCEMENT_ENABLED가 False인 동안은 실제 라이선스 파일/키와 무관하게
+    # 항상 PROFESSIONAL로 동작한다 (상용화 전 자체 사용 단계 - 본인 작업이 라이선스 때문에
+    # 막히지 않도록 하는 임시 조치). 나중에 실제로 등급 판매/제한이 필요해지면 아래 값을
+    # True로 바꾸기만 하면 이미 만들어진 로직이 그대로 적용된다.
+    LICENSE_ENFORCEMENT_ENABLED = False
     #
     # [보안 주의]
-    # 이 SALT 값은 해커가 절대 알면 안 됩니다. 
+    # 이 SALT 값은 해커가 절대 알면 안 됩니다.
     # 키 유출이 의심되면 이 값을 변경하고 새 키를 발급하세요.
     LICENSE_SALT = "Z-Vuln-Secret-Salt-2026-DoNotShare"
 

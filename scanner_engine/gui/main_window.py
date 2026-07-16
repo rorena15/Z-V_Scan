@@ -59,22 +59,33 @@ from utils.db_connector import DBConnector
 from gui.styles import STYLESHEET, LIGHT_STYLESHEET
 from gui.help_texts import HELP_TEXTS
 from gui.dialogs import LicenseDialog
-from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, COLORS
+from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, COLORS, set_theme as set_dashboard_theme
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
-    #- Standard: PDF 리포트만 가능, 윈도우 타이틀에 제한 표시
-    #- Professional: Excel 리포트 가능, 전체 기능 활성화
+    #- Standard: PDF만 가능 / 증적은 취약·부분만족 항목만 / 조치방안 없음
+    #- Professional: Excel+PDF 가능 / 증적 전체 / 조치방안은 중요도 상·중 항목만
+    #- Enterprise: 모든 기능 / 증적·조치방안 전체
     #
     TIER_STANDARD = "STANDARD"
     TIER_PROFESSIONAL = "PROFESSIONAL"
+    TIER_ENTERPRISE = "ENTERPRISE"
 
     def __init__(self):
-        # 기본값은 STANDARD로 시작 (데모 시연 시 극적인 효과를 위해)
-        self.current_tier = self.TIER_STANDARD
+        # [등급 실구현 준비 완료, 강제 적용은 보류] AppConfig.LICENSE_ENFORCEMENT_ENABLED가
+        # True가 되기 전까지는 current_tier 값과 무관하게 effective_tier()가 항상
+        # PROFESSIONAL을 반환하므로, 이 기본값 자체는 지금 당장 어떤 동작에도 영향을 주지 않는다.
+        self.current_tier = self.TIER_PROFESSIONAL
+
+    def effective_tier(self):
+        """실제 기능 제한에 쓰이는 등급. 라이선스 강제 적용이 꺼져 있으면(기본값)
+        실제 키 상태와 무관하게 항상 PROFESSIONAL로 취급해 지금 당장은 아무것도 막지 않는다."""
+        if not AppConfig.LICENSE_ENFORCEMENT_ENABLED:
+            return self.TIER_PROFESSIONAL
+        return self.current_tier
 
     def toggle_tier(self):
-        #"""데모 시연용: 등급 스위칭 (Standard <-> Pro)"""
+        #"""데모/개발용: 등급 스위칭 (Standard <-> Pro). 강제 적용이 꺼져 있으면 효과 없음"""
         if self.current_tier == self.TIER_STANDARD:
             self.current_tier = self.TIER_PROFESSIONAL
         else:
@@ -84,15 +95,33 @@ class LicenseManager:
     def get_window_title(self):
         #"""라이선스에 따른 윈도우 제목 반환"""
         base_title = f"Z-Vuln Scan {AppConfig.VERSION}"
-        if self.current_tier == self.TIER_STANDARD:
+        tier = self.effective_tier()
+        if tier == self.TIER_STANDARD:
             return f"{base_title} Standard"
-        elif self.current_tier == self.TIER_PROFESSIONAL:
+        elif tier == self.TIER_PROFESSIONAL:
             return f"{base_title} Professional"
+        elif tier == self.TIER_ENTERPRISE:
+            return f"{base_title} Enterprise"
         return base_title
 
     def can_export_excel(self):
         #"""Professional 등급 이상만 엑셀 내보내기 허용"""
-        return self.current_tier == self.TIER_PROFESSIONAL
+        return self.effective_tier() in (self.TIER_PROFESSIONAL, self.TIER_ENTERPRISE)
+
+    def evidence_level(self):
+        """리포트에 상세 증적(raw_output)을 얼마나 보여줄지.
+        'vuln_only': 취약/부분만족 항목만 / 'full': 전체 항목"""
+        return "vuln_only" if self.effective_tier() == self.TIER_STANDARD else "full"
+
+    def remediation_level(self):
+        """리포트에 조치방안을 얼마나 보여줄지.
+        'none': 미제공 / 'partial': 중요도 상·중 항목만 / 'full': 전체"""
+        tier = self.effective_tier()
+        if tier == self.TIER_STANDARD:
+            return "none"
+        elif tier == self.TIER_PROFESSIONAL:
+            return "partial"
+        return "full"  # ENTERPRISE
     
 class ScannerApp(QMainWindow):
     def __init__(self):
@@ -118,6 +147,9 @@ class ScannerApp(QMainWindow):
             is_valid, tier = LicenseValidator.validate_key(saved_key)
             if is_valid:
                 # 3. 유효하면 해당 등급으로 즉시 적용 (Standard -> Pro/Ent)
+                # [실구현 준비 완료, 강제 적용은 보류] AppConfig.LICENSE_ENFORCEMENT_ENABLED가
+                # False인 동안은 current_tier를 설정해도 effective_tier()가 이를 무시하고
+                # 항상 PROFESSIONAL을 반환하므로 지금은 실제 기능 제한에 영향이 없다.
                 self.license_mgr.current_tier = tier
                 print(f"[System] Valid License Found: {tier}")
         self.load_saved_data()
@@ -131,7 +163,11 @@ class ScannerApp(QMainWindow):
         # [테마] 전체 스타일시트 (Deep Dark 모드 + 가독성 개선) - [Phase 3] 설정에서 라이트 테마 선택 가능
         from utils.app_settings import load_settings as _load_app_settings
         self._app_settings = _load_app_settings()
-        self.setStyleSheet(LIGHT_STYLESHEET if self._app_settings.get("theme") == "light" else STYLESHEET)
+        theme = self._app_settings.get("theme", "light")
+        self.setStyleSheet(LIGHT_STYLESHEET if theme == "light" else STYLESHEET)
+        # [다크 테마 대응] 대시보드 카드(dashboard_widgets.py)는 COLORS를 직접 참조하므로,
+        # 아래에서 위젯을 만들기 "전에" 반드시 먼저 호출해 카드들도 같은 테마를 쓰게 한다.
+        set_dashboard_theme(theme)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -351,6 +387,9 @@ class ScannerApp(QMainWindow):
         self.port_input = self.scan_config.port_input
         self.user_input = self.scan_config.user_input
         self.pw_input = self.scan_config.pw_input
+        self.db_cred_diff_check = self.scan_config.db_cred_diff_check
+        self.db_user_input = self.scan_config.db_user_input
+        self.db_pw_input = self.scan_config.db_pw_input
         self.slider_max_workers = self.scan_config.concurrency_slider
         self.spin_max_workers = self.scan_config.concurrency_slider  # 기존 코드 호환용 alias
         self.chk_ot_mode = self.scan_config.ot_mode_check
@@ -422,8 +461,15 @@ class ScannerApp(QMainWindow):
         """)
         self.btn_clear_assets.clicked.connect(self.clear_asset_table)
 
+        # [복구] Phase 3 사이드바 재구성 때 DB Manager로 가는 버튼이 누락되어
+        # UI에서 열 방법이 없어졌던 문제 - Assets 페이지 헤더에 다시 연결
+        self.btn_open_db_manager = QPushButton("DB Manager")
+        self.btn_open_db_manager.setToolTip("자산 정보(호스트명/구역 태그/메모 등)를 직접 조회·수정·삭제합니다.")
+        self.btn_open_db_manager.clicked.connect(self.open_db_manager)
+
         list_header.addWidget(lbl_list)
         list_header.addStretch()
+        list_header.addWidget(self.btn_open_db_manager)
         list_header.addWidget(self.btn_clear_assets)
         left_layout.addLayout(list_header)
 
@@ -841,25 +887,39 @@ class ScannerApp(QMainWindow):
         is_sim = ip in ["127.0.0.1", "localhost", "0.0.0.0"]
         user = self.user_input.text().strip()
         pw = self.pw_input.text().strip()
-        
+
         if not is_sim and (not user or not pw):
             QMessageBox.warning(self, "Auth Error", "SSH/WinRM 계정 정보가 필요합니다.")
             return
-        
+
         if not is_sim:
             if not SecureStorage.save_credential(ip, user, pw):
                 QMessageBox.critical(self, "Error", "자격증명 저장 실패")
                 return
 
+        # [DB 전용 계정] 체크했는데 DB user/pw 중 하나라도 비어있으면 실수로 빈 값이
+        # 저장/사용되지 않도록 여기서 막는다. 체크 안 했으면 기존처럼 위 SSH/WinRM 계정을 그대로 쓴다.
+        db_user = ""
+        if self.db_cred_diff_check.isChecked():
+            db_user = self.db_user_input.text().strip()
+            db_pw = self.db_pw_input.text().strip()
+            if not is_sim and (not db_user or not db_pw):
+                QMessageBox.warning(self, "Auth Error", "DB 전용 계정을 사용하려면 DB User/Password를 모두 입력하세요.")
+                return
+            if not is_sim:
+                if not SecureStorage.save_credential(ip, db_user, db_pw):
+                    QMessageBox.critical(self, "Error", "DB 자격증명 저장 실패")
+                    return
+
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
         self.connect_worker()
         self.worker.start()
 
     def generate_pdf(self):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            generator = PDFGenerator()
+            generator = PDFGenerator(remediation_level=self.license_mgr.remediation_level())
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
             self.report_exported = True
@@ -892,7 +952,10 @@ class ScannerApp(QMainWindow):
             return
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            generator = ExcelGenerator()
+            generator = ExcelGenerator(
+                evidence_level=self.license_mgr.evidence_level(),
+                remediation_level=self.license_mgr.remediation_level()
+            )
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
             self.report_exported = True

@@ -9,6 +9,7 @@ import threading
 import ipaddress
 import queue
 import os
+import re
 import sys
 import time
 import uuid
@@ -43,12 +44,15 @@ class ScanWorker(QThread):
     # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
     asset_found_signal = Signal(str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
         self.user_info = {}
         self.default_user = None
+        # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 때만 채워짐. 없으면(None)
+        # DatabaseInspector가 지금까지처럼 OS 진단과 같은 계정을 그대로 재사용한다.
+        self.default_db_user = db_user
 
         if isinstance(user, dict):
             self.user_info = user
@@ -190,6 +194,8 @@ class ScanWorker(QThread):
                     self._save_asset_to_db(db, data)
                 elif msg_type == "SCAN_RESULT":
                     self._save_result_to_db(db, data)
+                elif msg_type == "HOSTNAME_UPDATE":
+                    self._save_hostname_update_to_db(db, data)
             except Exception as e:
                 AppLogger.log_error("DB Writer Error", e)
             finally:
@@ -198,9 +204,33 @@ class ScanWorker(QThread):
     def _save_asset_to_db(self, db, data):
         # Data: (ip, hostname, os_type, ports_str, mac_addr)
         db.save_asset(
-            data[0], hostname=data[1], os_type=data[2], 
+            data[0], hostname=data[1], os_type=data[2],
             open_ports=data[3], mac_addr=data[4]
         )
+
+    def _save_hostname_update_to_db(self, db, data):
+        # [Excel/PDF hostname 정확도] Discovery 단계에서는 "(vendor) Device" 같은 추정
+        # placeholder만 알 수 있고, Audit(SSH/WinRM 인증 접속) 단계에서 uname -a / systeminfo로
+        # 실제 hostname을 확인할 수 있다. save_asset()을 다시 부르면 os_type/open_ports가
+        # 기본값으로 덮어써지므로, hostname 컬럼만 안전하게 갱신하는 update_asset_field를 쓴다.
+        ip, real_hostname = data
+        asset_id = db.get_asset_id(ip)
+        if asset_id:
+            db.update_asset_field(asset_id, "hostname", real_hostname)
+
+    @staticmethod
+    def _extract_real_hostname(os_info):
+        """SYS-OS_INFO 원문(uname -a 또는 systeminfo)에서 실제 hostname을 추출한다.
+        추출 실패 시 None을 반환하며, 이 경우 기존 hostname(placeholder 포함)은 그대로 둔다."""
+        if not os_info:
+            return None
+        m = re.search(r'Host Name:\s*(\S+)', os_info)
+        if m:
+            return m.group(1)
+        m = re.match(r'^\s*Linux\s+(\S+)', os_info)
+        if m:
+            return m.group(1)
+        return None
 
     def _save_result_to_db(self, db, data):
         # [핵심 수정] 9개 인자 언패킹 (증적, KISA 코드 포함)
@@ -414,10 +444,13 @@ class ScanWorker(QThread):
             inspectors.append(os_inspector)
 
         # DB 진단 조건 (OS 진단과 별개로, 열린 DB 포트가 있으면 추가 수행)
+        # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 수 있어(예: DBA가 별도 관리하는
+        # 감사 계정), db_user가 지정된 경우에만 그 계정을 쓰고 아니면 기존처럼 OS 계정을 재사용한다.
+        db_username = self.default_db_user or username
         if 3306 in open_ports:
-            inspectors.append(DatabaseInspector(ip, username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode))
         if 5432 in open_ports:
-            inspectors.append(DatabaseInspector(ip, username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
         if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
@@ -446,6 +479,12 @@ class ScanWorker(QThread):
                         ip, f"SYS-{key.upper()}", label, "Info", "Safe",
                         "SYSTEM Detail 부록 (판정 대상 아님)", "-", detail_info.get(key, ""), ""
                     )))
+
+                # [Excel/PDF hostname 정확도] Discovery의 vendor 추정 placeholder를
+                # 실제 인증 접속으로 확인한 hostname으로 교체 (실패 시 조용히 건너뜀)
+                real_hostname = self._extract_real_hostname(detail_info.get("os_info", ""))
+                if real_hostname:
+                    self.db_queue.put(("HOSTNAME_UPDATE", (ip, real_hostname)))
 
                 # [PC vs Windows 서버 자동 분류] systeminfo의 OS 이름으로 룰셋 재선택
                 # ("Server"가 없으면 업무용 PC로 간주하여 PC-01~18 룰셋 적용)

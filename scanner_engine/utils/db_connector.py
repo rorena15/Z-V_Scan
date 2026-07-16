@@ -135,7 +135,12 @@ class DBConnector:
             try:
                 cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN open_ports TEXT DEFAULT ''")
             except sqlite3.OperationalError: pass
-            
+
+            # [자산 태그/그룹 관리] 구역별(DMZ, 제어망 A 등) 분류/필터용 태그
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN zone_tag TEXT DEFAULT ''")
+            except sqlite3.OperationalError: pass
+
             conn.commit()
             conn.close()
 
@@ -456,8 +461,8 @@ class DBConnector:
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr,open_ports, last_seen, memo 
-                    FROM TBL_ASSETS 
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, open_ports, last_seen, memo, zone_tag
+                    FROM TBL_ASSETS
                     ORDER BY last_seen DESC
                 """)
                 return cursor.fetchall()
@@ -468,7 +473,7 @@ class DBConnector:
                 conn.close()
 
     def update_asset_field(self, asset_id, field_name, new_value):
-        allowed_fields = ["hostname", "os_type", "mac_addr", "memo"]
+        allowed_fields = ["hostname", "os_type", "mac_addr", "memo", "zone_tag"]
         if field_name not in allowed_fields: return False
 
         with self._db_lock:

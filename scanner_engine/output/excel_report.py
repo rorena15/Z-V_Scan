@@ -55,8 +55,13 @@ class ExcelGenerator:
         top=Side(style='thin'), bottom=Side(style='thin')
     )
 
-    def __init__(self):
+    def __init__(self, evidence_level="full", remediation_level="full"):
         self.db = DBConnector()
+        # [라이선스 등급별 리포트 차등] evidence_level: "full"(전체) | "vuln_only"(취약/부분만족만)
+        # remediation_level: "full"(전체) | "partial"(중요도 상/중만) | "none"(미제공)
+        # 기본값은 항상 "full"이라, 호출부에서 값을 넘기지 않으면 지금까지와 동일하게 동작한다.
+        self.evidence_level = evidence_level
+        self.remediation_level = remediation_level
         # [Phase 3: 설정 페이지] 사용자가 지정한 리포트 출력 경로가 있으면 그것을 사용
         self.output_dir = get_report_output_dir()
 
@@ -328,6 +333,15 @@ class ExcelGenerator:
             # [핵심] 32k 글자 수 제한 방어 로직
             if evidence and len(str(evidence)) > 32000:
                 evidence = str(evidence)[:32000] + "\n...[증적 내용이 너무 길어 엑셀 제한에 의해 잘렸습니다. DB를 확인하세요.]"
+
+            # [라이선스 등급별 리포트 차등]
+            if self.evidence_level == "vuln_only" and status not in ("VULNERABLE", "PARTIAL"):
+                evidence = "(상세 증적은 Professional 이상 등급에서 제공됩니다)"
+
+            if self.remediation_level == "none":
+                remediation = "(조치 방안은 Professional 이상 등급에서 제공됩니다)"
+            elif self.remediation_level == "partial" and risk not in ("Critical", "High"):
+                remediation = "(중요도 상/중 항목만 제공됩니다. 전체 제공은 Enterprise 등급)"
 
             # KISA 상태 한글화 (4단계: 취약/부분만족/양호/해당없음 + 예외/검토필요)
             final_status = "양호"
