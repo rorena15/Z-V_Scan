@@ -279,7 +279,7 @@ class DBConnector:
 
                 cursor.execute(f"""
                     SELECT COUNT(*) FROM TBL_SCAN_RESULT R
-                    WHERE status = 'VULNERABLE' AND risk_level = '상' AND waiver_status = 0
+                    WHERE status = 'VULNERABLE' AND risk_level IN ('Critical', 'High') AND waiver_status = 0
                     AND {self.latest_round_condition('R')}
                 """)
                 row = cursor.fetchone()
@@ -308,8 +308,9 @@ class DBConnector:
 
     def get_all_latest_findings(self):
         """
-        대시보드 결과 테이블용: 모든 자산의 최신 회차 진단 결과 (SYS-/CONN- 메타 항목 제외)를
-        Host/OS/KISA 코드/Status/Risk 형태로 반환한다.
+        대시보드 결과 테이블용: 모든 자산의 최신 회차 진단 결과 (SYS-/CONN-/TCP- 메타 항목 제외)를
+        Host/OS/KISA 코드/Status/Risk 형태로 반환한다. TCP-*는 KISA 룰 판정이 아니라
+        단순 포트 감지 결과(worker.py의 배너/서비스 탐지)라 실제 취약점 목록에서 제외한다.
         """
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -321,7 +322,7 @@ class DBConnector:
                            R.vuln_name, R.status, R.risk_level, R.waiver_status
                     FROM TBL_SCAN_RESULT R
                     JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
-                    WHERE R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'CONN-%'
+                    WHERE R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'CONN-%' AND R.vuln_code NOT LIKE 'TCP-%'
                     AND {self.latest_round_condition('R')}
                     ORDER BY A.ip_addr ASC, R.vuln_code ASC
                 """)

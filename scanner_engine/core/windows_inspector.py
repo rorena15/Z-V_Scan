@@ -63,25 +63,53 @@ class WindowsInspector:
         if self.demo_mode and self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
             self.is_simulation = True
             return True
-        
+
         password = SecureStorage.get_credential(self.ip, self.username)
         if not password:
             return False
 
-        try:
-            self.session = winrm.Session(
-                f'http://{self.ip}:5985/wsman',
-                auth=(self.username, password),
-                transport='ntlm',
-                read_timeout_sec=30,
-                operation_timeout_sec=25
-            )
-            if self.session.run_cmd('hostname').status_code == 0:
-                self.is_connected = True
-                del password
-                return True
-        except: 
-            pass 
+        # [보안] HTTPS(5986)를 먼저 시도해 NTLM 릴레이 공격에 취약한 인증 핸드셰이크를
+        # TLS 채널 바인딩(send_cbt, pywinrm 기본값 True)으로 보호한다. 사내망 특성상
+        # 자체 서명 인증서가 흔해 서버 인증서 신원 검증까지는 못 하지만(server_cert_
+        # validation='ignore'), 그래도 채널 바인딩 자체는 그대로 적용된다. HTTPS
+        # 리스너가 없는 대상(Enable-PSRemoting만 한 기본 설정, 흔한 케이스)은
+        # HTTP(5985)로 폴백한다 - 이 경우도 pywinrm이 기본값(message_encryption=
+        # 'auto')으로 NTLM 메시지 레벨 암호화는 이미 자동 적용한다.
+        #
+        # [실측 확인] HTTPS 리스너가 없는 대상은 TCP 연결 자체가 응답 없이 지연되므로,
+        # 원래 타임아웃(30s)을 그대로 쓰면 대상마다 매번 불필요하게 30초씩 낭비된다.
+        # HTTPS는 짧은 타임아웃으로 "가능 여부"만 빠르게 확인(probe)하고, 실제 점검에
+        # 쓸 세션은 어느 쪽이 성공했든 항상 정상 타임아웃(30/25)으로 다시 만든다.
+        endpoints = [
+            (f'https://{self.ip}:5986/wsman', {'server_cert_validation': 'ignore'}, 4, 3),
+            (f'http://{self.ip}:5985/wsman', {}, 30, 25),
+        ]
+
+        for url, extra_kwargs, probe_read_timeout, probe_op_timeout in endpoints:
+            try:
+                probe_session = winrm.Session(
+                    url,
+                    auth=(self.username, password),
+                    transport='ntlm',
+                    read_timeout_sec=probe_read_timeout,
+                    operation_timeout_sec=probe_op_timeout,
+                    **extra_kwargs
+                )
+                if probe_session.run_cmd('hostname').status_code == 0:
+                    # 프로브 성공 - 실제 점검용 세션은 정상 타임아웃으로 별도 생성
+                    self.session = winrm.Session(
+                        url,
+                        auth=(self.username, password),
+                        transport='ntlm',
+                        read_timeout_sec=30,
+                        operation_timeout_sec=25,
+                        **extra_kwargs
+                    )
+                    self.is_connected = True
+                    del password
+                    return True
+            except Exception:
+                continue
         return False
 
     def execute_ps(self, script):

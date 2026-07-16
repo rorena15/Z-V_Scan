@@ -157,7 +157,8 @@
     "command": "find / -xdev \\( -nouser -o -nogroup \\) 2>/dev/null",
     "vulnerable_keyword": "/",
     "description": "소유자가 존재하지 않는 파일 및 디렉터리는 UID 재사용을 통한 권한 탈취에 악용될 수 있습니다.",
-    "remediation": "불필요한 파일 제거 또는 chown/chgrp으로 소유자 지정"
+    "remediation": "불필요한 파일 제거 또는 chown/chgrp으로 소유자 지정",
+    "privileged": true
   },
   {
     "code": "U-16",
@@ -236,7 +237,8 @@
     "importance": "상",
     "command": "find / -xdev -type f \\( -perm -4000 -o -perm -2000 \\) 2>/dev/null",
     "description": "불필요한 SUID/SGID가 설정된 파일은 권한 상승 공격에 악용될 수 있습니다.",
-    "remediation": "불필요한 SUID/SGID 파일 목록을 검토 후 chmod -s로 권한 제거 (수동 검토 필요)"
+    "remediation": "불필요한 SUID/SGID 파일 목록을 검토 후 chmod -s로 권한 제거 (수동 검토 필요)",
+    "privileged": true
   },
   {
     "code": "U-24",
@@ -256,7 +258,8 @@
     "command": "find / -xdev -type f -perm -2 2>/dev/null",
     "vulnerable_keyword": "/",
     "description": "모든 사용자가 쓸 수 있는 파일은 임의로 변조·삭제될 위험이 있습니다.",
-    "remediation": "chmod o-w로 쓰기 권한 제거 또는 불필요한 파일 삭제"
+    "remediation": "chmod o-w로 쓰기 권한 제거 또는 불필요한 파일 삭제",
+    "privileged": true
   },
   {
     "code": "U-26",

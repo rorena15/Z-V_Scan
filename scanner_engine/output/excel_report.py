@@ -258,11 +258,11 @@ class ExcelGenerator:
             if r[10] == 1: waived_cnt += 1; continue
             if r[6] == "VULNERABLE":
                 total_vuln += 1
-                if r[5] == '상': vuln_high += 1
+                if r[5] in ('Critical', 'High'): vuln_high += 1
                 else: vuln_medium += 1
             elif r[6] == "PARTIAL":
                 partial_cnt += 1
-                if r[5] == '상': partial_high += 1
+                if r[5] in ('Critical', 'High'): partial_high += 1
                 else: partial_medium += 1
 
         # 부분만족은 미충족(취약) 대비 절반 가중치로 감점에 반영

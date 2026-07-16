@@ -8,6 +8,7 @@
 import paramiko
 import json
 import os
+import shlex
 import sys
 import time
 
@@ -38,9 +39,9 @@ class SSHInspector:
             base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            
+
         external_path = os.path.join(base_dir, 'rules', filename)
-        
+
         internal_path = None
         if hasattr(sys, '_MEIPASS'):
             internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
@@ -53,6 +54,23 @@ class SSHInspector:
             return internal_path
         return external_path
 
+    @staticmethod
+    def _get_known_hosts_path():
+        # [보안] 이전에는 AutoAddPolicy만 쓰고 호스트 키를 어디에도 저장하지 않아,
+        # 매 스캔마다 "처음 보는 키"로 취급되어 MITM 탐지가 사실상 전혀 동작하지 않았다.
+        # known_hosts 파일에 영구 저장해서, 이후 같은 IP에 다른 키가 나타나면
+        # (실제 MITM 또는 대상 재설치) paramiko가 접속 자체를 자동으로 거부하게 한다.
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        config_dir = os.path.join(base_dir, 'config')
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+        except OSError:
+            pass
+        return os.path.join(config_dir, 'known_hosts')
+
     def connect(self):
         if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
             self.is_simulation = True
@@ -63,12 +81,32 @@ class SSHInspector:
             AppLogger.log_error(f"Credentials not found for {self.ip}")
             return False
 
+        known_hosts_path = self._get_known_hosts_path()
         try:
             self.client = paramiko.SSHClient()
+            if os.path.exists(known_hosts_path):
+                try:
+                    self.client.load_host_keys(known_hosts_path)
+                except Exception:
+                    pass
+            # 최초 접속(known_hosts에 없는 IP)만 자동 등록하고, 이후 저장해둔 키와
+            # 다른 키가 나오면 client.connect()가 BadHostKeyException으로 자동 거부한다.
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=20)
+            try:
+                self.client.save_host_keys(known_hosts_path)
+            except Exception:
+                pass
             del password
             return True
+        except paramiko.ssh_exception.BadHostKeyException as e:
+            # [보안 경고] 이전에 저장해둔 호스트 키와 다르다 - MITM 가능성 또는 대상 재설치.
+            # 데모 모드여도 이 경우는 절대 가짜 데이터로 넘기지 않는다 (진짜 보안 이벤트일 수 있음).
+            AppLogger.log_error(
+                f"[SSH] SECURITY WARNING: Host key mismatch for {self.ip} - possible MITM attack "
+                f"or the target was reinstalled. Refusing connection.", e
+            )
+            return False
         except Exception as e:
             # [실전 안전장치] 데모 모드가 아니면 접속 실패를 절대 가짜 데이터로 감추지 않는다.
             if self.demo_mode:
@@ -84,12 +122,22 @@ class SSHInspector:
             except: pass
             self.client = None
 
-    def execute_command(self, command, timeout=25):
+    def execute_command(self, command, timeout=25, use_sudo=False):
         # [주의] find / 등 전체 파일시스템 탐색 명령이 룰셋에 포함되어 있어
         # 타임아웃 없이는 응답 없는 호스트에서 스캔 스레드가 무한 대기할 수 있음
         if self.client and not self.is_simulation:
             try:
-                stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+                actual_command = command
+                if use_sudo:
+                    # [권한 상승] "privileged" 룰(예: find / 전체 탐색)은 일반 계정으로
+                    # 돌리면 접근 불가 디렉터리를 조용히 건너뛰어 취약 항목을 놓칠 수 있다.
+                    # sudo -n(비밀번호 재요구 없음)만 시도한다 - NOPASSWD로 설정된
+                    # 전용 감사 계정이면 승격되고, 아니면 즉시 실패해서 원래 계정
+                    # 권한으로 그대로 폴백한다. 비밀번호를 stdin/커맨드라인으로 넘기는
+                    # 방식은 프로세스 목록 등에 노출될 위험이 있어 의도적으로 쓰지 않는다.
+                    quoted = shlex.quote(command)
+                    actual_command = f"sudo -n sh -c {quoted} 2>/dev/null || sh -c {quoted}"
+                stdin, stdout, stderr = self.client.exec_command(actual_command, timeout=timeout)
                 return stdout.read().decode('utf-8').strip()
             except Exception:
                 return ""
@@ -216,7 +264,7 @@ class SSHInspector:
 
             # [추가 2] 증적 확보 (명령어 실행 전체 결과)
             t0 = time.time()
-            full_output = self.execute_command(cmd)
+            full_output = self.execute_command(cmd, use_sudo=rule.get('privileged', False))
             # [OT/저속 모드] 응답이 느려질수록 다음 명령 전 대기시간을 자동으로 늘려
             # 대상 서버(특히 레거시/임베디드 장비)에 가해지는 부하를 유동적으로 조절
             throttle.wait(time.time() - t0)

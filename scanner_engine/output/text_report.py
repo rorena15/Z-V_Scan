@@ -34,6 +34,19 @@ SYS_DETAIL_LABELS = [
     ("SYS-SERVICE_INFO", "서비스 정보"),
 ]
 
+# [매크로 호환] "전체 진단 현황_붙여넣기" 집계 매크로가 기대하는 "점검 결과" 문자열.
+# 각 영역 결과보고서(별첨02 UNIX 등)의 실제 수식에서 정확히 이 값들과 비교한다
+# (예: `=IF(O35="양호",0,IF(O35="부분만족",...))`, `=IF(OR(O35="취약",O35="부분만족"),...)`,
+# `=IF($O35="N/A","-",...)`) - 다른 표기(예: "해당없음")를 쓰면 수식이 매칭에 실패한다.
+STATUS_TO_RESULT = {
+    "SAFE": "양호",
+    "VULNERABLE": "취약",
+    "PARTIAL": "부분만족",
+    "NA": "N/A",
+    "MANUAL": "N/A",   # 수동 확인 필요 항목이 자동 채점(위험도 합산)에 잘못 반영되지 않도록 N/A 처리
+    "ERROR": "N/A",    # 접속 실패 등 점검 자체가 안 된 항목도 동일하게 N/A 처리
+}
+
 
 class TextReportGenerator:
     """
@@ -252,6 +265,16 @@ class TextReportGenerator:
                 buf.append(f"[{item['code']}] {item['name']} ")
                 buf.append(f"권고 : {item['remediation'] or '-'} ")
                 buf.append("[START] ")
+                # [매크로 호환] "전체 진단 현황_붙여넣기" 집계 매크로(HideonLog/HideonLogF)는
+                # 이 블록 안에서 [RESULT]/[REASON] 태그가 붙은 줄을 찾아 #숨김.RawData의
+                # "점검 결과"/"진단 코멘트" 컬럼을 자동 채운다. 태그가 없으면 두 컬럼이 항상
+                # 빈칸으로 남아 담당자가 전부 수동 입력해야 하므로 반드시 포함해야 한다.
+                # 값은 각 영역 결과보고서(별첨02 등)의 실제 수식이 비교하는 문자열과 정확히
+                # 일치해야 한다: "양호"/"취약"/"부분만족"/"N/A" (영문 그대로).
+                result_val = STATUS_TO_RESULT.get(item['status'], "N/A")
+                reason_val = re.sub(r'\s+', ' ', (item['detail'] or "")).strip()
+                buf.append(f"[RESULT] {result_val} ")
+                buf.append(f"[REASON] {reason_val} ")
                 buf.append("현황 ")
                 waived_note = " (예외 처리됨)" if item['waived'] == 1 else ""
                 buf.append(f": {item['detail']}{waived_note} ")

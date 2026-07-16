@@ -680,8 +680,9 @@ class ScannerApp(QMainWindow):
         self.btn_stop.setEnabled(busy)
         
         self.nav_reports.setDisabled(busy)
-        self.nav_scan.setDisabled(busy)
         self.nav_assets.setDisabled(busy)
+        # [스캔 중 화면 이동] Dashboard/Scan 탭은 스캔 도중에도 이동 가능하게 유지한다.
+        # (입력 위젯들은 아래에서 별도로 비활성화되므로 설정을 바꿀 순 없고, 조회만 가능)
 
         self.ip_input.setDisabled(busy)
         self.port_mode_combo.setDisabled(busy)

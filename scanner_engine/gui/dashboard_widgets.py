@@ -61,16 +61,20 @@ STATUS_STYLE = {
     "VULNERABLE": (COLORS["danger_bg"], COLORS["danger_text"], "Vulnerable"),
     "PARTIAL":    (COLORS["warning_bg"], COLORS["warning_text"], "Partial"),
     "SAFE":       (COLORS["success_bg"], COLORS["success_text"], "Safe"),
+    "WARNING":    (COLORS["warning_bg"], COLORS["warning_text"], "Warning"),
     "MANUAL":     (COLORS["muted_bg"], COLORS["text_secondary"], "Manual check"),
     "NA":         (COLORS["muted_bg"], COLORS["text_secondary"], "N/A"),
     "ERROR":      (COLORS["muted_bg"], COLORS["text_secondary"], "Connection error"),
 }
 
-# 실제 TBL_SCAN_RESULT.risk_level 저장값(KISA importance 원문): '상'/'중'/'하'
+# 실제 TBL_SCAN_RESULT.risk_level 저장값 - worker.py가 KISA importance(상/중/하)를
+# 판정 상태(VULNERABLE/PARTIAL)에 따라 영문 5단계로 변환해서 저장한다 (worker.py 참고).
 RISK_TEXT_COLOR = {
-    "상": COLORS["danger_text"],
-    "중": COLORS["warning_text"],
-    "하": COLORS["text_secondary"],
+    "Critical": COLORS["danger_text"],
+    "High": COLORS["warning_text"],
+    "Medium": COLORS["warning_text"],
+    "Low": COLORS["text_secondary"],
+    "Info": COLORS["text_muted"],
 }
 
 
@@ -106,7 +110,9 @@ class StatusBadge(QLabel):
     """상태 pill 배지. status는 STATUS_STYLE의 키(VULNERABLE/PARTIAL/SAFE/MANUAL/...)."""
     def __init__(self, status: str, parent=None):
         super().__init__(parent)
-        bg, fg, label = STATUS_STYLE.get(status, STATUS_STYLE["MANUAL"])
+        # worker.py가 일부 메타 항목(INFO-00, SYS-*, TCP-22 등)에 "Safe"(혼합 대소문자)를
+        # 그대로 저장하므로, 대소문자 무관하게 매칭한다.
+        bg, fg, label = STATUS_STYLE.get((status or "").upper(), STATUS_STYLE["MANUAL"])
         self.setText(label)
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet(f"""

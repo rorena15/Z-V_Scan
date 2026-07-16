@@ -170,7 +170,7 @@ class PDFGenerator:
 
             total_vulns = sum(vuln_risk_stats.values())
             total_partial = sum(partial_risk_stats.values())
-            critical_high = vuln_risk_stats.get('상', 0)
+            critical_high = vuln_risk_stats.get('Critical', 0) + vuln_risk_stats.get('High', 0)
 
             # === 1. Executive Summary ===
             elements.append(Spacer(1, 1*cm))
@@ -208,9 +208,9 @@ class PDFGenerator:
                     AND {DBConnector.latest_round_condition('R')}
                     ORDER BY
                         CASE risk_level
-                            WHEN '상' THEN 1 WHEN '중' THEN 2
-                            WHEN '하' THEN 3
-                            ELSE 4 END ASC
+                            WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                            WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
+                            ELSE 5 END ASC
                 """
                 cursor.execute(sql, (asset_id,))
                 rows = cursor.fetchall()
