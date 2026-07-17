@@ -253,6 +253,83 @@ class DBConnector:
             f"WHERE R2.asset_id = {table_alias}.asset_id AND R2.vuln_code = {table_alias}.vuln_code)"
         )
 
+    def get_round_comparison(self):
+        """[Phase 5: Diff 리포트] 자산별로 '최신 회차'와 '그 직전 회차'를 비교해
+        점수 변화(개선율)를 계산한다. scan_round는 (asset_id, vuln_code) 단위로
+        따로 올라가므로(전문가 모드로 이번엔 뺀 코드가 있으면 코드마다 회차가
+        어긋날 수 있음), 자산 전체가 아니라 코드 하나하나의 '그 코드의 최신
+        회차'/'그 코드의 직전 회차'를 비교해서 합산하는 방식으로 계산한다.
+        2회 이상 스캔된 코드가 하나도 없는 자산은 비교 대상에서 제외한다."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT DISTINCT A.asset_id, A.ip_addr, A.hostname
+                    FROM TBL_ASSETS A
+                    JOIN TBL_SCAN_RESULT R ON R.asset_id = A.asset_id
+                    WHERE R.vuln_code NOT LIKE 'SYS-%'
+                    GROUP BY A.asset_id, R.vuln_code
+                    HAVING MAX(R.scan_round) >= 2
+                """)
+                candidate_assets = {}
+                for asset_id, ip, hostname in cursor.fetchall():
+                    candidate_assets[asset_id] = (ip, hostname)
+
+                def _score(vh, vm, ph, pm):
+                    deduction = vh * 5 + vm * 2 + ph * 2.5 + pm * 1
+                    return max(0, round(100 - deduction))
+
+                def _counts_for(asset_id, round_map):
+                    vh = vm = ph = pm = 0
+                    for code, rnd in round_map.items():
+                        cursor.execute("""
+                            SELECT status, risk_level, waiver_status FROM TBL_SCAN_RESULT
+                            WHERE asset_id=? AND vuln_code=? AND scan_round=?
+                        """, (asset_id, code, rnd))
+                        row = cursor.fetchone()
+                        if not row:
+                            continue
+                        status, risk, waived = row
+                        if waived == 1:
+                            continue
+                        if status == "VULNERABLE":
+                            if risk in ("Critical", "High"): vh += 1
+                            else: vm += 1
+                        elif status == "PARTIAL":
+                            if risk in ("Critical", "High"): ph += 1
+                            else: pm += 1
+                    return vh, vm, ph, pm
+
+                results = []
+                for asset_id, (ip, hostname) in candidate_assets.items():
+                    cursor.execute("""
+                        SELECT vuln_code, MAX(scan_round) FROM TBL_SCAN_RESULT
+                        WHERE asset_id=? AND vuln_code NOT LIKE 'SYS-%'
+                        GROUP BY vuln_code
+                    """, (asset_id,))
+                    current_map = {code: rnd for code, rnd in cursor.fetchall()}
+                    previous_map = {code: rnd - 1 for code, rnd in current_map.items() if rnd >= 2}
+
+                    cur_vh, cur_vm, cur_ph, cur_pm = _counts_for(asset_id, current_map)
+                    prev_vh, prev_vm, prev_ph, prev_pm = _counts_for(asset_id, previous_map)
+                    cur_score = _score(cur_vh, cur_vm, cur_ph, cur_pm)
+                    prev_score = _score(prev_vh, prev_vm, prev_ph, prev_pm)
+
+                    results.append({
+                        "ip": ip, "hostname": hostname,
+                        "prev_score": prev_score, "current_score": cur_score,
+                        "improvement": cur_score - prev_score,
+                        "prev_vuln_total": prev_vh + prev_vm, "current_vuln_total": cur_vh + cur_vm,
+                        "prev_partial_total": prev_ph + prev_pm, "current_partial_total": cur_ph + cur_pm,
+                    })
+                return results
+            except Exception as e:
+                AppLogger.log_error("[DB] Round Comparison Error", e)
+                return []
+            finally:
+                conn.close()
+
     # 하위 호환성 유지용 (기존 코드가 이 메서드를 호출할 경우 대비)
     def save_scan_result(self, asset_id, vuln_code, status, detail, vuln_name=None, remediation=None):
         return self.save_result(asset_id, vuln_code, vuln_name or vuln_code, "Info", status, detail, remediation)

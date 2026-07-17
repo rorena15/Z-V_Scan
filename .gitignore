@@ -26,6 +26,8 @@ audit_agreement.log
 error_log.txt
 scanner_engine/utils/scan_debug.log
 zvuln_scan.db
+zvuln_scan.db.enc
+DB_RECOVERY_KEY_BACKUP.txt
 
 ########################################
 # Python Cache / Compiled Files
@@ -70,11 +72,14 @@ reports/*.pdf
 license.dat
 scanner_engine/license.dat
 licenses_generated.txt
+issued_licenses.json
 
 ########################################
 # Documents
 ########################################
 \[별첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
+프로그램저작권등록_명세서_초안.md
+Z-Vuln_Scan_기능명세서.md
 make_ppt.py
 ~$첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
 Z-Vuln Scan(Poc).pptx

@@ -151,7 +151,7 @@ class LicenseDialog(QDialog):
         layout.setContentsMargins(25, 25, 25, 25)
         
         # 안내 문구
-        lbl_info = QLabel("제품 키를 입력하여 잠금을 해제하십시오.\n(Format: ZV3-TIER-YYYYMMDD-XXXX-XXXX)")
+        lbl_info = QLabel("제품 키를 입력하여 잠금을 해제하십시오.\n(Format: ZV3-TIER-XXXX-XXXX-XXXX)")
         lbl_info.setStyleSheet("color: #ccc; font-size: 10pt; font-weight: bold;")
         layout.addWidget(lbl_info)
         

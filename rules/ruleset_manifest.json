@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "_설명": "KISA 가이드 개정 시 이 파일의 last_updated/item_count를 함께 갱신해서, 지금 프로그램이 어느 시점 기준 룰셋을 쓰고 있는지 추적한다. rules/*.json 자체(점검 로직이 실제로 읽는 파일)의 구조는 건드리지 않는다.",
+  "rulesets": {
+    "linux_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (Unix/Linux, U-01~U-72)",
+      "item_count": 67,
+      "last_updated": "2026-07-16"
+    },
+    "windows_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (Windows Server, W-01~W-80)",
+      "item_count": 64,
+      "last_updated": "2026-07-15"
+    },
+    "pc_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (업무용 PC, PC-01~PC-18)",
+      "item_count": 18,
+      "last_updated": "2026-07-15"
+    },
+    "web_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (WEB, WEB-xx)",
+      "item_count": 26,
+      "last_updated": "2026-07-14"
+    },
+    "mysql_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (DBMS/MySQL, D-xx)",
+      "item_count": 17,
+      "last_updated": "2026-07-14"
+    },
+    "postgresql_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (DBMS/PostgreSQL, D-xx)",
+      "item_count": 17,
+      "last_updated": "2026-07-14"
+    }
+  }
+}

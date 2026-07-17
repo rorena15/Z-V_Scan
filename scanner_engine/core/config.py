@@ -13,8 +13,12 @@ class AppConfig:
     # ----------------------------------------------------------------------
     # [2] 라이선스 키 생성 정책 (License Policy)
     # ----------------------------------------------------------------------
-    # 구조: ZV3-{TIER}-{EXPIRY:YYYYMMDD}-{RANDOM}-{HASH}
-    # 예시: ZV3-ENT-20270717-X9A2-B7F1
+    # 구조: ZV3-{TIER}-{EXPIRY_TOKEN}-{RANDOM}-{HASH}
+    # 예시: ZV3-ENT-1A4F-X9A2-B7F1
+    # EXPIRY_TOKEN은 만료일(YYYYMMDD)을 그대로 넣지 않고, salt로 XOR 난독화한
+    # 4자리 hex 토큰이다(`LicenseValidator.encode_expiry_token`/`_decode_expiry_token`).
+    # 키만 봐서는 발급/만료 패턴이 드러나지 않으며, salt를 아는 코드만 오프라인으로
+    # 실제 날짜를 복원할 수 있다.
     #
     # [TIER 코드 목록 및 리포트 노출 범위]
     # - STD : Standard     - PDF만 가능(Excel 불가) / 증적(raw_output)은 취약·부분만족 항목만 / 조치방안 없음
@@ -41,3 +45,13 @@ class AppConfig:
     # GUI(main_window)와 Engine(worker) 간의 통신을 검증하는 내부 키입니다.
     # 해커가 엔진 모듈만 따로 떼어내서 악용하는 것을 방지합니다.
     ENGINE_ACCESS_TOKEN = "ZVulnScan_V3_Pro_Secure_Engine_Key_2026_!@#"
+
+    # ----------------------------------------------------------------------
+    # [4] 버전 업데이트 확인 (Update Check) - 실제 배포 호스팅이 정해지기 전까지 비활성
+    # ----------------------------------------------------------------------
+    # 지금은 이 프로그램을 배포할 실제 서버/홈페이지가 없어서 빈 값으로 둔다.
+    # 빈 값인 동안은 utils/update_checker.py가 어떤 네트워크 요청도 보내지 않는다.
+    # 나중에 실제 배포 경로가 생기면, 최신 버전 정보를 담은 JSON
+    # ({"latest_version": "...", "download_url": "...", "notes": "..."})을
+    # 반환하는 URL을 여기에 채우기만 하면 된다.
+    UPDATE_CHECK_URL = ""

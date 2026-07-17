@@ -6,7 +6,9 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 
+import argparse
 import hashlib
+import json
 import random
 import string
 import sys
@@ -14,6 +16,13 @@ import os
 from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.config import AppConfig
+from core.license_validator import LicenseValidator
+
+# [라이선스 발급 체계] 발급자(본인)가 "누구에게 어떤 키를 언제 발급했는지" 알 수 있도록
+# 로컬 대장에 기록한다. 저장소 밖(repo 루트)에 두고 .gitignore 처리 - 고객 정보가
+# 담길 수 있는 운영 데이터라 소스 저장소에는 올리지 않는다.
+_LEDGER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'issued_licenses.json')
+
 
 def generate_key(tier_code, valid_days=365):
     """
@@ -23,21 +32,112 @@ def generate_key(tier_code, valid_days=365):
     # 1. 4자리 랜덤 문자열 (A-Z, 0-9)
     random_val = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
-    # 2. 만료일 (YYYYMMDD)
-    expiry_str = (datetime.now() + timedelta(days=valid_days)).strftime("%Y%m%d")
+    # 2. 만료일 -> 난독화 토큰 (평문 YYYYMMDD로 넣으면 키만 봐도 발급/만료 패턴이
+    # 그대로 드러나므로, salt로 XOR한 4자리 hex 토큰으로 대신 넣는다)
+    expiry_date = (datetime.now() + timedelta(days=valid_days)).date()
+    expiry_token = LicenseValidator.encode_expiry_token(expiry_date)
 
-    # 3. 해시 계산 (Tier + Expiry + Random + Salt)
-    raw_str = f"{tier_code}{expiry_str}{random_val}{AppConfig.LICENSE_SALT}"
+    # 3. 해시 계산 (Tier + Expiry Token + Random + Salt)
+    raw_str = f"{tier_code}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
     checksum = hashlib.md5(raw_str.encode()).hexdigest()[:4].upper()
 
     # 4. 키 조합
-    return f"ZV3-{tier_code}-{expiry_str}-{random_val}-{checksum}"
+    return f"ZV3-{tier_code}-{expiry_token}-{random_val}-{checksum}", expiry_date
+
+
+def _load_ledger():
+    if not os.path.exists(_LEDGER_PATH):
+        return []
+    try:
+        with open(_LEDGER_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _log_issued_key(key, tier_code, expiry_date, label):
+    ledger = _load_ledger()
+    ledger.append({
+        "key": key,
+        "tier": tier_code,
+        "expiry": expiry_date.isoformat(),
+        "issued_at": datetime.now().isoformat(timespec='seconds'),
+        "label": label or "",
+    })
+    with open(_LEDGER_PATH, 'w', encoding='utf-8') as f:
+        json.dump(ledger, f, ensure_ascii=False, indent=2)
+
+
+def _cmd_generate(args):
+    key, expiry_date = generate_key(args.tier, args.days)
+    _log_issued_key(key, args.tier, expiry_date, args.label)
+    print(f"발급된 키: {key}")
+    print(f"등급: {args.tier} / 만료일: {expiry_date} / 라벨: {args.label or '(없음)'}")
+    print(f"(발급 대장에 기록됨: {os.path.abspath(_LEDGER_PATH)})")
+
+
+def _cmd_revoke(args):
+    if LicenseValidator.revoke_key(args.key):
+        print(f"취소 처리 완료: {args.key}")
+        print(f"(취소 목록: {LicenseValidator._get_revoked_list_path()})")
+        print("이 취소는 프로그램을 재빌드/재배포해야 실제로 적용됩니다.")
+    else:
+        print("키 형식이 올바르지 않아 취소하지 못했습니다.")
+
+
+def _cmd_list_issued(args):
+    ledger = _load_ledger()
+    if not ledger:
+        print("발급 이력이 없습니다.")
+        return
+    for entry in ledger:
+        print(f"{entry['issued_at']}  [{entry['tier']}]  만료:{entry['expiry']}  라벨:{entry['label'] or '-'}  {entry['key']}")
+
+
+def _cmd_list_revoked(args):
+    revoked = LicenseValidator.list_revoked()
+    if not revoked:
+        print("취소된 키가 없습니다.")
+        return
+    for random_val in revoked:
+        print(random_val)
+
 
 if __name__ == "__main__":
-    print("="*40)
-    print(" 🛡️  Z-VulnScan License Generator")
-    print("="*40)
-    print(f" [Standard]    : {generate_key('STD')}")
-    print(f" [Professional]: {generate_key('PRO')}")
-    print(f" [Enterprise]  : {generate_key('ENT')}")
-    print("="*40)
+    parser = argparse.ArgumentParser(description="Z-VulnScan License Generator/Manager")
+    sub = parser.add_subparsers(dest="command")
+
+    p_gen = sub.add_parser("generate", help="새 라이선스 키 발급")
+    p_gen.add_argument("--tier", choices=["STD", "PRO", "ENT"], required=True)
+    p_gen.add_argument("--days", type=int, default=365, help="유효기간(일), 기본 365일")
+    p_gen.add_argument("--label", type=str, default="", help="발급 대상 메모(예: 고객사명)")
+    p_gen.set_defaults(func=_cmd_generate)
+
+    p_revoke = sub.add_parser("revoke", help="발급된 키를 취소 목록에 추가")
+    p_revoke.add_argument("--key", type=str, required=True)
+    p_revoke.set_defaults(func=_cmd_revoke)
+
+    p_list = sub.add_parser("list-issued", help="지금까지 발급한 키 이력 조회")
+    p_list.set_defaults(func=_cmd_list_issued)
+
+    p_list_rv = sub.add_parser("list-revoked", help="취소된 키 목록 조회")
+    p_list_rv.set_defaults(func=_cmd_list_revoked)
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        # 서브커맨드 없이 그냥 실행하면(기존 동작 유지) 데모용으로 3개 등급 키를 보여준다
+        print("="*40)
+        print(" 🛡️  Z-VulnScan License Generator")
+        print("="*40)
+        for tier in ("STD", "PRO", "ENT"):
+            key, expiry_date = generate_key(tier)
+            print(f" [{tier}] : {key}  (만료: {expiry_date})")
+        print("="*40)
+        print("실제 발급/취소/이력조회는 아래처럼 서브커맨드를 사용하세요:")
+        print("  python keygen.py generate --tier PRO --days 365 --label \"고객사명\"")
+        print("  python keygen.py revoke --key ZV3-...")
+        print("  python keygen.py list-issued")
+        print("  python keygen.py list-revoked")
+    else:
+        args.func(args)

@@ -132,7 +132,14 @@ class ExcelGenerator:
             self._create_cover_sheet(wb, asset_data, scan_data)
             self._create_detail_sheet(wb, scan_data)
             self._create_asset_sheet(wb, asset_data)
-            
+
+            # [Phase 5: Diff 리포트] 2회 이상 스캔된 자산이 하나라도 있을 때만
+            # 회차 비교 시트를 추가한다 (최초 1회 스캔만 한 일반적인 경우엔
+            # 비교할 대상 자체가 없으므로 빈 시트로 혼란을 주지 않는다).
+            round_comparison = self.db.get_round_comparison()
+            if round_comparison:
+                self._create_diff_sheet(wb, round_comparison)
+
             # 기본 Sheet 제거
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
@@ -396,3 +403,45 @@ class ExcelGenerator:
                 cell.value = v
                 cell.border = self.BORDER_ALL
                 cell.alignment = Alignment(horizontal='center')
+
+    def _create_diff_sheet(self, wb, round_comparison):
+        """[Phase 5: Diff 리포트] 자산별 직전 회차 대비 점수 변화(개선율)를 보여준다.
+        2회 이상 스캔된 자산이 하나도 없으면 generate()에서 아예 호출되지 않는다."""
+        ws = wb.create_sheet("4.회차비교(개선율)")
+        headers = [
+            ("A", "IP 주소", 15), ("B", "호스트명", 20),
+            ("C", "직전 회차 점수", 14), ("D", "최신 회차 점수", 14), ("E", "변화", 10),
+            ("F", "직전 취약 건수", 14), ("G", "최신 취약 건수", 14),
+            ("H", "직전 부분만족 건수", 16), ("I", "최신 부분만족 건수", 16),
+        ]
+        for col, title, width in headers:
+            cell = ws[f'{col}1']
+            cell.value = title
+            cell.fill = self.HEADER_FILL
+            cell.font = self.FONT_HEADER
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = self.BORDER_ALL
+            ws.column_dimensions[col].width = width
+        ws.row_dimensions[1].height = 25
+
+        for idx, row in enumerate(round_comparison, 1):
+            improvement = row["improvement"]
+            vals = [
+                row["ip"], row["hostname"], row["prev_score"], row["current_score"],
+                ("+" if improvement > 0 else "") + str(improvement),
+                row["prev_vuln_total"], row["current_vuln_total"],
+                row["prev_partial_total"], row["current_partial_total"],
+            ]
+            r_idx = idx + 1
+            for c_idx, val in enumerate(vals, 1):
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.value = self.clean_text(val)
+                cell.font = self.FONT_NORMAL
+                cell.border = self.BORDER_ALL
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                if c_idx == 5:  # 변화(E열) - 개선/악화 색상 강조
+                    cell.font = self.FONT_BOLD
+                    if improvement > 0:
+                        cell.fill = PatternFill(start_color=self.COLOR_GOOD, fill_type='solid')
+                    elif improvement < 0:
+                        cell.fill = PatternFill(start_color=self.COLOR_CRITICAL, fill_type='solid')

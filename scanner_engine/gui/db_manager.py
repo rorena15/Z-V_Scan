@@ -98,21 +98,6 @@ class DatabaseManagerDialog(QDialog):
         close_layout.addWidget(btn_close)
         self.layout.addLayout(close_layout)
 
-    def get_all_assets(self):
-        #프로그램 시작 시 로드할 모든 자산 목록 가져오기
-        conn = self._connect()
-        cursor = conn.cursor()
-        try:
-            # UI 테이블 순서에 맞춰서 데이터 조회 (IP, Host, OS, MAC, Vendor)
-            query = "SELECT ip_addr, hostname, os_type, mac_addr, vendor FROM TBL_ASSETS ORDER BY asset_id ASC"
-            cursor.execute(query)
-            return cursor.fetchall() # 리스트 반환: [(ip, host, os, mac, vendor), ...]
-        except Exception as e:
-            # 테이블이 없거나 에러나면 빈 리스트 반환 (프로그램 켜질 때 죽지 않게)
-            return []
-        finally:
-            conn.close()
-
     def load_data(self):
         """DB에서 데이터를 가져와 테이블에 뿌리기"""
         self.table.blockSignals(True) # 로딩 중 이벤트 발생 방지

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
     QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QStackedWidget
 )
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -198,8 +198,30 @@ class SettingsDialog(QDialog):
         btn_open_expert.clicked.connect(self._open_expert_mode)
         box_layout.addWidget(btn_open_expert)
         v.addWidget(box)
+
+        version_box = QGroupBox("룰셋 버전 (KISA 가이드 개정 대응)")
+        version_box_layout = QVBoxLayout(version_box)
+        version_box_layout.addWidget(QLabel(self._build_ruleset_version_text()))
+        v.addWidget(version_box)
+
         v.addStretch()
         return w
+
+    @staticmethod
+    def _build_ruleset_version_text():
+        manifest_path = os.path.join(get_base_dir(), 'rules', 'ruleset_manifest.json')
+        if not os.path.exists(manifest_path):
+            return "룰셋 버전 정보 파일(ruleset_manifest.json)을 찾을 수 없습니다."
+        try:
+            import json
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                manifest = json.load(f)
+            lines = []
+            for filename, info in manifest.get("rulesets", {}).items():
+                lines.append(f"{filename}: {info.get('item_count')}개 항목 (갱신일 {info.get('last_updated')})")
+            return "\n".join(lines) if lines else "룰셋 버전 정보가 비어 있습니다."
+        except Exception:
+            return "룰셋 버전 정보를 읽는 중 오류가 발생했습니다."
 
     def _open_expert_mode(self):
         main_win = self.parent()
@@ -346,65 +368,35 @@ class SettingsDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
 
-        license_mgr = getattr(self.parent(), 'license_mgr', None)
-
         box = QGroupBox("현재 라이선스")
         box_layout = QVBoxLayout(box)
 
-        if license_mgr:
-            tier = license_mgr.effective_tier()
-            expiry_str = self._format_expiry(license_mgr)
-        else:
-            tier = "-"
-            expiry_str = "-"
-
-        self.lbl_current_tier = QLabel(f"현재 등급: {tier}")
+        self.lbl_current_tier = QLabel()
         self.lbl_current_tier.setStyleSheet("font-size: 13pt; font-weight: bold;")
         box_layout.addWidget(self.lbl_current_tier)
-        self.lbl_expiry = QLabel(f"사용 가능 기간: {expiry_str}")
+        self.lbl_expiry = QLabel()
         box_layout.addWidget(self.lbl_expiry)
 
-        btn_activate = QPushButton("라이선스 키 입력/변경")
+        # [수정 불가, 입력/삭제만 가능] 기존 키를 고쳐 쓰는 개념이 없다 - 새 키를
+        # 입력하면 통째로 교체되고, 삭제하면 키 없는 기본 상태(Enterprise)로 돌아간다.
+        btn_row = QHBoxLayout()
+        btn_activate = QPushButton("라이선스 키 입력")
         btn_activate.clicked.connect(self._open_license_dialog)
-        box_layout.addWidget(btn_activate)
+        btn_row.addWidget(btn_activate)
+        self.btn_delete_license = QPushButton("라이선스 삭제")
+        self.btn_delete_license.clicked.connect(self._delete_license)
+        btn_row.addWidget(self.btn_delete_license)
+        box_layout.addLayout(btn_row)
         v.addWidget(box)
 
-        matrix_box = QGroupBox("등급별 제공 기능")
-        matrix_layout = QVBoxLayout(matrix_box)
-        matrix_layout.addWidget(QLabel(
-            "기본 진단(포트/배너/KISA 룰셋 판정)은 모든 등급에서 동일하게 제공되며,\n"
-            "등급이 높아질수록 리포트 상세도와 편의 기능이 추가로 열립니다."
-        ))
+        features_box = QGroupBox("현재 등급에서 사용 가능한 기능")
+        features_layout = QVBoxLayout(features_box)
+        self.lbl_current_features = QLabel()
+        features_layout.addWidget(self.lbl_current_features)
+        v.addWidget(features_box)
+        v.addStretch()
 
-        table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["기능", "Standard", "Professional", "Enterprise"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setSelectionMode(QAbstractItemView.NoSelection)
-
-        rows = [
-            ("PDF 리포트", "O", "O", "O"),
-            ("Excel 리포트", "-", "O", "O"),
-            ("상세 증적(Evidence)", "취약 항목만", "전체", "전체"),
-            ("조치 방안", "미제공", "중요도 상/중만", "전체"),
-            ("전문가 모드(룰 세부 제어)", "-", "-", "O"),
-        ]
-        table.setRowCount(len(rows))
-        for r, (feature, std, pro, ent) in enumerate(rows):
-            for c, val in enumerate([feature, std, pro, ent]):
-                item = QTableWidgetItem(val)
-                if c > 0:
-                    item.setTextAlignment(0x0084)  # AlignCenter
-                table.setItem(r, c, item)
-        table.resizeRowsToContents()
-        matrix_layout.addWidget(table)
-        v.addWidget(matrix_box, 1)
-
+        self._refresh_license_page()
         return w
 
     def _open_license_dialog(self):
@@ -412,11 +404,64 @@ class SettingsDialog(QDialog):
         if main_win is None or not hasattr(main_win, 'open_license_dialog'):
             return
         main_win.open_license_dialog()
-        # 활성화 결과를 화면에 즉시 반영
-        license_mgr = getattr(main_win, 'license_mgr', None)
-        if license_mgr:
-            self.lbl_current_tier.setText(f"현재 등급: {license_mgr.effective_tier()}")
-            self.lbl_expiry.setText(f"사용 가능 기간: {self._format_expiry(license_mgr)}")
+        self._refresh_license_page()
+
+    def _delete_license(self):
+        main_win = self.parent()
+        license_mgr = getattr(main_win, 'license_mgr', None) if main_win else None
+        if not license_mgr or not license_mgr.expiry_date:
+            QMessageBox.information(self, "안내", "삭제할 라이선스 키가 등록되어 있지 않습니다.")
+            return
+        reply = QMessageBox.question(
+            self, "라이선스 삭제 확인",
+            "등록된 라이선스 키를 삭제합니다.\n삭제 후에는 키가 없는 기본 상태(Enterprise)로 동작합니다.\n계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        from core.license_validator import LicenseValidator
+        try:
+            if os.path.exists(LicenseValidator.LICENSE_FILE):
+                os.remove(LicenseValidator.LICENSE_FILE)
+        except OSError:
+            QMessageBox.critical(self, "Error", "라이선스 파일 삭제에 실패했습니다.")
+            return
+        license_mgr.current_tier = license_mgr.TIER_ENTERPRISE
+        license_mgr.expiry_date = None
+        if hasattr(main_win, 'update_ui_by_license'):
+            main_win.update_ui_by_license()
+        QMessageBox.information(self, "완료", "라이선스가 삭제되었습니다.")
+        self._refresh_license_page()
+
+    def _refresh_license_page(self):
+        license_mgr = getattr(self.parent(), 'license_mgr', None)
+        if not license_mgr:
+            self.lbl_current_tier.setText("현재 등급: -")
+            self.lbl_expiry.setText("사용 가능 기간: -")
+            self.lbl_current_features.setText("-")
+            self.btn_delete_license.setEnabled(False)
+            return
+
+        tier = license_mgr.effective_tier()
+        self.lbl_current_tier.setText(f"현재 등급: {tier}")
+        self.lbl_expiry.setText(f"사용 가능 기간: {self._format_expiry(license_mgr)}")
+        self.lbl_current_features.setText(self._build_current_features_text(license_mgr))
+        # 실제로 등록된(license.dat 기반) 키가 있을 때만 삭제 가능 - 숨겨진 개발자
+        # 미리보기 등급 전환은 파일이 없으므로 삭제 대상이 아니다.
+        self.btn_delete_license.setEnabled(bool(license_mgr.expiry_date))
+
+    @staticmethod
+    def _build_current_features_text(license_mgr):
+        excel = "가능" if license_mgr.can_export_excel() else "불가 (PDF만 가능)"
+        evidence = {"full": "전체 항목 제공", "vuln_only": "취약/부분만족 항목만 제공"}[license_mgr.evidence_level()]
+        remediation = {"full": "전체 제공", "partial": "중요도 상/중 항목만 제공", "none": "미제공"}[license_mgr.remediation_level()]
+        expert = "사용 가능" if license_mgr.can_use_expert_mode() else "사용 불가 (Enterprise 전용)"
+        return (
+            f"• Excel 리포트: {excel}\n"
+            f"• 상세 증적(Evidence): {evidence}\n"
+            f"• 조치 방안: {remediation}\n"
+            f"• 전문가 모드: {expert}"
+        )
 
     @staticmethod
     def _format_expiry(license_mgr):

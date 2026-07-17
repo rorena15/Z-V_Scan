@@ -25,6 +25,8 @@ CATEGORY_ORDER = [
     ("waiver", ["waiver"]),
     ("report", ["report"]),
     ("settings", ["settings"]),
+    ("known_hosts", ["known_hosts"]),
+    ("license", ["license"]),
 ]
 
 
