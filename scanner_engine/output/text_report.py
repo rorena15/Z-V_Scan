@@ -50,20 +50,13 @@ STATUS_TO_RESULT = {
 
 class TextReportGenerator:
     """
-    사내에서 사용 중인 ICTIS 스타일(스크립트 결과 텍스트 덤프) 리포트를 생성.
+    호스트별 TXT 리포트를 생성.
     [코드] 항목명 / 권고 / [START] 현황 / (CMD) 명령어+원본출력(증적) / [END] 형식.
 
     한 호스트당 3개 구획으로 구성:
       1) Discovery  - 자산 탐지/포트 스캔 결과 (TCP-xx, UDP-xx, INFO-00)
       2) Audit      - KISA 진단 항목 (U-xx/W-xx/D-xx/WEB-xx), 카테고리별 그룹핑
       3) SYSTEM Detail - 시스템/IP/PORT/서비스 원시 정보 부록
-
-    [매크로 호환 - 중요] 대외비 결과보고서 엑셀(UNIX/WINDOWS/PC/DBMS)의 가져오기 매크로
-    (ProcessSecurityLogs)는 한 폴더 안의 여러 .txt 파일을 순회하며, 각 파일의 hostname을
-    "파일 내용"이 아니라 "파일명"에서 뽑는다 (첫 ']' 다음부터 다음 '_' 전까지). 그래서
-    호스트당 파일을 하나씩 별도로 저장하고, 파일명은 반드시 `[TAG]hostname_timestamp.txt`
-    형식이어야 한다. 예전처럼 전체 호스트를 한 파일에 합치면 매크로가 파일명에서 엉뚱한
-    값(예: "Z-VulnScan")을 hostname으로 읽어버린다.
     """
 
     def __init__(self):
@@ -115,9 +108,7 @@ class TextReportGenerator:
     @staticmethod
     def _extract_real_hostname(os_info, fallback):
         """
-        대외비 매크로(ProcessSecurityLogs)는 엑셀 결과의 hostname을 파일 내용이 아니라
-        '파일명'에서 뽑아낸다 (첫 ']' 다음부터 첫 '_' 전까지). 그래서 placeholder
-        ("(vendor) Device")가 아니라 실제 호스트명이 필요해, 이미 수집해 둔
+        placeholder("(vendor) Device")가 아니라 실제 호스트명이 필요해, 이미 수집해 둔
         SYS-OS_INFO 원문(uname -a / systeminfo)에서 직접 추출한다.
         """
         if os_info:
@@ -131,7 +122,7 @@ class TextReportGenerator:
 
     @staticmethod
     def _sanitize_filename(name):
-        # 대외비 매크로는 파일명의 첫 ']' ~ 다음 '_' 구간을 hostname으로 그대로 읽으므로
+        # 파일명의 첫 ']' ~ 다음 '_' 구간을 hostname으로 그대로 읽으므로
         # 파일시스템 금지 문자만 제거하고 hostname 자체는 최대한 원형 유지
         cleaned = re.sub(r'[\\/:*?"<>|\s\[\]]+', '-', str(name)).strip('-')
         return cleaned or "unknown"

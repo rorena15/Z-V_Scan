@@ -313,7 +313,7 @@ class ScannerApp(QMainWindow):
         menu = QMenu(self)
         menu.addAction("PDF", self.generate_pdf)
         menu.addAction("Excel", self.generate_excel)
-        menu.addAction("TXT (ICTIS)", self.generate_text_report)
+        menu.addAction("TXT", self.generate_text_report)
         menu.exec(self.nav_reports.mapToGlobal(self.nav_reports.rect().bottomLeft()))
 
     def _wrap_scrollable_page(self, widgets, trailing_stretch=False):
