@@ -202,10 +202,10 @@ class ScanWorker(QThread):
                 self.db_queue.task_done()
 
     def _save_asset_to_db(self, db, data):
-        # Data: (ip, hostname, os_type, ports_str, mac_addr)
+        # Data: (ip, hostname, os_type, ports_str, mac_addr, vendor)
         db.save_asset(
             data[0], hostname=data[1], os_type=data[2],
-            open_ports=data[3], mac_addr=data[4]
+            open_ports=data[3], mac_addr=data[4], vendor=data[5]
         )
 
     def _save_hostname_update_to_db(self, db, data):
@@ -326,7 +326,14 @@ class ScanWorker(QThread):
             # (예전에는 ICMP 차단망에서 TCP로 확인된 자산이 조용히 스킵되는 문제가 있었음).
             _icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
 
-        hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
+        # [역DNS] 인증 정보 없이도 hostname을 채울 수 있으면 vendor 기반 placeholder 대신 사용.
+        # 실패(PTR 레코드 없음 등)하면 기존처럼 "(Vendor) Device" placeholder로 폴백하고,
+        # 이후 인증 딥 인스펙션이 성공하면 _extract_real_hostname()이 다시 덮어쓴다.
+        resolved_hostname = None if is_sim else scanner.resolve_hostname(ip)
+        if resolved_hostname:
+            hostname = resolved_hostname
+        else:
+            hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
 
         # [Phase 1] TCP Port Scan (가짜 포트 주입)
         open_ports = []
@@ -351,7 +358,7 @@ class ScanWorker(QThread):
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
         self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
-        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr)))
+        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor)))
 
         if not open_ports:
             self.db_queue.put(("SCAN_RESULT", (

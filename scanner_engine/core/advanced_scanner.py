@@ -154,16 +154,43 @@ class AdvancedScanner:
         if not OSUtils.is_safe_host(ip): return "Unknown"
         mac_address = "Unknown"
         try:
-            cmd = ["arp", "-a", ip] if OSUtils.is_windows() else ["arp", "-n", ip]
+            # [수정] "arp -a <ip>" 식 IP 필터링은 일부 Windows 환경에서 같은 서브넷
+            # 대상조차 "No ARP Entries Found"로 잘못 응답하는 경우가 있어(직전 ping으로
+            # 커널 ARP 캐시엔 실제로 항목이 생겼는데도), 필터 없이 전체 ARP 테이블을
+            # 받아와 대상 IP가 포함된 줄에서 직접 MAC을 찾는 방식으로 바꿨다.
+            cmd = ["arp", "-a"] if OSUtils.is_windows() else ["arp", "-n"]
             kwargs = OSUtils.get_subprocess_kwargs() if OSUtils.is_windows() else {}
 
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1, **kwargs)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=2, **kwargs)
             if proc.returncode == 0:
-                mac_match = re.search(r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", proc.stdout)
-                if mac_match: 
-                    mac_address = mac_match.group(0).upper().replace("-", ":")
+                # IP가 다른 IP의 앞부분과 겹치는 경우(예: "10.0.0.1"이 "10.0.0.100"에 포함)를
+                # 피하기 위해 앞뒤로 숫자가 이어지지 않는 정확한 위치에서만 매칭한다.
+                ip_pattern = re.compile(rf'(?<!\d){re.escape(ip)}(?!\d)')
+                for line in proc.stdout.splitlines():
+                    if ip_pattern.search(line):
+                        mac_match = re.search(r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", line)
+                        if mac_match:
+                            mac_address = mac_match.group(0).upper().replace("-", ":")
+                            break
         except: pass
         return mac_address
+
+    def resolve_hostname(self, ip):
+        """[Discovery 단계 hostname] 인증 정보 없이도 역DNS(PTR)로 hostname을 얻어본다.
+        실패해도 예외를 던지지 않고 None만 반환 - 호출부(worker.py)가 기존 vendor 기반
+        placeholder로 폴백한다. socket.gethostbyaddr()는 타임아웃 인자를 받지 않으므로
+        전역 기본 타임아웃을 짧게 걸었다가 반드시 원복한다."""
+        if ip in ["127.0.0.1", "localhost", "0.0.0.0"]: return None
+        if not OSUtils.is_safe_host(ip): return None
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(1.0)
+            name, _, _ = socket.gethostbyaddr(ip)
+            return name or None
+        except (socket.herror, socket.gaierror, OSError):
+            return None
+        finally:
+            socket.setdefaulttimeout(old_timeout)
 
     def host_discovery(self, ip):
         is_alive = False
@@ -183,9 +210,12 @@ class AdvancedScanner:
                 
                 mac_address = self.get_mac_address(ip)
                 vendor = OUILookup.lookup(mac_address)
-                
+
+                # [수정] OUILookup.lookup()은 MAC 조회 실패 시 "Unknown"이 아니라
+                # "Unknown Vendor"를 반환하므로, 예전 "vendor == 'Unknown'" 비교는 항상
+                # 거짓이 되어 아래 wmic 폴백이 죽어 있었다. MAC 자체가 안 잡혔는지로 직접 판단한다.
                 #만약 MAC으로 벤더를 못 찾았고, 내 로컬 PC(localhost)를 스캔 중이라면 wmic 시도
-                if vendor == "Unknown" and ip in ["127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())]:
+                if mac_address == "Unknown" and ip in ["127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())]:
                     wmic_vendor = self.get_system_vendor()
                     if wmic_vendor:
                         vendor = wmic_vendor

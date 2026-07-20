@@ -283,6 +283,9 @@ class ScannerApp(QMainWindow):
         self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], checkable=False)
         self.nav_reports.clicked.connect(self._show_reports_menu)
 
+        self.nav_crosscheck = make_nav_button("교차검증", "컨설턴트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", checkable=False)
+        self.nav_crosscheck.clicked.connect(self.open_cross_check)
+
         layout.addStretch()
 
         self.nav_help = make_nav_button("도움말", HELP_TEXTS["settings"]["tooltip"], checkable=False)
@@ -1219,6 +1222,13 @@ class ScannerApp(QMainWindow):
     def open_waiver_manager(self):
         from gui.waiver_dialog import WaiverManagerDialog
         dlg = WaiverManagerDialog(self.db, self)
+        dlg.exec()
+
+    def open_cross_check(self):
+        """[교차검증 모드] 컨설턴트 TXT 결과를 오프라인 재판정. DB에 전혀 접근하지
+        않으므로 다른 open_xxx()와 달리 self.db를 넘기지 않고, 닫힌 뒤 refresh도 불필요하다."""
+        from gui.crosscheck_dialog import CrossCheckDialog
+        dlg = CrossCheckDialog(self)
         dlg.exec()
 
     def open_settings(self):

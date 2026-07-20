@@ -144,7 +144,7 @@ class DBConnector:
             conn.commit()
             conn.close()
 
-    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", open_ports="", mac_addr="-"):
+    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", open_ports="", mac_addr="-", vendor=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
@@ -152,26 +152,31 @@ class DBConnector:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cursor.execute("SELECT asset_id FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     asset_id = row[0]
                     if mac_addr and mac_addr not in ["-", "Unknown"]:
                         cursor.execute("""
-                            UPDATE TBL_ASSETS 
-                            SET last_seen=?, hostname=?, os_type=?, open_ports=?, mac_addr=? 
+                            UPDATE TBL_ASSETS
+                            SET last_seen=?, hostname=?, os_type=?, open_ports=?, mac_addr=?
                             WHERE asset_id=?
                         """, (now, hostname, os_type, open_ports, mac_addr, asset_id))
                     else:
                         cursor.execute("""
-                            UPDATE TBL_ASSETS 
-                            SET last_seen=?, hostname=?, os_type=?, open_ports=? 
+                            UPDATE TBL_ASSETS
+                            SET last_seen=?, hostname=?, os_type=?, open_ports=?
                             WHERE asset_id=?
                         """, (now, hostname, os_type, open_ports, asset_id))
+                    # [수정] vendor는 지금까지 어떤 경로로도 DB에 저장되지 않고 있었다(누락 버그).
+                    # mac_addr과 같은 규칙으로, 이번에 못 얻었으면("Unknown"/"Unknown Vendor") 이전에
+                    # 알아낸 값을 덮어쓰지 않는다.
+                    if vendor and vendor not in ["Unknown", "Unknown Vendor", "-"]:
+                        cursor.execute("UPDATE TBL_ASSETS SET vendor=? WHERE asset_id=?", (vendor, asset_id))
                 else:
                     cursor.execute("""
-                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, last_seen, memo)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (ip, hostname, os_type, open_ports, mac_addr, now, ""))
+                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, vendor, last_seen, memo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (ip, hostname, os_type, open_ports, mac_addr, vendor, now, ""))
                     asset_id = cursor.lastrowid
                 conn.commit()
                 return asset_id
