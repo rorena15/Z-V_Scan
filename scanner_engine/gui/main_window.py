@@ -1225,10 +1225,12 @@ class ScannerApp(QMainWindow):
         dlg.exec()
 
     def open_cross_check(self):
-        """[교차검증 모드] 컨설턴트 TXT 결과를 오프라인 재판정. DB에 전혀 접근하지
-        않으므로 다른 open_xxx()와 달리 self.db를 넘기지 않고, 닫힌 뒤 refresh도 불필요하다."""
+        """[교차검증 모드] 컨설턴트 TXT 결과를 재판정 또는 DB 직접대조로 대조.
+        기본(재판정) 모드는 DB에 접근하지 않지만, self.db를 넘겨주면 사용자가 다이얼로그
+        안에서 "DB 직접대조" 모드를 선택할 수 있다 - 그 경우에만 실제로 DB를 조회한다.
+        어느 모드든 DB에 쓰지는 않으므로 닫힌 뒤 refresh_dashboard()는 불필요하다."""
         from gui.crosscheck_dialog import CrossCheckDialog
-        dlg = CrossCheckDialog(self)
+        dlg = CrossCheckDialog(self, db=self.db)
         dlg.exec()
 
     def open_settings(self):

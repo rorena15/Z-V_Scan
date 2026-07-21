@@ -268,7 +268,14 @@ class TextReportGenerator:
                 buf.append(f"[REASON] {reason_val} ")
                 buf.append("현황 ")
                 waived_note = " (예외 처리됨)" if item['waived'] == 1 else ""
-                buf.append(f": {item['detail']}{waived_note} ")
+                # [수정] detail(judge_rule의 _single_condition_result가 만드는
+                # "취약 설정 발견: {full_output[:40]}..." 등)이 원본 명령 출력을 그대로
+                # 잘라 붙이므로, 그 40자 안에 줄바꿈이 섞여 있으면 이 줄이 여러 줄로
+                # 쪼개져 출력된다. [REASON] 줄(위 reason_val)과 동일하게 공백으로
+                # 정규화해서 항상 한 줄로 유지 - 교차검증 파서를 포함해 "현황 :" 줄을
+                # 단일 라인으로 가정하는 모든 소비자가 깨지지 않도록 한다.
+                status_val = re.sub(r'\s+', ' ', (item['detail'] or "")).strip()
+                buf.append(f": {status_val}{waived_note} ")
                 buf.append("---------- ")
                 if item['command']:
                     buf.append(f"(CMD) {item['command']} ")

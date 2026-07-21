@@ -6,12 +6,19 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 """
-[교차검증 모드] 외부 컨설턴트가 산출한 TXT 결과 파일을 오프라인으로 불러와
-Z-VulnScan 판정 로직으로 재판정/대조한다.
+[교차검증 모드] 외부 컨설턴트가 산출한 TXT 결과 파일을 불러와 Z-VulnScan과 대조한다.
 
-이 다이얼로그는 DB(TBL_SCAN_RESULT)에 전혀 접근하지 않는다 - __init__이 db 인자를
-받지 않는 것으로 그 사실을 시그니처 레벨에서 강제한다. 결과는 이 창 안에서만
-표시되고, "엑셀로 내보내기"를 눌러야만 독립 파일로 저장된다.
+두 가지 대조 방식을 지원한다:
+- 재판정(오프라인, 기본값): 컨설턴트 증적을 Z-VulnScan 룰 키워드로 다시 판정한다.
+  DB(TBL_SCAN_RESULT)에 전혀 접근하지 않는다. 다만 서로 다른 스크립트가 만든 증적
+  문장이 우리 룰의 safe_keyword("OK" 등)와 우연히 일치할 수 없어 실측상 신뢰도가
+  낮다는 게 확인됐다 - 예: safe_keyword가 "OK"인 룰은 컨설턴트의 한국어 서술형
+  증적에 "OK"가 나올 리 없어 거의 항상 취약으로 오판정된다.
+- DB 직접대조: 재판정을 하지 않고, Z-VulnScan이 같은 호스트를 실제로 스캔해 DB에
+  이미 저장해 둔 최종 판정값을 코드 단위로 직접 비교한다. 키워드 매칭 문제 자체를
+  우회하므로 더 신뢰할 수 있지만, Z-VulnScan이 그 호스트를 실제로 스캔한 이력이
+  있어야만 쓸 수 있고 DB에 접근한다(main_window.py가 self.db를 넘겨준 경우에만
+  이 모드를 켤 수 있다).
 """
 import os
 import sys
@@ -19,12 +26,12 @@ import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtGui import QColor
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-from core.crosscheck_engine import run_cross_check  # noqa: E402
+from core.crosscheck_engine import run_cross_check, run_cross_check_db  # noqa: E402
 from output.crosscheck_report import CrossCheckReportGenerator  # noqa: E402
 
 
@@ -34,30 +41,65 @@ class CrossCheckDialog(QDialog):
         "MISSING_IN_RULESET": "룰셋에 코드 없음",
         "AMBIGUOUS_RULESET": "룰셋 판별 불가",
         "PARSE_ERROR": "파싱 실패",
+        "NO_KISA_CODE": "KISA 코드 없음",
+        "NO_CONSULTANT_RESULT": "컨설턴트 결과 없음",
+        "CONSULTANT_UNCERTAIN": "컨설턴트도 확인 필요",
+        "MANUAL_VERIFICATION_NEEDED": "수동 검증 필요(세부기준형)",
+        "DB_NO_ASSET": "Z-VulnScan 스캔 자산 없음",
+        "DB_NO_SCAN_RESULT": "Z-VulnScan 스캔 이력 없음",
     }
     CLASS_COLOR = {
         "MATCH": "#DCEFE0", "MISMATCH": "#FBD9D9",
         "MISSING_IN_RULESET": "#F6DFA6", "AMBIGUOUS_RULESET": "#F6DFA6",
         "PARSE_ERROR": "#EDEDEC",
+        "NO_KISA_CODE": "#EDEDEC", "NO_CONSULTANT_RESULT": "#EDEDEC",
+        "CONSULTANT_UNCERTAIN": "#F6DFA6",
+        "MANUAL_VERIFICATION_NEEDED": "#F6DFA6",
+        "DB_NO_ASSET": "#EDEDEC", "DB_NO_SCAN_RESULT": "#EDEDEC",
     }
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, db=None):
         super().__init__(parent)
-        self.setWindowTitle("교차검증 (오프라인 TXT 재판정)")
-        self.resize(1100, 650)
+        self.setWindowTitle("교차검증 (컨설턴트 TXT 대조)")
+        self.resize(1100, 680)
 
+        self.db = db
         self._selected_files = []
         self._last_result = None
 
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            "컨설턴트가 산출한 TXT 결과 파일(Z-VulnScan 리포트 포맷과 동일)을 선택해 "
-            "판정 로직으로 재판정하고 원 판정과 대조합니다. 네트워크 접속이나 실제 "
-            "스캔은 수행하지 않으며, DB에도 저장하지 않습니다."
+            "컨설턴트가 산출한 TXT 결과 파일을 선택해 Z-VulnScan과 대조합니다. Z-VulnScan "
+            "자체 리포트 포맷과 실제 KISA 대조검증 스크립트 포맷을 모두 자동 인식합니다."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("대조 방식:"))
+        self.rb_rejudge = QRadioButton("재판정(오프라인, DB 미사용)")
+        self.rb_rejudge.setToolTip(
+            "컨설턴트 증적을 Z-VulnScan 룰 키워드로 재판정합니다. DB에 접근하지 않지만,\n"
+            "서로 다른 스크립트의 증적 문장은 우리 키워드와 우연히 일치하기 어려워 신뢰도가 낮을 수 있습니다."
+        )
+        self.rb_rejudge.setChecked(True)
+        self.rb_dbcompare = QRadioButton("DB 직접대조 (Z-VulnScan 실제 스캔 결과와 비교)")
+        self.rb_dbcompare.setToolTip(
+            "재판정 없이, Z-VulnScan이 같은 호스트를 실제로 스캔해 DB에 저장한 최종 판정값과\n"
+            "코드 단위로 직접 비교합니다. 더 신뢰할 수 있지만 Z-VulnScan이 그 호스트를 실제로\n"
+            "스캔한 이력이 있어야 하며, DB에 접근합니다."
+        )
+        self.rb_dbcompare.setEnabled(self.db is not None)
+        if self.db is None:
+            self.rb_dbcompare.setToolTip("이 창이 DB 연결 없이 열려서 사용할 수 없습니다.")
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.rb_rejudge)
+        self.mode_group.addButton(self.rb_dbcompare)
+        mode_row.addWidget(self.rb_rejudge)
+        mode_row.addWidget(self.rb_dbcompare)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
 
         file_row = QHBoxLayout()
         btn_add_files = QPushButton("TXT 파일 선택...")
@@ -92,7 +134,7 @@ class CrossCheckDialog(QDialog):
         layout.addWidget(self.warning_label)
 
         self.table = QTableWidget()
-        headers = ["Host", "IP", "Code", "Name", "컨설턴트 판정", "재판정", "구분", "비고"]
+        headers = ["Host", "IP", "Code", "Name", "컨설턴트 판정", "Z-VulnScan 판정", "구분", "비고"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.verticalHeader().hide()
@@ -147,7 +189,13 @@ class CrossCheckDialog(QDialog):
             QMessageBox.warning(self, "파일 없음", "먼저 TXT 파일 또는 폴더를 선택하세요.")
             return
 
-        result = run_cross_check(self._selected_files)
+        if self.rb_dbcompare.isChecked():
+            if self.db is None:
+                QMessageBox.warning(self, "DB 없음", "DB 직접대조 모드를 쓸 수 없는 창입니다.")
+                return
+            result = run_cross_check_db(self._selected_files, self.db)
+        else:
+            result = run_cross_check(self._selected_files)
         self._last_result = result
 
         self.warning_label.setVisible(False)
@@ -165,12 +213,22 @@ class CrossCheckDialog(QDialog):
         self._populate_table(result.get("diff_entries", []))
 
         s = result.get("summary", {})
-        self.summary_label.setText(
-            f"총 {s.get('total', 0)} / 일치 {s.get('match', 0)} / 불일치 {s.get('mismatch', 0)} / "
-            f"판별불가 {s.get('ambiguous', 0)} / 룰셋에 없음 {s.get('missing_in_ruleset', 0)} / "
-            f"파싱실패 {s.get('parse_error', 0)} / 근사치 {s.get('approx_count', 0)} / "
-            f"누락코드 {s.get('missing_codes', 0)}"
-        )
+        if self.rb_dbcompare.isChecked():
+            self.summary_label.setText(
+                f"[DB 직접대조] 총 {s.get('total', 0)} / 일치 {s.get('match', 0)} / 불일치 {s.get('mismatch', 0)} / "
+                f"KISA코드없음 {s.get('no_kisa_code', 0)} / 파싱실패 {s.get('parse_error', 0)} / "
+                f"컨설턴트결과없음 {s.get('no_consultant_result', 0)} / 컨설턴트도확인필요 {s.get('consultant_uncertain', 0)} / "
+                f"자산없음 {s.get('db_no_asset', 0)} / DB스캔이력없음 {s.get('db_no_scan_result', 0)}"
+            )
+        else:
+            self.summary_label.setText(
+                f"[재판정] 총 {s.get('total', 0)} / 일치 {s.get('match', 0)} / 불일치 {s.get('mismatch', 0)} / "
+                f"판별불가 {s.get('ambiguous', 0)} / 룰셋에 없음 {s.get('missing_in_ruleset', 0)} / "
+                f"파싱실패 {s.get('parse_error', 0)} / 근사치 {s.get('approx_count', 0)} / "
+                f"누락코드 {s.get('missing_codes', 0)} / KISA코드없음 {s.get('no_kisa_code', 0)} / "
+                f"컨설턴트결과없음 {s.get('no_consultant_result', 0)} / 컨설턴트도확인필요 {s.get('consultant_uncertain', 0)} / "
+                f"수동검증필요(세부기준형) {s.get('manual_verification_needed', 0)}"
+            )
         self.btn_export.setEnabled(bool(result.get("diff_entries")))
 
     def _populate_table(self, diff_entries):

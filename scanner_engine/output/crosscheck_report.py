@@ -52,6 +52,12 @@ class CrossCheckReportGenerator:
         "MISSING_IN_RULESET": COLOR_MISSING,
         "AMBIGUOUS_RULESET": COLOR_MISSING,
         "PARSE_ERROR": COLOR_ERROR,
+        "NO_KISA_CODE": COLOR_ERROR,
+        "NO_CONSULTANT_RESULT": COLOR_ERROR,
+        "CONSULTANT_UNCERTAIN": COLOR_MISSING,
+        "MANUAL_VERIFICATION_NEEDED": COLOR_MISSING,
+        "DB_NO_ASSET": COLOR_ERROR,
+        "DB_NO_SCAN_RESULT": COLOR_ERROR,
     }
     _CLASS_LABEL = {
         "MATCH": "일치",
@@ -59,6 +65,12 @@ class CrossCheckReportGenerator:
         "MISSING_IN_RULESET": "룰셋에 코드 없음",
         "AMBIGUOUS_RULESET": "룰셋 판별 불가",
         "PARSE_ERROR": "파싱 실패",
+        "NO_KISA_CODE": "KISA 코드 없음",
+        "NO_CONSULTANT_RESULT": "컨설턴트 결과 없음",
+        "CONSULTANT_UNCERTAIN": "컨설턴트도 확인 필요",
+        "MANUAL_VERIFICATION_NEEDED": "수동 검증 필요(세부기준형)",
+        "DB_NO_ASSET": "Z-VulnScan 스캔 자산 없음",
+        "DB_NO_SCAN_RESULT": "Z-VulnScan 스캔 이력 없음",
     }
 
     def __init__(self, cross_check_result: dict):
@@ -103,6 +115,12 @@ class CrossCheckReportGenerator:
             ("파싱 실패 (수동 확인 필요)", s.get("parse_error", 0)),
             ("근사치 재판정 항목 (세부기준형 룰)", s.get("approx_count", 0)),
             ("호스트별 누락 코드 수", s.get("missing_codes", 0)),
+            ("KISA 코드 없음 (컨설턴트 측 매핑 불가 항목)", s.get("no_kisa_code", 0)),
+            ("컨설턴트 결과 없음 (수동 확인 항목 등)", s.get("no_consultant_result", 0)),
+            ("컨설턴트도 확인 필요 (\"확인\" 판정)", s.get("consultant_uncertain", 0)),
+            ("수동 검증 필요 (세부기준형 룰, 자동 대조 신뢰 불가)", s.get("manual_verification_needed", 0)),
+            ("[DB 직접대조 모드] Z-VulnScan 스캔 자산 없음", s.get("db_no_asset", 0)),
+            ("[DB 직접대조 모드] Z-VulnScan 스캔 이력 없음", s.get("db_no_scan_result", 0)),
         ]
         r = 4
         for label, value in rows:

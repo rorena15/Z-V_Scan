@@ -14,9 +14,26 @@ NA_SIGNALS = [
     "레지스트리 키 또는 값이 존재하지 않음", "Cannot find",
 ]
 
+# [권한 부족 감지] 계정에 su/sudo 권한이 없어 root 전용 파일(/etc/shadow 등) 접근이
+# 거부된 경우의 신호. 이전엔 이 신호가 NA_SIGNALS에 없어서, 권한 부족으로 명령이
+# 실패해도 "해당없음"/"수동확인"으로 안 빠지고 룰 구조(vulnerable_keyword냐
+# safe_keyword냐)에 따라 우연히 SAFE 또는 VULNERABLE로 잘못 판정되는 문제가 실제로
+# 있었다(예: U-13이 /etc/shadow를 못 읽으면 grep 실패를 "매치 없음"과 똑같이 취급해
+# 거짓 양호로 판정). 사용자 결정: 권한 부족 시 "취약"으로 집계하되(누락 방지) 사유에
+# "수동 확인 필요"를 명시해 사람이 반드시 재검토하게 한다.
+PERMISSION_DENIED_SIGNALS = [
+    "Permission denied", "permission denied",
+    "권한이 거부되었습니다", "허가 거부", "액세스가 거부되었습니다", "Access is denied",
+    "Operation not permitted",
+]
+
 
 def _is_na(output_stripped):
     return bool(output_stripped) and any(sig in output_stripped for sig in NA_SIGNALS)
+
+
+def _is_permission_denied(output_stripped):
+    return bool(output_stripped) and any(sig in output_stripped for sig in PERMISSION_DENIED_SIGNALS)
 
 
 def _single_condition_result(rule, full_output):
@@ -59,6 +76,8 @@ def judge_rule(rule, full_output, execute_fn=None):
 
     criteria = rule.get("criteria")
     if criteria and isinstance(criteria, list):
+        if _is_permission_denied(stripped):
+            return "VULNERABLE", "권한 부족으로 정확한 확인 불가 - 수동 확인 필요 (보수적으로 취약 처리)"
         if _is_na(stripped):
             return "NA", "해당없음 (대상 기능/서비스 없음)"
 
@@ -86,6 +105,9 @@ def judge_rule(rule, full_output, execute_fn=None):
             return "VULNERABLE", f"취약 (세부기준 {passed}/{total} 충족)"
         else:
             return "PARTIAL", f"부분만족 (세부기준 {passed}/{total} 충족, 미충족: {', '.join(unmet_labels)})"
+
+    if _is_permission_denied(stripped):
+        return "VULNERABLE", "권한 부족으로 정확한 확인 불가 - 수동 확인 필요 (보수적으로 취약 처리)"
 
     if _is_na(stripped):
         return "NA", "해당없음 (대상 기능/서비스 없음)"

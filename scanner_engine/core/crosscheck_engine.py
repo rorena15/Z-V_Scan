@@ -143,7 +143,13 @@ def rejudge_record(record, code_index):
 
     result["has_criteria"] = bool(rule.get("criteria"))
     if result["has_criteria"]:
-        result["approx_note"] = "세부증적 없음 (근사치 - 최상위 명령 결과만으로 재판정)"
+        result["approx_note"] = (
+            "세부기준별 개별 증적 없음 (근사치 - TXT의 증적은 존재하지만 이 룰 최상위 "
+            "명령(CMD) 결과 하나뿐이라, 세부기준마다 원래 실행해야 할 별도 명령 대신 "
+            "이 공통 출력을 그대로 재사용합니다. 그 출력에 세부기준의 safe/vulnerable_keyword가 "
+            "문맥과 무관하게 우연히 포함돼 있으면 - 예: 주석 처리된 설정 줄도 통과 - "
+            "오탐이 발생할 수 있습니다)"
+        )
 
     try:
         status, detail = judge_rule(rule, record.get("raw_output", ""), execute_fn=None)
@@ -163,7 +169,10 @@ def diff_records(rejudge_results):
     for r in rejudge_results:
         record = r["record"]
 
-        if not record.get("parse_ok", True):
+        if not record.get("code"):
+            classification = "NO_KISA_CODE"
+            detail_note = record.get("parse_warning") or "컨설턴트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
+        elif not record.get("parse_ok", True):
             classification = "PARSE_ERROR"
             detail_note = record.get("parse_warning") or "파싱 실패"
         elif r["ruleset_ambiguous"]:
@@ -175,6 +184,29 @@ def diff_records(rejudge_results):
         elif r["engine_error"]:
             classification = "PARSE_ERROR"
             detail_note = f"재판정 엔진 오류: {r['engine_error']}"
+        elif not record.get("consultant_result"):
+            classification = "NO_CONSULTANT_RESULT"
+            detail_note = f"컨설턴트 쪽에 결과값 자체가 없습니다(수동 확인 항목 등). Z-VulnScan 재판정: {r['rejudged_result']}"
+        elif record.get("consultant_result") == "확인":
+            # [실제 컨설턴트 포맷] 컨설턴트 스크립트 자신도 자동 판정을 보류하고 "확인"으로
+            # 남긴 항목 - Z-VulnScan 재판정과 다르다고 해서 "불일치"로 단정할 근거가 컨설턴트
+            # 쪽에도 없으므로, 일반 MISMATCH와 구분해 별도로 표시한다.
+            classification = "CONSULTANT_UNCERTAIN"
+            detail_note = f"컨설턴트도 자동판정 보류(확인 필요) / Z-VulnScan 재판정: {r['rejudged_result']}"
+        elif r["has_criteria"]:
+            # [실측 확인됨] criteria(세부기준)형 룰은 execute_fn 없이 재판정하면 모든
+            # 세부기준이 동일한 최상위 raw_output 하나를 공유한다. 예: U-06의
+            # safe_keyword="wheel"은 grep 결과에 "pam_wheel.so"라는 문자열만 있어도
+            # (실제로 비활성 상태여도) 우연히 매칭돼 버려 원래 "취약"이던 항목이
+            # "부분만족"으로 잘못 재판정되는 사례가 실측으로 확인됐다. 그래서 MATCH가
+            # 나와도 우연의 일치일 수 있고, MISMATCH가 나와도 실제 불일치가 아닐 수
+            # 있어 자동 대조 자체가 신뢰할 수 없다 - MATCH/MISMATCH로 단정하지 않고
+            # 항상 "수동 검증 필요"로 분류한다.
+            classification = "MANUAL_VERIFICATION_NEEDED"
+            detail_note = (
+                f"세부기준형 룰(criteria) - 자동 재판정은 근사치라 신뢰할 수 없어 수동 확인 필요. "
+                f"컨설턴트: {record.get('consultant_result')} / Z-VulnScan 재판정: {r['rejudged_result']}"
+            )
         elif record.get("consultant_result") == r["rejudged_result"]:
             classification = "MATCH"
             detail_note = "일치"
@@ -217,7 +249,9 @@ def find_missing_codes(records, rulesets, rejudge_results=None):
 
     by_host = {}
     for rec in records:
-        if not rec.get("parse_ok", True):
+        # [실제 컨설턴트 포맷] 코드가 아예 없는 항목(주통 해당사항 없음 등)은 어떤 룰셋과도
+        # 매칭할 수 없으므로 누락 계산에서 제외 - 포함하면 _prefix_of(None)에서 예외 발생.
+        if not rec.get("parse_ok", True) or not rec.get("code"):
             continue
         by_host.setdefault((rec["host"], rec["ip"]), []).append(rec)
 
@@ -259,6 +293,8 @@ def run_cross_check(filepaths, rules_dir=None):
     summary = {
         "total": 0, "match": 0, "mismatch": 0, "missing_in_ruleset": 0,
         "ambiguous": 0, "parse_error": 0, "approx_count": 0, "missing_codes": 0,
+        "no_kisa_code": 0, "no_consultant_result": 0, "consultant_uncertain": 0,
+        "manual_verification_needed": 0,
     }
     result = {
         "records": [], "parse_errors": [], "diff_entries": [], "missing_entries": [],
@@ -297,6 +333,10 @@ def run_cross_check(filepaths, rules_dir=None):
                 "MATCH": "match", "MISMATCH": "mismatch",
                 "MISSING_IN_RULESET": "missing_in_ruleset",
                 "AMBIGUOUS_RULESET": "ambiguous", "PARSE_ERROR": "parse_error",
+                "NO_KISA_CODE": "no_kisa_code",
+                "NO_CONSULTANT_RESULT": "no_consultant_result",
+                "CONSULTANT_UNCERTAIN": "consultant_uncertain",
+                "MANUAL_VERIFICATION_NEEDED": "manual_verification_needed",
             }.get(entry["classification"])
             if key:
                 summary[key] += 1
@@ -306,6 +346,154 @@ def run_cross_check(filepaths, rules_dir=None):
 
     except Exception as e:
         AppLogger.log_error("[CrossCheck] run_cross_check failed", e)
+        result["engine_error"] = str(e)
+
+    return result
+
+
+# ----------------------------------------------------------------------
+# [DB 직접대조 모드] 컨설턴트 증적을 우리 룰 키워드로 재판정하는 방식은, 서로 다른
+# 스크립트가 만든 증적 문장이 우리 safe_keyword("OK" 등)/vulnerable_keyword와
+# 우연히도 일치할 수가 없어서 실측상 신뢰도가 매우 낮다는 게 확인됐다(예: safe_keyword가
+# "OK"인 룰은 컨설턴트의 한국어 서술형 증적에 "OK"라는 글자가 나올 리 없어 항상
+# 취약으로 오판정). 이 모드는 재판정을 아예 하지 않고, Z-VulnScan이 같은 호스트를
+# 실제로 스캔해 DB에 이미 저장해 둔 "최종 판정값"을 코드 단위로 직접 대조한다 -
+# 키워드 매칭 문제 자체를 우회한다.
+#
+# 기존 run_cross_check()/rejudge_record() 경로는 "DB 미접근" 원칙을 유지해야 하므로
+# (독립 오프라인 재판정이 이 기능의 원래 취지), DB 접근은 이 섹션의 함수들에만
+# 국한한다 - 호출부(GUI)가 사용자에게 명시적으로 "DB 직접대조" 모드를 선택하게 한
+# 경우에만 여기로 진입한다.
+# ----------------------------------------------------------------------
+
+def get_latest_db_results(db, asset_id):
+    """asset_id의 최신 회차(scan_round) 결과를 {code: status} 형태로 반환한다.
+    code는 kisa_code가 있으면 그걸(컨설턴트 TXT의 코드와 동일 체계), 없으면 vuln_code를 쓴다."""
+    import sqlite3
+    conn = sqlite3.connect(db.db_path, check_same_thread=False)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT vuln_code, kisa_code, status
+            FROM TBL_SCAN_RESULT R
+            WHERE asset_id = ?
+            AND {db.latest_round_condition('R')}
+        """, (asset_id,))
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    results = {}
+    for vuln_code, kisa_code, status in rows:
+        key = kisa_code or vuln_code
+        if key:
+            results[key] = status
+    return results
+
+
+def diff_records_db(records, db):
+    """레코드를 Z-VulnScan DB의 실제 스캔 결과와 코드 단위로 직접 대조한다
+    (재판정 없음 - 키워드 매칭 신뢰도 문제를 우회)."""
+    from output.text_report import STATUS_TO_RESULT
+
+    entries = []
+    db_results_by_ip = {}
+
+    for record in records:
+        code = record.get("code")
+        ip = record.get("ip")
+
+        if not code:
+            classification = "NO_KISA_CODE"
+            detail_note = record.get("parse_warning") or "컨설턴트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
+            z_result = None
+        elif not record.get("parse_ok", True):
+            classification = "PARSE_ERROR"
+            detail_note = record.get("parse_warning") or "파싱 실패"
+            z_result = None
+        else:
+            if ip not in db_results_by_ip:
+                asset_id = db.get_asset_id(ip)
+                db_results_by_ip[ip] = get_latest_db_results(db, asset_id) if asset_id else None
+            code_map = db_results_by_ip[ip]
+
+            if code_map is None:
+                classification = "DB_NO_ASSET"
+                detail_note = f"Z-VulnScan DB에 이 IP({ip})로 스캔된 자산이 없습니다."
+                z_result = None
+            elif code not in code_map:
+                classification = "DB_NO_SCAN_RESULT"
+                detail_note = "Z-VulnScan이 이 호스트에서 이 코드를 스캔한 이력이 없습니다."
+                z_result = None
+            else:
+                z_status = code_map[code]
+                z_result = STATUS_TO_RESULT.get(z_status, "N/A")
+                consultant_result = record.get("consultant_result")
+                if not consultant_result:
+                    classification = "NO_CONSULTANT_RESULT"
+                    detail_note = f"컨설턴트 쪽에 결과값이 없습니다. Z-VulnScan(DB) 실제 판정: {z_result}"
+                elif consultant_result == "확인":
+                    classification = "CONSULTANT_UNCERTAIN"
+                    detail_note = f"컨설턴트도 자동판정 보류(확인 필요) / Z-VulnScan(DB) 실제 판정: {z_result}"
+                elif consultant_result == z_result:
+                    classification = "MATCH"
+                    detail_note = "일치 (Z-VulnScan 실제 스캔 결과 기준)"
+                else:
+                    classification = "MISMATCH"
+                    detail_note = f"컨설턴트: {consultant_result} / Z-VulnScan(DB) 실제 판정: {z_result}"
+
+        entries.append({
+            "host": record.get("host"), "ip": record.get("ip"),
+            "code": code, "name": record.get("name"),
+            "category": record.get("category"),
+            "consultant_result": record.get("consultant_result"),
+            "rejudged_result": z_result,
+            "classification": classification,
+            "approx_note": None,  # DB 직접대조는 근사치가 아니라 실제 판정값이므로 항상 없음
+            "detail_note": detail_note,
+        })
+
+    return entries
+
+
+def run_cross_check_db(filepaths, db):
+    """DB 직접대조 모드 엔드투엔드 오케스트레이션. run_cross_check()과 달리 룰 재판정을
+    하지 않고, Z-VulnScan이 실제로 스캔해 DB에 저장한 판정값과 코드 단위로 비교한다."""
+    from core.crosscheck_parser import parse_files
+
+    summary = {
+        "total": 0, "match": 0, "mismatch": 0, "no_kisa_code": 0, "parse_error": 0,
+        "no_consultant_result": 0, "consultant_uncertain": 0,
+        "db_no_asset": 0, "db_no_scan_result": 0,
+    }
+    result = {
+        "records": [], "parse_errors": [], "diff_entries": [], "missing_entries": [],
+        "failed_files": [], "summary": summary,
+    }
+
+    try:
+        records, warning_records, failed_files = parse_files(filepaths)
+        result["records"] = records
+        result["parse_errors"] = warning_records
+        result["failed_files"] = failed_files
+
+        diff_entries = diff_records_db(records, db)
+        result["diff_entries"] = diff_entries
+
+        summary["total"] = len(diff_entries)
+        for entry in diff_entries:
+            key = {
+                "MATCH": "match", "MISMATCH": "mismatch",
+                "NO_KISA_CODE": "no_kisa_code", "PARSE_ERROR": "parse_error",
+                "NO_CONSULTANT_RESULT": "no_consultant_result",
+                "CONSULTANT_UNCERTAIN": "consultant_uncertain",
+                "DB_NO_ASSET": "db_no_asset", "DB_NO_SCAN_RESULT": "db_no_scan_result",
+            }.get(entry["classification"])
+            if key:
+                summary[key] += 1
+
+    except Exception as e:
+        AppLogger.log_error("[CrossCheck] run_cross_check_db failed", e)
         result["engine_error"] = str(e)
 
     return result

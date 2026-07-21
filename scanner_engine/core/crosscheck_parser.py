@@ -57,6 +57,108 @@ BODY_RE = re.compile(
 OS_VERSION_RE = re.compile(r'OS version is\s*"(?P<os>[^"]*)"')
 FILENAME_TAG_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\]')
 
+# ----------------------------------------------------------------------
+# [실제 컨설턴트 스크립트 포맷] text_report.py를 그대로 흉내낸 자체 포맷과 달리,
+# 실제 KISA 대조검증 스크립트(00. Script/01. UNIX 서버/2026_ICTIS_Linux_v0.96.sh 등)는
+# 호스트 구분선이 파일 안에 없고(파일당 1호스트), 파일명 자체에 호스트/OS/IP를 담는다:
+#   CREATE_FILE="$BASE_DIR/[RESULT]${HOST}_${OS}_${IP}.txt"
+# 항목 블록도 "[SRV-xxx] 이름" + (있을 수도 없을 수도 있는) "[U-xx] 이름2" 두 줄 조합이고,
+# [REASON]이 여러 줄 나올 수 있으며, [RESULT]는 양호/취약/확인 세 가지뿐이다(부분만족/N/A 없음).
+# 이 포맷은 정식 text_report.py 출력과 완전히 달라서 별도 파서가 필요하다.
+# ----------------------------------------------------------------------
+CONSULTANT_FILENAME_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\](?P<rest>.+)\.txt$', re.I)
+
+KISA_CODE_PREFIXES = ("U-", "W-", "D-", "WEB-", "PC-")
+
+# 항목 하나의 [START]...[END] 블록 (제목/판단기준 영역은 별도로 preamble에서 찾는다)
+CONSULTANT_ITEM_BODY_RE = re.compile(r'^\[START\]\s*$\n(?P<body>.*?)\n^\[END\]\s*$', re.M | re.S)
+
+# preamble(직전 [END] ~ 이번 [START] 사이)에서 "[코드] 이름" 형태의 줄을 전부 찾는다
+CONSULTANT_CODE_LINE_RE = re.compile(r'^\[(?P<code>[A-Za-z]+-\d+)\]\s*(?P<name>.+?)\s*$', re.M)
+
+# [START]~[END] 본문 안에서 "### 실행 흔적" 구획만 추려낸다 - 실제 명령 실행 결과(증적)에
+# 가장 가까운 부분이라, 서비스 상태/설정 증거의 서술형 문장보다 judge_rule() 재판정에 유리하다.
+CONSULTANT_EXEC_TRACE_RE = re.compile(r'###\s*실행\s*흔적\s*\n(?P<trace>.*?)(?=\n###\s|\Z)', re.S)
+CONSULTANT_REASON_RE = re.compile(r'^\[REASON\]\s*(?P<reason>.*)$', re.M)
+CONSULTANT_RESULT_RE = re.compile(r'^\[RESULT\]\s*(?P<result>\S+)', re.M)
+
+
+def _match_consultant_filename(filepath):
+    """파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴이면 (host, os_field, ip)를 반환, 아니면 None."""
+    base = os.path.basename(filepath)
+    m = CONSULTANT_FILENAME_RE.match(base)
+    if not m:
+        return None
+    rest = m.group('rest')
+    parts = rest.rsplit('_', 2)
+    if len(parts) != 3:
+        return None
+    host, os_field, ip = parts
+    if not re.match(r'^\d{1,3}(\.\d{1,3}){3}$', ip):
+        return None
+    return host, os_field, ip
+
+
+def _infer_os_tag_from_os_field(os_field):
+    f = (os_field or "").lower()
+    if 'win' in f:
+        return "WINDOWS"
+    if any(k in f for k in ('linux', 'unix', 'aix', 'hp-ux', 'hpux', 'solaris')):
+        return "UNIX"
+    return "UNKNOWN"
+
+
+def _parse_consultant_body(body):
+    trace_m = CONSULTANT_EXEC_TRACE_RE.search(body)
+    raw_output = trace_m.group('trace').strip() if trace_m else body.strip()
+    reasons = [m.group('reason').strip() for m in CONSULTANT_REASON_RE.finditer(body) if m.group('reason').strip()]
+    result_m = CONSULTANT_RESULT_RE.search(body)
+    return {
+        "raw_output": raw_output,
+        "consultant_reason": "; ".join(reasons) if reasons else None,
+        "consultant_result": result_m.group('result') if result_m else None,
+    }
+
+
+def _parse_consultant_format(text, host, ip, os_tag, source_file):
+    """실제 컨설턴트 스크립트 출력 포맷 파서. 호스트 구분선이 없으므로 파일 전체를
+    훑어서 [START]...[END] 블록마다 직전 preamble에서 코드/이름을 찾는다."""
+    records = []
+    prev_end = 0
+    for m in CONSULTANT_ITEM_BODY_RE.finditer(text):
+        preamble = text[prev_end:m.start()]
+        prev_end = m.end()
+
+        kisa_match = None
+        srv_match = None
+        for cl in CONSULTANT_CODE_LINE_RE.finditer(preamble):
+            code = cl.group('code')
+            if any(code.startswith(p) for p in KISA_CODE_PREFIXES):
+                kisa_match = cl
+            elif code.startswith('SRV-'):
+                srv_match = cl
+
+        if kisa_match:
+            code, name = kisa_match.group('code'), kisa_match.group('name').strip()
+        elif srv_match:
+            code, name = None, srv_match.group('name').strip()
+        else:
+            code, name = None, None
+
+        parsed = _parse_consultant_body(m.group('body'))
+        line_no = text.count('\n', 0, m.start()) + 1
+        records.append(_new_record(
+            source_file=source_file, host=host, ip=ip, os_tag=os_tag,
+            category=None, code=code, name=name, remediation=None,
+            consultant_result=parsed["consultant_result"],
+            consultant_reason=parsed["consultant_reason"],
+            command=None, raw_output=parsed["raw_output"],
+            parse_ok=True,
+            parse_warning=None if code is not None else "KISA 코드 없음 (주통 해당사항 없음 등 - 코드 매핑 불가 항목)",
+            line_no=line_no,
+        ))
+    return records
+
 
 def _read_text(filepath):
     """UTF-8 우선, 실패 시 cp949(현장 담당자 PC에서 흔한 인코딩) fallback."""
@@ -216,8 +318,22 @@ def _parse_audit_section(section_text, host, ip, os_tag, source_file):
 
 
 def parse_single_file(filepath):
-    """파일 하나를 파싱해 ParsedRecord(dict) 리스트를 반환한다."""
+    """파일 하나를 파싱해 ParsedRecord(dict) 리스트를 반환한다.
+
+    두 포맷을 자동 판별한다:
+    - text_report.py 자체 포맷: 파일 안에 '---------[ host Result - ip ]-------' 구분선이 있음
+    - 실제 컨설턴트 스크립트 포맷: 구분선이 없고, 파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴
+      (00. Script/ 아래 실제 KISA 대조검증 스크립트들의 출력 - 호스트 구분선 없이 파일당 1호스트)
+    둘 다 아니면 기존처럼 파일 전체를 단일 미상 호스트로 취급(전체 실패 처리하지 않기 위함)."""
     text = _read_text(filepath)
+
+    if not HOST_HEADER_RE.search(text):
+        consultant_meta = _match_consultant_filename(filepath)
+        if consultant_meta:
+            host, os_field, ip = consultant_meta
+            os_tag = _infer_os_tag_from_os_field(os_field)
+            return _parse_consultant_format(text, host, ip, os_tag, filepath)
+
     records = []
     for section in _split_host_sections(text, filepath):
         section_records = _parse_audit_section(
