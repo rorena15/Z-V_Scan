@@ -202,8 +202,8 @@
     "name": "하드디스크 기본 공유 제거",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoShareServer",
-    "vulnerable_keyword": "0x1",
+    "command": "$sh = (net share 2>$null) -join \"`n\"; $hasDefault = ($sh -match '(?m)^[A-Za-z]\\$\\s') -or ($sh -match '(?m)^(ADMIN|IPC)\\$\\s'); $asrv = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name AutoShareServer -ErrorAction SilentlyContinue).AutoShareServer; $awks = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name AutoShareWks -ErrorAction SilentlyContinue).AutoShareWks; $regOk = ($asrv -eq 0) -or ($awks -eq 0); if ((-not $hasDefault) -and $regOk) { 'OK' } else { 'FAIL' }",
+    "vulnerable_keyword": "FAIL",
     "description": "기본 공유(C$, ADMIN$)가 활성화되어 있으면 원격 공격의 진입점이 될 수 있습니다.",
     "remediation": "AutoShareServer, AutoShareWks 값을 0으로 설정 후 기본 공유 제거"
   },
@@ -328,8 +328,8 @@
     "name": "SNMP Community String 복잡성 설정",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\ValidCommunities\" 2>$null",
-    "vulnerable_keyword": "public",
+    "command": "$sv = ((sc.exe query SNMP 2>$null) -join \"`n\"); if ($sv -notmatch 'SERVICE_NAME') { 'OK' } else { $running = $sv -match 'RUNNING'; $qc = ((sc.exe qc SNMP 2>$null) -join \"`n\"); $disabled = $qc -match 'DISABLED'; if ((-not $running) -and $disabled) { 'OK' } else { $comm = ((reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\ValidCommunities\" 2>$null) -join \"`n\"); if ([string]::IsNullOrWhiteSpace($comm)) { 'FAIL' } elseif ($comm -match '(?im)^\\s*public\\s' -or $comm -match '(?im)^\\s*private\\s') { 'FAIL' } else { 'OK' } } }",
+    "vulnerable_keyword": "FAIL",
     "description": "기본 Community String(public/private) 사용 시 SNMP 정보가 쉽게 노출됩니다.",
     "remediation": "기본 Community String 제거 후 복잡한 문자열로 변경"
   },
@@ -484,7 +484,7 @@
     "name": "이벤트 로그 파일 접근 통제 설정",
     "category": "로그 관리",
     "importance": "중",
-    "command": "icacls \"C:\\Windows\\System32\\config\"",
+    "command": "icacls \"$env:SystemRoot\\System32\\winevt\\Logs\"; icacls \"$env:SystemRoot\\System32\\winevt\\Logs\\Application.evtx\" 2>$null; icacls \"$env:SystemRoot\\System32\\winevt\\Logs\\Security.evtx\" 2>$null; icacls \"$env:SystemRoot\\System32\\winevt\\Logs\\System.evtx\" 2>$null",
     "vulnerable_keyword": "Everyone",
     "description": "로그 디렉터리에 Everyone 권한이 있으면 비인가자가 로그를 열람·변조할 수 있습니다.",
     "remediation": "icacls로 로그 디렉터리의 Everyone 권한 제거"
@@ -584,8 +584,8 @@
     "name": "Autologon 기능 제어",
     "category": "보안 관리",
     "importance": "상",
-    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v AutoAdminLogon",
-    "vulnerable_keyword": "0x1",
+    "command": "$aal = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -ErrorAction SilentlyContinue).AutoAdminLogon; $dp = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name DefaultPassword -ErrorAction SilentlyContinue).DefaultPassword; if ($dp) { 'FAIL' } elseif ((-not $aal) -or (\"$aal\" -eq '0')) { 'OK' } else { 'FAIL' }",
+    "vulnerable_keyword": "FAIL",
     "description": "자동 로그온이 설정되면 물리적 접근만으로 시스템에 접근할 수 있습니다.",
     "remediation": "AutoAdminLogon 값을 0으로 설정하고 DefaultPassword 제거"
   },

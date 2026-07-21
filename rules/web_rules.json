@@ -31,7 +31,7 @@
     "name": "웹 서비스 디렉터리 리스팅 방지 설정",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "apline=$(grep -hnE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Indexes'); ngline=$(grep -hnE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$apline\" ] || [ -n \"$ngline\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "apline=$(grep -hnE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Indexes'); ngline=$(grep -hnE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); tcline=\"\"; for c in \"$tb/conf/web.xml\" /etc/tomcat*/web.xml /var/lib/tomcat*/conf/web.xml /usr/share/tomcat*/conf/web.xml /usr/local/tomcat*/conf/web.xml /opt/tomcat*/conf/web.xml; do for x in $c; do [ -f \"$x\" ] && grep -qi 'listings' \"$x\" 2>/dev/null && grep -qE '<param-value>[[:space:]]*true[[:space:]]*</param-value>' \"$x\" 2>/dev/null && tcline=\"$x\"; done; done; jline=\"\"; for x in /opt/jeus*/domains/*/config/*/jeus-web-dd.xml /usr/local/jeus*/domains/*/config/*/jeus-web-dd.xml; do [ -f \"$x\" ] && grep -qiE 'allow-indexing' \"$x\" 2>/dev/null && jline=\"$x\"; done; wline=\"\"; for x in /usr/local/webtob*/config/http.m /opt/webtob*/config/http.m /usr/local/tmax/webtob*/config/http.m; do [ -f \"$x\" ] && grep -qE 'DIRINDEX' \"$x\" 2>/dev/null && grep -qE '[+]Index' \"$x\" 2>/dev/null && wline=\"$x\"; done; if [ -n \"$apline\" ] || [ -n \"$ngline\" ] || [ -n \"$tcline\" ] || [ -n \"$jline\" ] || [ -n \"$wline\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "웹 서비스 디렉터리 리스팅 방지 설정",
     "remediation": "Apache: Options 지시자에서 Indexes 제거(-Indexes), Nginx: autoindex off; 설정"
@@ -82,7 +82,7 @@
     "name": "웹 서비스 프로세스 권한 제한",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "ps -eo user,comm | grep -E 'httpd|apache2|nginx' | grep -v grep",
+    "command": "ps -eo user,args | grep -E '[h]ttpd|[a]pache2|[n]ginx|[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap|[t]omcat|[j]eus|[J]EUS|[w]ebtob' | awk '{print $1}'",
     "vulnerable_keyword": "root",
     "description": "웹 서비스 프로세스 권한 제한",
     "remediation": "웹 서버 전용 계정(www-data, nginx 등)으로 실행되도록 설정"
