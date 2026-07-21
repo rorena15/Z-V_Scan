@@ -3,7 +3,7 @@
 
 ![Version](https://img.shields.io/badge/Version-v3.0.0_Professional-blue?style=flat-square) ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-lightgrey?style=flat-square) ![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)
 
-**Z-VulnScan Professional Edition v3.0.0**은 기존 v2.2.0의 안정성을 계승함과 동시에, 대규모 네트워크 환경에서의 **가시성과 처리 성능을 극대화**한 메이저 업데이트 버전입니다. 새롭게 도입된 **Interactive Topology Map**과 **Batch Update Engine**을 통해 수백 대의 자산을 렉 없이 실시간으로 시각화하며, 정밀한 보안 감사 환경을 제공합니다.
+**Z-VulnScan Professional Edition v3.0.0**은 KISA 2026 개정 가이드 기준 Linux/Windows/DBMS(MySQL·PostgreSQL)/Web/PC 진단 항목을 실제 대상에 원격 접속(SSH/WinRM)해 자동 점검하는 도구입니다. Discovery(자산 식별)와 Audit(딥 점검)을 구조적으로 분리해 재점검 시 포트스캔을 다시 돌리지 않으며, 카드형 대시보드·전문가 모드(점검 범위 사전 배제)·Waiver Manager(사후 예외처리)·외부 컨설턴트 결과와의 교차검증 모드까지 감사 실무 워크플로우 전반을 지원합니다.
 
 본 도구는 **침투 테스트 또는 공격 도구가 아니며**, 보안 정책 수립, 교육, 내부 점검, 감사 대응을 위한 **보조 수단**으로 설계되었습니다.
 
@@ -48,42 +48,38 @@
 
 ## 🚀 Key Features
 
-### 1. 📡 Network Asset Discovery
-- **ICMP Ping:** 활성 호스트의 신속한 생존 여부 탐지
-- **ARP Scan:** 내부 네트워크 대역(L2)의 정밀한 자산 식별
-- 인가된 로컬 네트워크 환경에 최적화된 스캔 엔진
+### 1. 📡 Discovery / Audit 구조 분리
+- **Discovery:** ICMP Ping + ARP Scan 기반 순수 자산 식별 (포트/OS 캐시를 `TBL_ASSETS`에 저장)
+- **Audit:** Discovery 결과를 재사용해 포트스캔 재실행 없이 바로 딥 점검 진입 (재점검 시간 단축)
+- **자산목록 가져오기:** CSV(cp949/UTF-8 자동판별)·XLSX로 협의된 대상 목록을 일괄 등록
 
 ### 2. 🔍 Port Exposure Scanning
-- **Fast Scan:** 주요 Well-known 포트(Top 100) 빠른 점검
-- **Full Scan:** 전체 포트(1-65535) 대상 정밀 노출 현황 분석
-- **Custom Scan:** 사용자 정의 포트 범위 지정 가능
-- **Scan Mode:** TCP Connect / TCP SYN Scan 모드 지원 (*관리자 권한 필요*)
+- **Fast / Full / Custom Scan:** Top 100 · 전체(1-65535) · 사용자 정의 범위 지원
+- **Scan Mode:** TCP Connect / TCP SYN Scan (*관리자 권한 필요*)
+- **OT 안전 모드:** 병렬처리량(1~30) 및 스캔 간격을 수동 제어해 레거시/임베디드 장비 부하 최소화
 
-### 3. 🏷️ Service Banner Collection
-- 서비스 데몬의 배너 정보 수집 및 분석
-- 소프트웨어 버전 및 서비스 유형 식별
-- **Note:** CVE 직접 탐지 기능은 제공하지 않으며, 참고용 보안 정보만 매핑합니다.
+### 3. 🛡️ 원격 정밀 진단 (SSH / WinRM)
+- **Linux 67개 · Windows 64개 · Web 26개 · MySQL/PostgreSQL 17개씩 · PC 18개** — KISA 2026 개정 가이드 기준
+- **전문가 모드:** 룰셋 카테고리별 카운트 뱃지를 보며 이번 진단 범위에서 항목을 사전 배제 (점검 명령어/중요도는 수정 불가)
+- **Waiver Manager:** 이미 점검된 결과에 대한 사후 예외처리 — 사유·승인자 입력 필수
+- **교차검증(Cross-check) 모드:** 외부 컨설턴트가 산출한 결과 파일을 불러와 자체 판정 로직으로 재판정/대조 (DB 미접근, 창 안에서만 표시)
+- SSH 호스트 키 TOFU 고정(MITM 탐지), WinRM HTTPS 우선 시도 후 HTTP 폴백
 
 ### 4. 📊 Professional Reporting
-- **Excel Report (.xlsx):** 자산 목록, 포트 현황, 상세 진단 결과를 필터링 가능한 형태로 제공
-- **PDF Report (.pdf):** 경영진 보고 및 감사 대응을 위한 요약/상세 통합 문서 자동 생성
-- **Visual Alert:** 취약/경고 항목에 대한 시각적 강조 처리
+- **Excel / PDF / TXT:** 자산 목록, 진단 결과, 조치방안을 담은 리포트 자동 생성 (TXT는 대외비 매크로 서식 호환)
+- **회차비교(Diff) 리포트:** 재점검 시 코드별 이전 회차 대비 개선/회귀를 자동 계산
+- **라이선스 등급별 차등:** STD(PDF만)/PRO(Excel+PDF)/ENT(전문가 모드 포함 전체) 3단계
 
-### 5. 💻 Modern GUI Dashboard
-- **PySide6 기반 다크 모드 UI:** 장시간 분석 업무에 최적화
-- **Real-time Status:** 진행률, 남은 시간 제공
-- **Input Validation:** IP/Port 입력값 검증 및 오동작 방지 로직 적용
-- **Smart Log Console:** 실시간 로그 출력 및 1,000줄 자동 정리 기능을 통한 장시간 가동 안정성 확보
-### 6. 🗺️ Interactive Topology Map (v3.0 New)
-- **Visual Visibility:** 스캔된 자산을 중앙 제어 도구 중심으로 시각화하여 네트워크 구조도 제공
-- **Dynamic Control:** 마우스 휠 및 드래그를 지원하는 인터랙티브 다크 테마 맵
-- **Snapshot:** 현재 구성된 네트워크 맵을 고해상도 PNG 이미지로 즉시 저장 기능 지원
+### 5. 💻 대시보드 & 자산 관리
+- **카드형 대시보드:** 요약 지표 카드 + 상태 배지 결과 테이블, 다크/라이트 테마 완전 대응
+- **DB Manager:** 자산별 Zone Tag 편집·구역 필터, known_hosts(SSH 호스트 키) 조회/삭제
+- **DB 파일 보호:** 실행 중에는 평문, 정상 종료 시 Fernet으로 at-rest 암호화(`utils/db_crypto.py`)
 
 ---
 
 ## ✅ Supported Audit List (KISA)
 
-> ℹ **[참고]** 아래 항목은 대상 자산에 대한 **SSH/WinRM 인증 정보**가 제공된 경우 정밀 진단됩니다. v2.1에서 진단 항목이 대폭 확장되었습니다.
+> ℹ **[참고]** 아래 항목은 대상 자산에 대한 **SSH/WinRM 인증 정보**가 제공된 경우 정밀 진단됩니다.
 
 ### 🐧 Linux Server (Unix 계열) - 67 Items
 | 코드 | 항목명 | 주요 점검 내용 |
@@ -97,48 +93,67 @@
 | 코드 | 항목명 | 주요 점검 내용 |
 |:---:|---|---|
 | **W-01** | Administrator 계정 이름 변경 | 기본 관리자 계정명 변경 여부 |
-| **W-17** | 하드디스크 기본 공유 제거 | C$, Admin$ 등 기본 공유 활성화 여부 |
+| **W-17** | 하드디스크 기본 공유 제거 | `net share` 실측 + `AutoShareServer`/`AutoShareWks` 레지스트리 |
 | **W-38** | 최신 보안 패치 적용 | Windows 보안 업데이트 적용 상태 점검 |
 | ... | ... | (W-01 ~ W-64, KISA 2026 개정판 기준) |
+
+### 🌐 Web / WAS - 26 Items
+Apache · Nginx · Tomcat · JEUS · WebtoB 대상 (`WEB-01` ~ `WEB-26`)
+
+### 🗄️ DBMS - MySQL 17 / PostgreSQL 17 Items
+계정 관리, 접근 통제, 감사 로그 설정 등 (`D-xx` 코드 체계)
+
+### 🖥️ PC - 18 Items
+개인 업무용 단말 대상 별도 룰셋 (`PC-01` ~ `PC-18`)
 
 ---
 
 ## 📸 Screenshots
+
+> ⚠ **[주의]** 아래 이미지는 Phase 3 사이드바/카드형 대시보드 재구성 **이전**의 구버전 UI입니다(자산 태그, Zone Tag, known_hosts 관리 등 이후 추가 기능 미반영). 실제 앱을 실행해 새 스크린샷으로 교체가 필요합니다.
 
 | **Main Dashboard & Context Menu** | **Security Warning** |
 |:---:|:---:|
 | <img src="img/main.png" width="400" alt="Main GUI"> | <img src="img/Warnning.png" width="400" alt="Warning GUI"> |
 | **PDF Report (Remediation Included)** | **Excel Report** |
 | <img src="img/report.png" width="400" alt="PDF Report"> | <img src="img/excel.png" width="400" alt="Excel Report"> |
-| **Network Topology map** | **DB Manager** |
-| <img src="img/map.png" width="400" alt="Topology Map"> | <img src="img/db_manager.png" width="400" alt="DB Manager"> |
+| **DB Manager (Zone Tag / known_hosts)** | |
+| <img src="img/db_manager.png" width="400" alt="DB Manager"> | |
 
 ---
 
 ## 🛠 Technology Stack
 
 - **Language:** Python 3.13+
-- **GUI Framework:** PySide6 
-- **Graph Engine:** NetworkX & Matplotlib 
+- **GUI Framework:** PySide6
+- **Remote Inspection:** Paramiko (SSH), pywinrm (WinRM)
 - **Network Engine:** Python Native Socket (`socket`, `struct` Lib only)
 - **Reporting Engine:** ReportLab (PDF), OpenPyXL (Excel)
-- **Database:** SQLite
+- **Database:** SQLite (+ Fernet at-rest 암호화)
 
 ---
 
 ## 🗓 Roadmap
 
 ### ✅ v3.0.0 (Current - Professional Edition)
-- [x] **Visualization:** Interactive Topology Map (Dark Theme) 탑재
-- [x] **Performance:** Batch Update & Memory Caching 시스템 도입
-- [x] **GUI:** 로그 콘솔 최적화 및 3.0 전용 UI 리마스터
-- [x] **Stability:** PySide6 표준 문법 전면 적용 및 크래시 방지 로직 강화
+- [x] **Discovery/Audit 구조 분리:** 재점검 시 포트스캔 재실행 없이 캐시된 자산 정보로 바로 딥 점검
+- [x] **감사 신뢰성 강화:** 스캔 이력 회차 누적 보존, Waiver Manager(사유/승인자 필수), 운영자 태깅
+- [x] **UI 리마스터:** 아이콘 사이드바 + 카드형 대시보드, 전문가 모드 2단 레이아웃, 다크/라이트 테마 완전 대응
+- [x] **라이선스 등급 차등:** STD/PRO/ENT 3단계 (증적/조치방안/Excel 가능여부/전문가 모드 차등)
+- [x] **자산 태그/그룹 관리:** Zone Tag + DB Manager 구역별 필터, known_hosts(SSH TOFU) 관리 UI
+- [x] **회차비교(Diff) 리포트:** 코드 단위로 직전 회차 대비 개선/회귀 자동 계산
+- [x] **DB 파일 at-rest 암호화:** 정상 종료 시 Fernet 암호화, 시작 시 복호화(키는 OS 자격증명 관리자 보관)
+- [x] **교차검증 모드:** 외부 컨설턴트 결과 파일과 자체 판정 로직 대조
+- [x] **판정 정확도 개선(2026-07):** 명령 실행 실패=MANUAL 구분, KISA 참고 스크립트 대조를 통한 개별 룰 오판정 다수 수정(실 VM 검증 완료)
+- [x] **제거:** 정보량 대비 실효성이 낮았던 Interactive Topology Map 기능 제거 (스타형 배치만 가능한 구조적 한계)
 
-### 🔮 v3.5.0 (Future - Enterprise)
+### 🔮 Future (Enterprise 상용화 대비)
+- [x] **라이선스 발급/회수 체계:** CLI 기반 키 발급·취소 대장 (실시간 원격 회수는 서버 인프라 필요 — 보류)
+- [x] **버전 업데이트 확인 경로:** 개발 완료, 실제 배포 URL 확정 전까지 기본 비활성
 - [ ] **Headless Mode:** CLI 지원을 통한 스케줄러 연동 및 자동화
 - [ ] **SIEM Integration:** Syslog/CEF 포맷 로그 전송 기능
 - [ ] **Centralized DB:** 로컬 SQLite를 넘어 MySQL/PostgreSQL 중앙 저장소 연동
-- [ ] **Diff Report:** 지난 진단 결과와의 변동 사항 비교 리포트
+- [ ] **코드사이닝:** Authenticode 인증서 구매 필요(협의 진행 중), 코드 작업 범위 아님
 
 ---
 
