@@ -8,8 +8,16 @@
     "description": "SSH/Telnet 원격 접속 시 root 계정 직접 접속이 허용되면 무차별 대입 공격 등으로 관리자 권한이 탈취될 위험이 있습니다.",
     "remediation": "/etc/ssh/sshd_config(및 sshd_config.d/*.conf)에서 PermitRootLogin no 설정 후 sshd 재시작, Telnet 사용 시 pam_securetty 적용 및 /etc/securetty에서 pts 항목 제거",
     "criteria": [
-      {"label": "SSH PermitRootLogin 비활성화(메인 설정+drop-in 최종값 기준)", "command": "eff=$(grep -h -i '^[[:space:]]*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^[[:space:]]*#' | tail -n 1 | awk '{print $2}'); if [ \"$eff\" = \"no\" ] || [ \"$eff\" = \"prohibit-password\" ]; then echo OK; else echo FAIL; fi", "safe_keyword": "OK"},
-      {"label": "Telnet root 접속 통제(/etc/securetty에 pts 미등록)", "command": "grep -E '^[[:space:]]*pts/' /etc/securetty 2>/dev/null", "vulnerable_keyword": "pts"}
+      {
+        "label": "SSH PermitRootLogin 비활성화(메인 설정+drop-in 최종값 기준)",
+        "command": "eff=$(grep -h -i '^[[:space:]]*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^[[:space:]]*#' | tail -n 1 | awk '{print $2}'); if [ \"$eff\" = \"no\" ] || [ \"$eff\" = \"prohibit-password\" ]; then echo OK; else echo FAIL; fi",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "Telnet root 접속 통제(/etc/securetty에 pts 미등록)",
+        "command": "grep -E '^[[:space:]]*pts/' /etc/securetty 2>/dev/null",
+        "vulnerable_keyword": "pts"
+      }
     ]
   },
   {
@@ -22,11 +30,31 @@
     "description": "비밀번호 복잡성 및 사용기간 정책이 없으면 무차별/사전 대입 공격에 취약합니다.",
     "remediation": "pwquality.conf에 minlen=8 이상 설정, login.defs에 PASS_MAX_DAYS 90 / PASS_MIN_DAYS 1 설정",
     "criteria": [
-      {"label": "비밀번호 최소 길이 8자 이상", "command": "grep -E '^\\s*minlen' /etc/security/pwquality.conf 2>/dev/null | awk -F= '{gsub(/ /,\"\",$2); if ($2+0 >= 8) print \"OK\"; else print \"FAIL\"}'", "safe_keyword": "OK"},
-      {"label": "비밀번호 최대 사용기간 90일 이하", "command": "grep -E '^PASS_MAX_DAYS' /etc/login.defs 2>/dev/null | awk '{if ($2+0 <= 90 && $2+0 > 0) print \"OK\"; else print \"FAIL\"}'", "safe_keyword": "OK"},
-      {"label": "비밀번호 복잡성(dcredit/ucredit/lcredit/ocredit=-1) 설정", "command": "line=$(grep -hE '^[^#]*pam_(pwquality|cracklib)\\.so' /etc/pam.d/system-auth /etc/pam.d/common-password 2>/dev/null | tail -n 1); [ -z \"$line\" ] && line=$(grep -E '^[[:space:]]*(dcredit|ucredit|lcredit|ocredit)' /etc/security/pwquality.conf 2>/dev/null | tr '\\n' ' '); ok=1; for c in dcredit ucredit lcredit ocredit; do echo \"$line\" | grep -qE \"$c[[:space:]]*=[[:space:]]*-1\" || ok=0; done; if [ \"$ok\" -eq 1 ] && [ -n \"$line\" ]; then echo OK; else echo FAIL; fi", "safe_keyword": "OK"},
-      {"label": "최근 비밀번호 재사용 제한(remember>=4)", "command": "r=$(grep -hE '^[[:space:]]*remember[[:space:]]*=' /etc/security/pwhistory.conf 2>/dev/null | tail -n 1 | awk -F= '{gsub(/ /,\"\",$2); print $2}'); if [ -z \"$r\" ]; then r=$(grep -hoE 'remember=[0-9]+' /etc/pam.d/system-auth /etc/pam.d/common-password 2>/dev/null | tail -n 1 | cut -d= -f2); fi; if [ -n \"$r\" ] && [ \"$r\" -ge 4 ] 2>/dev/null; then echo OK; else echo FAIL; fi", "safe_keyword": "OK"},
-      {"label": "비밀번호 최소 사용기간 1일 이상(PASS_MIN_DAYS>=1)", "command": "grep -E '^PASS_MIN_DAYS' /etc/login.defs 2>/dev/null | awk '{if ($2+0 >= 1) print \"OK\"; else print \"FAIL\"}'", "safe_keyword": "OK"}
+      {
+        "label": "비밀번호 최소 길이 8자 이상",
+        "command": "grep -E '^\\s*minlen' /etc/security/pwquality.conf 2>/dev/null | awk -F= '{gsub(/ /,\"\",$2); if ($2+0 >= 8) print \"OK\"; else print \"FAIL\"}'",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "비밀번호 최대 사용기간 90일 이하",
+        "command": "grep -E '^PASS_MAX_DAYS' /etc/login.defs 2>/dev/null | awk '{if ($2+0 <= 90 && $2+0 > 0) print \"OK\"; else print \"FAIL\"}'",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "비밀번호 복잡성(dcredit/ucredit/lcredit/ocredit=-1) 설정",
+        "command": "line=$(grep -hE '^[^#]*pam_(pwquality|cracklib)\\.so' /etc/pam.d/system-auth /etc/pam.d/common-password 2>/dev/null | tail -n 1); [ -z \"$line\" ] && line=$(grep -E '^[[:space:]]*(dcredit|ucredit|lcredit|ocredit)' /etc/security/pwquality.conf 2>/dev/null | tr '\\n' ' '); ok=1; for c in dcredit ucredit lcredit ocredit; do echo \"$line\" | grep -qE \"$c[[:space:]]*=[[:space:]]*-1\" || ok=0; done; if [ \"$ok\" -eq 1 ] && [ -n \"$line\" ]; then echo OK; else echo FAIL; fi",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "최근 비밀번호 재사용 제한(remember>=4)",
+        "command": "r=$(grep -hE '^[[:space:]]*remember[[:space:]]*=' /etc/security/pwhistory.conf 2>/dev/null | tail -n 1 | awk -F= '{gsub(/ /,\"\",$2); print $2}'); if [ -z \"$r\" ]; then r=$(grep -hoE 'remember=[0-9]+' /etc/pam.d/system-auth /etc/pam.d/common-password 2>/dev/null | tail -n 1 | cut -d= -f2); fi; if [ -n \"$r\" ] && [ \"$r\" -ge 4 ] 2>/dev/null; then echo OK; else echo FAIL; fi",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "비밀번호 최소 사용기간 1일 이상(PASS_MIN_DAYS>=1)",
+        "command": "grep -E '^PASS_MIN_DAYS' /etc/login.defs 2>/dev/null | awk '{if ($2+0 >= 1) print \"OK\"; else print \"FAIL\"}'",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -68,8 +96,16 @@
     "description": "su 명령어 사용 제한이 없으면 모든 사용자가 관리자 권한 전환을 시도할 수 있습니다.",
     "remediation": "wheel 그룹을 생성하고 pam_wheel.so 모듈로 su 사용을 그룹원으로 제한하거나, /usr/bin/su를 wheel 그룹 소유+other 실행권한 제거로 제한",
     "criteria": [
-      {"label": "PAM pam_wheel.so 설정", "command": "grep -E '^[[:space:]]*auth[[:space:]].*pam_wheel\\.so' /etc/pam.d/su 2>/dev/null", "safe_keyword": "wheel"},
-      {"label": "su 바이너리 wheel 그룹 소유 + other 실행권한 제거", "command": "p=\"\"; [ -e /usr/bin/su ] && p=/usr/bin/su; [ -z \"$p\" ] && [ -e /bin/su ] && p=/bin/su; if [ -z \"$p\" ]; then echo OK; else grp=$(stat -c %G \"$p\" 2>/dev/null); perm=$(stat -c %a \"$p\" 2>/dev/null); other=$(echo \"$perm\" | awk '{print substr($0,length,1)}'); if [ \"$grp\" = \"wheel\" ] && [ \"$((other % 2))\" -eq 0 ]; then echo OK; else echo FAIL; fi; fi", "safe_keyword": "OK"}
+      {
+        "label": "PAM pam_wheel.so 설정",
+        "command": "grep -E '^[[:space:]]*auth[[:space:]].*pam_wheel\\.so' /etc/pam.d/su 2>/dev/null",
+        "safe_keyword": "wheel"
+      },
+      {
+        "label": "su 바이너리 wheel 그룹 소유 + other 실행권한 제거",
+        "command": "p=\"\"; [ -e /usr/bin/su ] && p=/usr/bin/su; [ -z \"$p\" ] && [ -e /bin/su ] && p=/bin/su; if [ -z \"$p\" ]; then echo OK; else grp=$(stat -c %G \"$p\" 2>/dev/null); perm=$(stat -c %a \"$p\" 2>/dev/null); other=$(echo \"$perm\" | awk '{print substr($0,length,1)}'); if [ \"$grp\" = \"wheel\" ] && [ \"$((other % 2))\" -eq 0 ]; then echo OK; else echo FAIL; fi; fi",
+        "safe_keyword": "OK"
+      }
     ]
   },
   {
@@ -86,18 +122,20 @@
     "name": "관리자 그룹에 최소한의 계정 포함",
     "category": "계정 관리",
     "importance": "중",
-    "command": "grep '^root:' /etc/group",
+    "command": "line=$(grep '^root:' /etc/group 2>/dev/null); members=$(echo \"$line\" | awk -F: '{print $4}'); if [ -z \"$members\" ]; then echo SAFE; else echo VULNERABLE; fi",
     "description": "관리자 그룹에 불필요한 계정이 포함되면 권한 남용 및 정보 유출 위험이 있습니다.",
-    "remediation": "gpasswd -d로 불필요한 계정을 관리자 그룹에서 제거 (수동 검토 필요)"
+    "remediation": "gpasswd -d로 불필요한 계정을 관리자 그룹에서 제거 (수동 검토 필요)",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-09",
     "name": "계정이 존재하지 않는 GID 금지",
     "category": "계정 관리",
     "importance": "하",
-    "command": "cat /etc/group",
+    "command": "missing=$(awk -F: 'NR==FNR{g[$3]=1; next} {if (!($4 in g)) print $4}' /etc/group /etc/passwd 2>/dev/null | sort -u); if [ -n \"$missing\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "description": "계정이 존재하지 않는 불필요한 그룹이 있으면 권한 남용 및 감사 추적 곤란의 원인이 됩니다.",
-    "remediation": "groupdel로 불필요한 그룹 삭제 (수동 검토 필요)"
+    "remediation": "groupdel로 불필요한 그룹 삭제 (수동 검토 필요)",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-10",
@@ -347,7 +385,7 @@
     "name": "Finger 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "r=no; systemctl is-active finger.socket 2>/dev/null | grep -q active && r=yes; command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -qE '(:79[[:space:]]|:79$)' && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '(in\\.fingerd|fingerd)' && r=yes; [ -f /etc/xinetd.d/finger ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' /etc/xinetd.d/finger 2>/dev/null && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; systemctl is-active finger.socket 2>/dev/null | grep -qw active && r=yes; command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -qE '(:79[[:space:]]|:79$)' && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '(in\\.fingerd|fingerd)' && r=yes; [ -f /etc/xinetd.d/finger ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' /etc/xinetd.d/finger 2>/dev/null && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "Finger 서비스는 사용자 정보를 노출시켜 계정 추측 공격에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now finger.socket"
@@ -367,8 +405,8 @@
     "name": "r 계열 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "systemctl is-active rlogin.socket rsh.socket rexec.socket 2>/dev/null",
-    "vulnerable_keyword": "active",
+    "command": "r=no; systemctl is-active rlogin.socket rsh.socket rexec.socket 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "r 계열 서비스(rlogin, rsh, rexec)는 인증 절차가 취약해 원격 명령 실행에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now rlogin.socket rsh.socket rexec.socket"
   },
@@ -387,7 +425,7 @@
     "name": "DoS 공격에 취약한 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "r=no; systemctl is-active echo.socket discard.socket daytime.socket chargen.socket 2>/dev/null | grep -q active && r=yes; ss -lntu 2>/dev/null | grep -qE '(:7[[:space:]]|:9[[:space:]]|:13[[:space:]]|:19[[:space:]]|:7$|:9$|:13$|:19$)' && r=yes; for s in echo discard daytime chargen; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; systemctl is-active echo.socket discard.socket daytime.socket chargen.socket 2>/dev/null | grep -qw active && r=yes; ss -lntu 2>/dev/null | grep -qE '(:7[[:space:]]|:9[[:space:]]|:13[[:space:]]|:19[[:space:]]|:7$|:9$|:13$|:19$)' && r=yes; for s in echo discard daytime chargen; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "echo, discard, daytime, chargen 서비스는 DoS 공격에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now로 echo/discard/daytime/chargen 서비스 비활성화"
@@ -397,7 +435,7 @@
     "name": "불필요한 NFS 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "r=no; systemctl is-active nfs-server 2>/dev/null | grep -q active && r=yes; ps -ef 2>/dev/null | grep -i nfs | grep -v grep >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; systemctl is-active nfs-server 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -i nfs | grep -v grep >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "불필요한 NFS 서비스는 파일 공유 취약점을 통한 공격 표면을 늘립니다.",
     "remediation": "systemctl disable --now nfs-server"
@@ -417,8 +455,8 @@
     "name": "불필요한 automountd 제거",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "systemctl is-active autofs 2>/dev/null",
-    "vulnerable_keyword": "active",
+    "command": "r=no; systemctl is-active autofs 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "불필요한 automount 서비스는 알려진 취약점의 공격 표면이 됩니다.",
     "remediation": "systemctl disable --now autofs"
   },
@@ -438,7 +476,7 @@
     "name": "NIS, NIS+ 점검",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "r=no; systemctl is-active ypserv ypbind 2>/dev/null | grep -q active && r=yes; pgrep -f 'ypserv|ypbind' >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; systemctl is-active ypserv ypbind 2>/dev/null | grep -qw active && r=yes; pgrep -f 'ypserv|ypbind' >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "NIS는 인증정보를 평문으로 전송하여 스니핑 공격에 취약합니다.",
     "remediation": "systemctl disable --now ypserv ypbind"
@@ -448,7 +486,7 @@
     "name": "tftp, talk 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "r=no; systemctl is-active tftp.socket talk.socket ntalk.socket 2>/dev/null | grep -q active && r=yes; ss -lnu 2>/dev/null | grep -qE '(:69[[:space:]]|:69$|:517[[:space:]]|:517$|:518[[:space:]]|:518$)' && r=yes; for s in tftp talk ntalk; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; systemctl is-active tftp.socket talk.socket ntalk.socket 2>/dev/null | grep -qw active && r=yes; ss -lnu 2>/dev/null | grep -qE '(:69[[:space:]]|:69$|:517[[:space:]]|:517$|:518[[:space:]]|:518$)' && r=yes; for s in tftp talk ntalk; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "tftp, talk 서비스는 인증 절차가 없어 정보 유출 및 시스템 침해에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now tftp.socket talk.socket ntalk.socket"
@@ -458,19 +496,20 @@
     "name": "메일 서비스 버전 점검",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "postconf mail_version 2>/dev/null; sendmail -d0 -bt < /dev/null 2>&1 | grep Version",
+    "command": "r=no; systemctl is-active sendmail postfix exim4 exim 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[s]endmail|[m]aster.*qmgr|[e]xim' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else echo VULNERABLE; fi",
     "description": "오래된 메일 서비스 버전은 알려진 취약점에 노출될 수 있습니다.",
-    "remediation": "최신 메일 서비스 버전으로 패치 (수동 검토 필요)"
+    "remediation": "최신 메일 서비스 버전으로 패치 (수동 검토 필요)",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-46",
     "name": "일반 사용자의 메일 서비스 실행 방지",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "grep PrivacyOptions /etc/mail/sendmail.cf 2>/dev/null",
-    "safe_keyword": "restrictqrun",
+    "command": "if systemctl is-active sendmail 2>/dev/null | grep -qw active; then v=$(grep PrivacyOptions /etc/mail/sendmail.cf 2>/dev/null); case \"$v\" in *restrictqrun*) echo SAFE ;; *) echo VULNERABLE ;; esac; else echo SAFE; fi",
     "description": "일반 사용자가 메일 큐를 조작할 수 있으면 서비스 오남용 위험이 있습니다.",
-    "remediation": "sendmail.cf의 PrivacyOptions에 restrictqrun 추가"
+    "remediation": "sendmail.cf의 PrivacyOptions에 restrictqrun 추가",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-47",
@@ -487,10 +526,10 @@
     "name": "expn, vrfy 명령어 제한",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep disable_vrfy_command /etc/postfix/main.cf 2>/dev/null",
-    "safe_keyword": "yes",
+    "command": "if systemctl is-active postfix 2>/dev/null | grep -qw active; then v=$(grep disable_vrfy_command /etc/postfix/main.cf 2>/dev/null); case \"$v\" in *yes*) echo SAFE ;; *) echo VULNERABLE ;; esac; else echo SAFE; fi",
     "description": "expn/vrfy 명령이 허용되면 계정 존재 여부가 노출되어 계정 추측 공격에 악용됩니다.",
-    "remediation": "postfix의 disable_vrfy_command=yes 설정 또는 sendmail의 noexpn/novrfy 설정"
+    "remediation": "postfix의 disable_vrfy_command=yes 설정 또는 sendmail의 noexpn/novrfy 설정",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-49",
@@ -526,7 +565,7 @@
     "name": "Telnet 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "r=no; ps -ef 2>/dev/null | grep -E '[t]elnetd|[i]n\\.telnetd' >/dev/null 2>&1 && r=yes; if command -v ss >/dev/null 2>&1; then ss -lnt 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; else netstat -an 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; fi; systemctl is-active telnet.socket 2>/dev/null | grep -q active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; ps -ef 2>/dev/null | grep -E '[t]elnetd|[i]n\\.telnetd' >/dev/null 2>&1 && r=yes; if command -v ss >/dev/null 2>&1; then ss -lnt 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; else netstat -an 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; fi; systemctl is-active telnet.socket 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "Telnet은 평문 통신으로 계정정보 노출 위험이 있습니다.",
     "remediation": "systemctl disable --now telnet.socket 후 SSH 사용"
@@ -536,17 +575,18 @@
     "name": "FTP 서비스 정보 노출 제한",
     "category": "서비스 관리",
     "importance": "하",
-    "command": "grep ftpd_banner /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null",
+    "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep ftpd_banner /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null); if [ -n \"$v\" ]; then echo SAFE; else echo VULNERABLE; fi; fi",
     "description": "FTP 배너에 버전정보가 노출되면 표적 공격에 활용될 수 있습니다.",
-    "remediation": "ftpd_banner를 일반 경고 문구로 변경 (수동 검토 필요)"
+    "remediation": "ftpd_banner를 일반 경고 문구로 변경 (수동 검토 필요)",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-54",
     "name": "암호화되지 않는 FTP 서비스 비활성화",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "systemctl is-active vsftpd proftpd 2>/dev/null",
-    "vulnerable_keyword": "active",
+    "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
     "description": "암호화되지 않은 FTP는 계정정보 스니핑에 취약합니다.",
     "remediation": "FTP 서비스 중지 후 SFTP 사용 권고"
   },
@@ -565,27 +605,27 @@
     "name": "FTP 서비스 접근 제어 설정",
     "category": "서비스 관리",
     "importance": "하",
-    "command": "grep userlist_enable /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null",
-    "safe_keyword": "YES",
+    "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep userlist_enable /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null); case \"$v\" in *YES*|*yes*) echo SAFE ;; *) echo VULNERABLE ;; esac; fi",
     "description": "FTP 접근 제어가 없으면 임의 계정으로 접속을 시도할 수 있습니다.",
-    "remediation": "vsftpd.conf에 userlist_enable=YES, userlist_deny 설정"
+    "remediation": "vsftpd.conf에 userlist_enable=YES, userlist_deny 설정",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-57",
     "name": "Ftpusers 파일 설정",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "grep '^root' /etc/ftpusers /etc/vsftpd/ftpusers 2>/dev/null",
-    "safe_keyword": "root",
+    "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep '^root' /etc/ftpusers /etc/vsftpd/ftpusers 2>/dev/null); case \"$v\" in *root*) echo SAFE ;; *) echo VULNERABLE ;; esac; fi",
     "description": "ftpusers에 root가 등록되지 않으면 root 계정으로 FTP 접속이 가능해 위험합니다.",
-    "remediation": "ftpusers 파일에 root 계정 추가"
+    "remediation": "ftpusers 파일에 root 계정 추가",
+    "vulnerable_keyword": "VULNERABLE"
   },
   {
     "code": "U-58",
     "name": "불필요한 SNMP 서비스 구동 점검",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "r=no; ps -ef 2>/dev/null | grep -E '[s]nmpd|[s]nmptrapd' >/dev/null 2>&1 && r=yes; systemctl is-active snmpd 2>/dev/null | grep -q active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "r=no; ps -ef 2>/dev/null | grep -E '[s]nmpd|[s]nmptrapd' >/dev/null 2>&1 && r=yes; systemctl is-active snmpd 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "불필요한 SNMP 서비스는 정보 수집 및 공격 표면 확대의 원인이 됩니다.",
     "remediation": "systemctl disable --now snmpd"

@@ -81,18 +81,24 @@ class CrossCheckDialog(QDialog):
         self.rb_rejudge = QRadioButton("재판정(오프라인, DB 미사용)")
         self.rb_rejudge.setToolTip(
             "컨설턴트 증적을 Z-VulnScan 룰 키워드로 재판정합니다. DB에 접근하지 않지만,\n"
-            "서로 다른 스크립트의 증적 문장은 우리 키워드와 우연히 일치하기 어려워 신뢰도가 낮을 수 있습니다."
+            "서로 다른 스크립트의 증적 문장은 우리 키워드와 우연히 일치하기 어려워 신뢰도가 낮습니다."
         )
-        self.rb_rejudge.setChecked(True)
-        self.rb_dbcompare = QRadioButton("DB 직접대조 (Z-VulnScan 실제 스캔 결과와 비교)")
+        self.rb_dbcompare = QRadioButton("DB 직접대조 (Z-VulnScan 실제 스캔 결과와 비교, 추천)")
         self.rb_dbcompare.setToolTip(
             "재판정 없이, Z-VulnScan이 같은 호스트를 실제로 스캔해 DB에 저장한 최종 판정값과\n"
-            "코드 단위로 직접 비교합니다. 더 신뢰할 수 있지만 Z-VulnScan이 그 호스트를 실제로\n"
-            "스캔한 이력이 있어야 하며, DB에 접근합니다."
+            "코드 단위로 직접 비교합니다. 재판정보다 훨씬 신뢰할 수 있지만 Z-VulnScan이 그 호스트를\n"
+            "실제로 스캔한 이력이 있어야 하며, DB에 접근합니다."
         )
         self.rb_dbcompare.setEnabled(self.db is not None)
         if self.db is None:
             self.rb_dbcompare.setToolTip("이 창이 DB 연결 없이 열려서 사용할 수 없습니다.")
+        # [신뢰도] 실측상 재판정 모드는 DB 직접대조보다 일치율이 크게 낮다(서로 다른 스크립트의
+        # 증적 문장이 우리 키워드와 우연히 일치하기 어려움) - DB를 쓸 수 있으면 그쪽을 기본값으로
+        # 켜서, 사용자가 굳이 재판정을 고르지 않는 한 더 신뢰할 수 있는 결과를 먼저 보게 한다.
+        if self.db is not None:
+            self.rb_dbcompare.setChecked(True)
+        else:
+            self.rb_rejudge.setChecked(True)
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.rb_rejudge)
         self.mode_group.addButton(self.rb_dbcompare)
@@ -100,6 +106,15 @@ class CrossCheckDialog(QDialog):
         mode_row.addWidget(self.rb_dbcompare)
         mode_row.addStretch()
         layout.addLayout(mode_row)
+
+        self.mode_caveat_label = QLabel()
+        self.mode_caveat_label.setStyleSheet(
+            "background-color: #F6DFA6; color: #8A5A00; padding: 6px; border-radius: 4px;"
+        )
+        self.mode_caveat_label.setWordWrap(True)
+        layout.addWidget(self.mode_caveat_label)
+        self.rb_rejudge.toggled.connect(self._update_mode_caveat)
+        self._update_mode_caveat()
 
         file_row = QHBoxLayout()
         btn_add_files = QPushButton("TXT 파일 선택...")
@@ -154,6 +169,21 @@ class CrossCheckDialog(QDialog):
         btn_close.clicked.connect(self.reject)
         bottom_row.addWidget(btn_close)
         layout.addLayout(bottom_row)
+
+    # ------------------------------------------------------------------
+    def _update_mode_caveat(self):
+        """[신뢰도 고지] 재판정 모드를 선택한 동안은 항상 보이는 경고를 띄운다 - 마우스를
+        올려야만 보이는 툴팁만으로는 실측 신뢰도 차이(재판정 vs DB 직접대조)가 잘 전달되지
+        않는다는 게 실제로 확인됐다."""
+        if self.rb_rejudge.isChecked():
+            self.mode_caveat_label.setText(
+                "⚠ 재판정 모드는 서로 다른 스크립트의 증적 문장이 Z-VulnScan 룰 키워드와 우연히 "
+                "일치하기 어려워 실측상 일치율이 낮습니다. Z-VulnScan이 이 호스트를 실제로 스캔한 "
+                "이력이 있다면 \"DB 직접대조\" 모드가 훨씬 정확합니다."
+            )
+            self.mode_caveat_label.setVisible(True)
+        else:
+            self.mode_caveat_label.setVisible(False)
 
     # ------------------------------------------------------------------
     def _pick_files(self):
