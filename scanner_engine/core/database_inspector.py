@@ -99,7 +99,7 @@ class DatabaseInspector:
         if self.is_simulation:
             return self.get_mock_data(sql)
         if not self.conn:
-            return ""
+            return None
         try:
             cur = self.conn.cursor()
             if self.engine == "postgresql":
@@ -108,8 +108,13 @@ class DatabaseInspector:
             rows = cur.fetchall()
             cur.close()
             return "\n".join(str(row) for row in rows)
-        except Exception:
-            return ""
+        except Exception as e:
+            # [판정 정확도] 시스템 카탈로그(mysql.user/pg_authid 등) 조회는 감사 계정에
+            # 권한이 없으면 실패하는 경우가 실전에서 흔하다. 이걸 "결과 0건이라 안전"과
+            # 혼동하면 안 되므로, 실행 자체가 실패했을 때는 None을 반환해 judge_rule이
+            # SAFE가 아니라 MANUAL(수동확인)로 판정하도록 구분한다.
+            AppLogger.log_error(f"[DB] Query failed ({self.engine}): {sql[:80]}", e)
+            return None
 
     def get_mock_data(self, sql):
         # 데모/시연용 가짜 데이터 (실제 DB 미접속 상태에서도 결과를 보여주기 위함)

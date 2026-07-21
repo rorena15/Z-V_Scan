@@ -46,6 +46,14 @@ def judge_rule(rule, full_output, execute_fn=None):
 
     Returns: (status, detail) - status는 "SAFE"|"VULNERABLE"|"PARTIAL"|"MANUAL"|"NA"
     """
+    # [판정 정확도] 인스펙터가 "명령/쿼리 실행 자체가 실패했다"는 뜻으로 명시적으로
+    # None을 반환하는 경우(예: DatabaseInspector.execute_query()가 권한 부족 등으로
+    # 예외 발생 시) - "결과가 없어서 안전"과 절대 혼동하면 안 되므로 여기서 먼저
+    # 걸러 수동확인으로 돌린다. 빈 문자열("")은 "정상 실행됐지만 결과 0건"이라는
+    # 뜻이라 기존처럼 그대로 판정 로직을 탄다.
+    if full_output is None:
+        return "MANUAL", "점검 명령/쿼리 실행 실패(권한 부족 또는 연결 문제로 추정) - 수동 확인 필요"
+
     full_output = full_output or ""
     stripped = full_output.strip()
 

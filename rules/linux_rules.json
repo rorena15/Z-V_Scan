@@ -8,7 +8,7 @@
     "description": "SSH/Telnet 원격 접속 시 root 계정 직접 접속이 허용되면 무차별 대입 공격 등으로 관리자 권한이 탈취될 위험이 있습니다.",
     "remediation": "/etc/ssh/sshd_config(및 sshd_config.d/*.conf)에서 PermitRootLogin no 설정 후 sshd 재시작, Telnet 사용 시 pam_securetty 적용 및 /etc/securetty에서 pts 항목 제거",
     "criteria": [
-      {"label": "SSH PermitRootLogin 비활성화(메인 설정+drop-in 최종값 기준)", "command": "eff=$(grep -h -i '^[[:space:]]*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^[[:space:]]*#' | tail -n 1 | awk '{print $2}'); if [ \"$eff\" = \"yes\" ]; then echo FAIL; else echo OK; fi", "safe_keyword": "OK"},
+      {"label": "SSH PermitRootLogin 비활성화(메인 설정+drop-in 최종값 기준)", "command": "eff=$(grep -h -i '^[[:space:]]*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^[[:space:]]*#' | tail -n 1 | awk '{print $2}'); if [ \"$eff\" = \"no\" ] || [ \"$eff\" = \"prohibit-password\" ]; then echo OK; else echo FAIL; fi", "safe_keyword": "OK"},
       {"label": "Telnet root 접속 통제(/etc/securetty에 pts 미등록)", "command": "grep -E '^[[:space:]]*pts/' /etc/securetty 2>/dev/null", "vulnerable_keyword": "pts"}
     ]
   },
@@ -154,7 +154,7 @@
     "name": "파일 및 디렉터리 소유자 설정",
     "category": "파일 및 디렉토리 관리",
     "importance": "상",
-    "command": "find / -xdev \\( -nouser -o -nogroup \\) 2>/dev/null",
+    "command": "_t=\"\"; command -v timeout >/dev/null 2>&1 && _t=\"timeout 12\"; for d in /etc /var /home /opt /usr /usr/local /tmp; do [ -d \"$d\" ] && $_t find \"$d\" -xdev \\( -nouser -o -nogroup \\) 2>/dev/null; done",
     "vulnerable_keyword": "/",
     "description": "소유자가 존재하지 않는 파일 및 디렉터리는 UID 재사용을 통한 권한 탈취에 악용될 수 있습니다.",
     "remediation": "불필요한 파일 제거 또는 chown/chgrp으로 소유자 지정",
@@ -175,7 +175,7 @@
     "name": "시스템 시작 스크립트 권한 설정",
     "category": "파일 및 디렉토리 관리",
     "importance": "상",
-    "command": "find /etc/systemd/system/ -perm -o+w 2>/dev/null",
+    "command": "for d in /etc/rc.d /etc/init.d /etc/rc0.d /etc/rc1.d /etc/rc2.d /etc/rc3.d /etc/rc4.d /etc/rc5.d /etc/rc6.d /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system; do [ -d \"$d\" ] && find \"$d\" -mindepth 1 -maxdepth 1 \\( ! -type l \\) \\( ! -user root -o -perm -o+w \\) 2>/dev/null; done",
     "vulnerable_keyword": "/",
     "description": "시스템 시작 스크립트에 일반 사용자 쓰기 권한이 있으면 부팅 시 악성 코드가 실행될 수 있습니다.",
     "remediation": "chown root, chmod o-w로 시작 스크립트 쓰기 권한 제거"
@@ -248,14 +248,15 @@
     "command": "find /root /home -maxdepth 2 -name '.*' -perm -o+w 2>/dev/null",
     "vulnerable_keyword": "/",
     "description": "홈 디렉터리 환경변수 파일에 타 사용자 쓰기 권한이 있으면 임의로 변조될 수 있습니다.",
-    "remediation": "chmod o-w로 환경변수 파일의 타 사용자 쓰기 권한 제거"
+    "remediation": "chmod o-w로 환경변수 파일의 타 사용자 쓰기 권한 제거",
+    "privileged": true
   },
   {
     "code": "U-25",
     "name": "world writable 파일 점검",
     "category": "파일 및 디렉토리 관리",
     "importance": "상",
-    "command": "find / -xdev -type f -perm -2 2>/dev/null",
+    "command": "_t=\"\"; command -v timeout >/dev/null 2>&1 && _t=\"timeout 12\"; for d in /etc /var /home /opt /usr /usr/local /tmp; do [ -d \"$d\" ] && $_t find \"$d\" -xdev -type f -perm -2 2>/dev/null; done",
     "vulnerable_keyword": "/",
     "description": "모든 사용자가 쓸 수 있는 파일은 임의로 변조·삭제될 위험이 있습니다.",
     "remediation": "chmod o-w로 쓰기 권한 제거 또는 불필요한 파일 삭제",
@@ -266,7 +267,7 @@
     "name": "/dev에 존재하지 않는 device 파일 점검",
     "category": "파일 및 디렉토리 관리",
     "importance": "상",
-    "command": "find /dev -type f 2>/dev/null",
+    "command": "for f in /dev/*; do [ -L \"$f\" ] && continue; b=$(basename \"$f\"); case \"$b\" in mqueue|shm|block|bsg|bus|char|cpu|cs|disk|dma_heap|dri|hugepages|input|mapper|net|pts|snd|vfio) continue;; esac; if [ -d \"$f\" ]; then alldm=1; cnt=0; for e in \"$f\"/*; do [ -e \"$e\" ] || [ -L \"$e\" ] || continue; cnt=$((cnt+1)); if [ -L \"$e\" ]; then t=$(readlink \"$e\"); case \"$t\" in */dm-*) ;; *) alldm=0;; esac; else alldm=0; fi; done; [ \"$cnt\" -gt 0 ] && [ \"$alldm\" = \"1\" ] && continue; fi; { [ -f \"$f\" ] || [ -d \"$f\" ]; } && echo \"$f\"; done 2>/dev/null",
     "vulnerable_keyword": "/",
     "description": "/dev 디렉터리에 일반 파일이 존재하면 rootkit 등이 device 파일로 위장한 것일 수 있습니다.",
     "remediation": "불필요하거나 의심스러운 파일 삭제"
@@ -316,10 +317,11 @@
     "name": "홈 디렉토리 소유자 및 권한 설정",
     "category": "파일 및 디렉토리 관리",
     "importance": "중",
-    "command": "awk -F: '{print $6}' /etc/passwd | xargs -I{} ls -ld {} 2>/dev/null",
-    "vulnerable_keyword": "rwxrwxrwx",
+    "command": "awk -F: '{print $6}' /etc/passwd | while IFS= read -r d; do [ -d \"$d\" ] && [ ! -L \"$d\" ] && find \"$d\" -maxdepth 0 -perm -o+w 2>/dev/null; done",
+    "vulnerable_keyword": "/",
     "description": "홈 디렉토리에 타 사용자 쓰기 권한이 있으면 임의로 파일이 변조될 수 있습니다.",
-    "remediation": "chmod 750 등으로 홈 디렉토리에 타 사용자 쓰기 권한 제거"
+    "remediation": "chmod 750 등으로 홈 디렉토리에 타 사용자 쓰기 권한 제거",
+    "privileged": true
   },
   {
     "code": "U-32",
@@ -428,7 +430,8 @@
     "command": "ps -ef 2>/dev/null | grep -E 'rpc\\.(cmsd|ttdbserverd|statd|rusersd|walld|sprayd|nisd|pcnfsd|ypupdated|rquotad)|sadmind|rstatd|rexd|kcms_server|cachefsd' | grep -v grep | sed 's/^/RPC_FOUND:/'",
     "vulnerable_keyword": "RPC_FOUND",
     "description": "불필요한 RPC 서비스는 원격 코드 실행 등 심각한 취약점에 노출될 수 있습니다.",
-    "remediation": "불필요한 RPC 서비스 프로세스를 확인하여 중지 및 비활성화"
+    "remediation": "불필요한 RPC 서비스 프로세스를 확인하여 중지 및 비활성화",
+    "privileged": true
   },
   {
     "code": "U-43",
@@ -605,7 +608,8 @@
     "command": "grep -iE 'public|private' /etc/snmp/snmpd.conf 2>/dev/null",
     "vulnerable_keyword": "public",
     "description": "기본 Community String(public/private) 사용 시 SNMP 정보가 쉽게 노출됩니다.",
-    "remediation": "기본 Community String 제거 후 복잡한 문자열로 변경"
+    "remediation": "기본 Community String 제거 후 복잡한 문자열로 변경",
+    "privileged": true
   },
   {
     "code": "U-61",
@@ -622,10 +626,10 @@
     "name": "로그인 시 경고 메시지 설정",
     "category": "서비스 관리",
     "importance": "하",
-    "command": "cat /etc/issue.net 2>/dev/null",
-    "vulnerable_keyword": "Welcome",
-    "description": "로그온 배너에 시스템 정보가 노출되면 공격자에게 유용한 정보를 제공하게 됩니다.",
-    "remediation": "/etc/issue.net에 경고 문구만 표시하도록 수정"
+    "command": "out=$(grep -Ev '^[[:space:]]*($|#)' /etc/issue.net 2>/dev/null); if echo \"$out\" | grep -qiE 'unauthorized|authori[sz]ed|warning|prohibited|monitor(ing)?|trespass|legal|notice|consent|policy|security|접속|경고|무단|불법|처벌|감시|모니터|허가|인가|보안|정책|통보'; then echo OK; else echo FAIL; fi",
+    "safe_keyword": "OK",
+    "description": "경고 배너에 무단접속 경고 문구(법적 경고/모니터링 고지 등)가 없으면 비인가 접속에 대한 법적 근거가 약해집니다. (기존에는 반대로 'Welcome' 문구 존재 여부를 봐서, 정상적인 경고 배너를 오히려 취약으로 오판하는 반전 버그가 있었음)",
+    "remediation": "/etc/issue.net에 '무단 접속 금지 및 모든 활동은 감시/기록됨' 등 법적 경고 문구를 포함하도록 수정"
   },
   {
     "code": "U-63",

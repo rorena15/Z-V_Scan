@@ -115,9 +115,9 @@ class WindowsInspector:
     def execute_ps(self, script):
         if self.is_simulation:
             return self.get_mock_data(script)
-            
+
         if not self.is_connected:
-            return ""
+            return None
         try:
             rs = self.session.run_ps(script)
             if rs.status_code == 0:
@@ -125,8 +125,16 @@ class WindowsInspector:
                     return rs.std_out.decode('utf-8').strip()
                 except UnicodeDecodeError:
                     return rs.std_out.decode('cp949', errors='ignore').strip()
-        except: pass
-        return ""
+            else:
+                # [판정 정확도] PowerShell 명령이 0이 아닌 종료코드로 실패함(예: secedit 캐시
+                # 파일이 없어서 Select-String이 실패, cmdlet 모듈 없음 등) - "정상 실행됐지만
+                # 결과가 없음"(빈 문자열)과 절대 혼동하면 안 되므로 None을 반환해 judge_rule이
+                # SAFE가 아니라 MANUAL로 판정하도록 구분한다.
+                AppLogger.log_error(f"[WinRM] PS command failed (exit={rs.status_code}): {script[:80]}")
+                return None
+        except Exception as e:
+            AppLogger.log_error(f"[WinRM] PS execution error: {script[:80]}", e)
+            return None
 
     def get_mock_data(self, script):
         s = script.lower()
