@@ -89,3 +89,9 @@ Z-Vuln Scan(Poc).pptx
 /26년8월 포스코 인터 LNG 터미널/
 ROADMAP.md
 rules/HANDOVER_U-01_판정로직_검토.md
+00. Script/01. UNIX 서버/2026_ICTIS_Linux_v0.96.sh
+00. Script/02. Windows 서버/2026_ICTIS_Windows_v1.0.bat
+00. Script/03. DBMS/2026_DBMS_windows_v0_24.bat
+00. Script/04. PC/2026_ICTIS_PC_v0.9.bat
+00. Script/03. DBMS/2026_DBMS_v1.0.sh
+00. Script/05. WAS/2026_ICTIS_WAS_v0.9.sh
