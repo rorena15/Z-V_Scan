@@ -4,34 +4,37 @@
     "name": "Default 관리자 계정명 변경",
     "category": "계정 관리",
     "importance": "상",
-    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'username=' \"$f\"",
-    "description": "Default 관리자 계정명 변경",
-    "remediation": "Tomcat conf/server.xml, tomcat-users.xml에서 기본 계정명(tomcat, admin)을 유추 불가능한 이름으로 변경 (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; if [ -z \"$f\" ]; then echo SAFE; else grep -iE 'username=\"(tomcat|admin|manager|both|role1)\"' \"$f\" >/dev/null 2>&1 && echo VULNERABLE || echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
+    "description": "tomcat-users.xml이 없으면(Tomcat 미사용) 양호로 처리하고, 있으면 username이 tomcat/admin/manager/both/role1 등 기본 계정명 목록에 포함되는지로 판정합니다. Apache/Nginx 자체는 해당 없음.",
+    "remediation": "Tomcat conf/server.xml, tomcat-users.xml에서 기본 계정명(tomcat, admin)을 유추 불가능한 이름으로 변경"
   },
   {
     "code": "WEB-02",
     "name": "취약한 비밀번호 사용 제한",
     "category": "계정 관리",
     "importance": "상",
-    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'password=' \"$f\"",
-    "description": "취약한 비밀번호 사용 제한",
-    "remediation": "Tomcat 관리 계정 비밀번호를 2종류 이상 조합 10자리 또는 3종류 이상 조합 8자리 이상으로 설정 (수동 검토 필요)"
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; if [ -z \"$f\" ]; then echo SAFE; else grep -iE 'password=\"(tomcat|admin|password|s3cret|manager|changeit|123456|root|rootroot|root123|123root|admin123|123admin|osadmin|adminos)\"' \"$f\" >/dev/null 2>&1 && echo VULNERABLE || echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
+    "description": "tomcat-users.xml이 없으면(Tomcat 미사용) 양호로 처리하고, 있으면 KISA 2026 가이드 WEB-02 예시에 명시된 취약 비밀번호 목록(root/admin 계열)과 일치하는지로 판정합니다 (해시·암호화된 값은 이 방식으로 탐지되지 않으므로 근사치입니다).",
+    "remediation": "Tomcat 관리 계정 비밀번호를 2종류 이상 조합 10자리 또는 3종류 이상 조합 8자리 이상으로 설정"
   },
   {
     "code": "WEB-03",
     "name": "비밀번호 파일 권한 관리",
     "category": "계정 관리",
     "importance": "중",
-    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && ls -l \"$f\"",
-    "description": "비밀번호 파일 권한 관리",
-    "remediation": "chmod 600 tomcat-users.xml (Apache/Nginx 자체는 해당 없음, 수동 검토 필요)"
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/tomcat-users.xml\" /etc/tomcat*/tomcat-users.xml /var/lib/tomcat*/conf/tomcat-users.xml /usr/share/tomcat*/conf/tomcat-users.xml /usr/local/tomcat*/conf/tomcat-users.xml /opt/tomcat*/conf/tomcat-users.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; if [ -z \"$f\" ]; then echo OK; else p=$(stat -c %a \"$f\" 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 600 ]; then echo OK; else echo FAIL; fi; fi",
+    "safe_keyword": "OK",
+    "description": "tomcat-users.xml이 없으면(Tomcat 미사용) 양호로 처리하고, 있으면 파일 권한이 600 이하인지로 판정합니다. Apache/Nginx 자체는 해당 없음.",
+    "remediation": "chmod 600 tomcat-users.xml"
   },
   {
     "code": "WEB-04",
     "name": "웹 서비스 디렉터리 리스팅 방지 설정",
     "category": "서비스 관리",
     "importance": "상",
-    "command": "apline=$(grep -hnE 'Options[[:space:]]+[+]?Indexes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Indexes'); ngline=$(grep -hnE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); tcline=\"\"; for c in \"$tb/conf/web.xml\" /etc/tomcat*/web.xml /var/lib/tomcat*/conf/web.xml /usr/share/tomcat*/conf/web.xml /usr/local/tomcat*/conf/web.xml /opt/tomcat*/conf/web.xml; do for x in $c; do [ -f \"$x\" ] && grep -qi 'listings' \"$x\" 2>/dev/null && grep -qE '<param-value>[[:space:]]*true[[:space:]]*</param-value>' \"$x\" 2>/dev/null && tcline=\"$x\"; done; done; jline=\"\"; for x in /opt/jeus*/domains/*/config/*/jeus-web-dd.xml /usr/local/jeus*/domains/*/config/*/jeus-web-dd.xml; do [ -f \"$x\" ] && grep -qiE 'allow-indexing' \"$x\" 2>/dev/null && jline=\"$x\"; done; wline=\"\"; for x in /usr/local/webtob*/config/http.m /opt/webtob*/config/http.m /usr/local/tmax/webtob*/config/http.m; do [ -f \"$x\" ] && grep -qE 'DIRINDEX' \"$x\" 2>/dev/null && grep -qE '[+]Index' \"$x\" 2>/dev/null && wline=\"$x\"; done; if [ -n \"$apline\" ] || [ -n \"$ngline\" ] || [ -n \"$tcline\" ] || [ -n \"$jline\" ] || [ -n \"$wline\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "command": "apline=$(grep -hnE '^[[:space:]]*Options\\b.*\\bIndexes\\b' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Indexes'); ngline=$(grep -hnE 'autoindex[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); tcline=\"\"; for c in \"$tb/conf/web.xml\" /etc/tomcat*/web.xml /var/lib/tomcat*/conf/web.xml /usr/share/tomcat*/conf/web.xml /usr/local/tomcat*/conf/web.xml /opt/tomcat*/conf/web.xml; do for x in $c; do [ -f \"$x\" ] && grep -qi 'listings' \"$x\" 2>/dev/null && grep -qE '<param-value>[[:space:]]*true[[:space:]]*</param-value>' \"$x\" 2>/dev/null && tcline=\"$x\"; done; done; jline=\"\"; for x in /opt/jeus*/domains/*/config/*/jeus-web-dd.xml /usr/local/jeus*/domains/*/config/*/jeus-web-dd.xml; do [ -f \"$x\" ] && grep -qiE 'allow-indexing' \"$x\" 2>/dev/null && jline=\"$x\"; done; wline=\"\"; for x in /usr/local/webtob*/config/http.m /opt/webtob*/config/http.m /usr/local/tmax/webtob*/config/http.m; do [ -f \"$x\" ] && grep -qE 'DIRINDEX' \"$x\" 2>/dev/null && grep -qE '[+]Index' \"$x\" 2>/dev/null && wline=\"$x\"; done; if [ -n \"$apline\" ] || [ -n \"$ngline\" ] || [ -n \"$tcline\" ] || [ -n \"$jline\" ] || [ -n \"$wline\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
     "description": "웹 서비스 디렉터리 리스팅 방지 설정",
     "remediation": "Apache: Options 지시자에서 Indexes 제거(-Indexes), Nginx: autoindex off; 설정"
@@ -63,9 +66,10 @@
     "name": "웹 서비스 경로 내 불필요한 파일 제거",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "find /var/www/html /var/www /usr/share/nginx/html -maxdepth 2 \\( -iname 'manual' -o -iname 'index.html' \\) 2>/dev/null",
-    "description": "웹 서비스 경로 내 불필요한 파일 제거",
-    "remediation": "매뉴얼/샘플/기본 페이지 등 불필요한 파일 제거 (수동 검토 필요)"
+    "command": "f=$(find /var/www/html /var/www /usr/share/nginx/html -maxdepth 2 \\( -iname 'manual' -o -iname 'sample*' -o -iname 'example*' -o -iname 'demo' -o -iname 'test' -o -iname 'tests' -o -iname 'backup' -o -iname 'old' -o -iname 'tmp' -o -iname 'temp' -o -iname 'README*' -o -iname 'CHANGELOG*' -o -iname 'LICENSE*' -o -iname '*.bak' -o -iname '*.old' -o -iname '*.orig' -o -iname '*.tmp' -o -iname '*.swp' -o -iname '*.zip' -o -iname '*.tar' -o -iname '*.tar.gz' -o -iname '*.tgz' -o -iname '*.7z' \\) 2>/dev/null); if [ -n \"$f\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
+    "description": "웹 루트 경로에 샘플/예제/매뉴얼/테스트/백업/README 등 기본 생성 불필요 파일·디렉터리가 존재하는지로 판정합니다. 웹 루트가 없으면(웹 서비스 미사용) 양호로 처리합니다.",
+    "remediation": "매뉴얼/샘플/기본 페이지 등 불필요한 파일 제거"
   },
   {
     "code": "WEB-08",
@@ -179,9 +183,10 @@
     "name": "웹 서비스 SSI(Server Side Includes) 사용제한",
     "category": "보안 설정",
     "importance": "중",
-    "command": "grep -i 'Includes' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null; grep -i 'ssi ' /etc/nginx/nginx.conf 2>/dev/null",
-    "description": "웹 서비스 SSI(Server Side Includes) 사용제한",
-    "remediation": "Options 지시자에서 Includes 제거, Nginx는 ssi off; 설정 (수동 검토 필요 - Includes 앞에 -가 있는지 직접 확인)"
+    "command": "apline=$(grep -hnE '^[[:space:]]*Options\\b.*\\bIncludes\\b' /etc/httpd/conf/httpd.conf /etc/apache2/apache2.conf 2>/dev/null | grep -v '^[[:space:]]*#' | grep -v -- '-Includes'); ngline=$(grep -hnE 'ssi[[:space:]]+on' /etc/nginx/nginx.conf 2>/dev/null | grep -v '^[[:space:]]*#'); if [ -n \"$apline\" ] || [ -n \"$ngline\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "vulnerable_keyword": "VULNERABLE",
+    "description": "Apache Options 지시자에 -Includes 없이 Includes가 설정되어 있거나 Nginx ssi on;이 설정되어 있는지로 판정합니다 (WEB-12 FollowSymLinks 판정과 동일한 방식).",
+    "remediation": "Options 지시자에서 Includes 제거(-Includes), Nginx는 ssi off; 설정"
   },
   {
     "code": "WEB-20",
@@ -218,9 +223,10 @@
     "name": "LDAP 알고리즘 적절하게 구성",
     "category": "보안 설정",
     "importance": "중",
-    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/server.xml\" /etc/tomcat*/server.xml /var/lib/tomcat*/conf/server.xml /usr/share/tomcat*/conf/server.xml /usr/local/tomcat*/conf/server.xml /opt/tomcat*/conf/server.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; [ -n \"$f\" ] && grep -i 'digest=' \"$f\"",
-    "description": "LDAP 알고리즘 적절하게 구성",
-    "remediation": "SHA-256 이상의 비밀번호 다이제스트 알고리즘 설정 (Tomcat 전용, 수동 검토 필요)"
+    "command": "f=\"\"; tb=$(ps -ef 2>/dev/null | grep '[o]rg\\.apache\\.catalina\\.startup\\.Bootstrap' | grep -oE -- '-Dcatalina\\.base=[^ ]+' | head -n1 | cut -d= -f2); for c in \"$tb/conf/server.xml\" /etc/tomcat*/server.xml /var/lib/tomcat*/conf/server.xml /usr/share/tomcat*/conf/server.xml /usr/local/tomcat*/conf/server.xml /opt/tomcat*/conf/server.xml; do for x in $c; do [ -f \"$x\" ] && f=\"$x\" && break 2; done; done; if [ -z \"$f\" ]; then echo SAFE; else d=$(grep -i 'digest=' \"$f\" 2>/dev/null); if [ -z \"$d\" ]; then echo SAFE; else echo \"$d\" | grep -iqE 'digest=\"(sha-256|sha256|sha-384|sha384|sha-512|sha512)\"' && echo SAFE || echo VULNERABLE; fi; fi",
+    "vulnerable_keyword": "VULNERABLE",
+    "description": "Tomcat server.xml이 없거나 LDAPRealm/JNDIRealm의 digest 속성 자체가 없으면(LDAP 미사용) 양호로 처리하고, digest 속성이 있으면 KISA 2026 가이드 WEB-23 기준(SHA-256 이상만 양호, SSHA 등 그 외 전부 취약)의 허용목록 방식으로 판정합니다.",
+    "remediation": "SHA-256 이상의 비밀번호 다이제스트 알고리즘 설정"
   },
   {
     "code": "WEB-24",

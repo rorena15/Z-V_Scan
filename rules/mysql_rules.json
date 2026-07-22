@@ -44,9 +44,10 @@
     "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
     "category": "계정 관리",
     "importance": "상",
-    "command": "SELECT CONCAT(User,'@',Host) FROM mysql.user WHERE Super_priv='Y' AND User NOT IN ('root','mysql.session','mysql.sys');",
-    "description": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
-    "remediation": "REVOKE SUPER ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (수동 검토 필요 - SUPER 권한 보유자 목록 확인)"
+    "command": "SELECT CONCAT('SUPER_PRIV:',User,'@',Host) FROM mysql.user WHERE Super_priv='Y' AND User NOT IN ('root','mysql.session','mysql.sys');",
+    "vulnerable_keyword": "SUPER_PRIV:",
+    "description": "root, mysql.session, mysql.sys 등 승인된 관리자 계정을 제외하고 SUPER 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE SUPER ON *.* FROM '<계정>'; FLUSH PRIVILEGES;"
   },
   {
     "code": "D-05",
@@ -74,9 +75,10 @@
     "name": "DB 사용자 계정을 개별적으로 부여하여 사용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SELECT User,Host FROM mysql.user ORDER BY User;",
-    "description": "DB 사용자 계정을 개별적으로 부여하여 사용",
-    "remediation": "공용 계정 사용을 지양하고 업무별 개별 계정 발급 (수동 검토 필요)"
+    "command": "SELECT CONCAT('SHARED_ACCOUNT:',User,'@',Host) FROM mysql.user WHERE LOWER(User) IN ('admin','user','test','app','shared','guest','demo','anonymous','common') AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema');",
+    "vulnerable_keyword": "SHARED_ACCOUNT:",
+    "description": "admin/user/test/app/shared/guest 등 다수가 공용으로 사용할 가능성이 높은 범용 계정명이 존재하는지로 판정합니다 (계정명만으로는 실제 공용 사용 여부를 완전히 판정하기 어려우므로, 이 목록에 없는 계정은 개별 계정으로 간주해 양호 처리합니다).",
+    "remediation": "공용 계정 사용을 지양하고 업무별 개별 계정 발급"
   },
   {
     "code": "D-07",
@@ -92,9 +94,9 @@
     "name": "안전한 암호화 알고리즘 사용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "SELECT CONCAT('SENSITIVE_PLAINTEXT_CANDIDATE:',table_schema,'.',table_name,'.',column_name) FROM information_schema.columns WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') AND data_type IN ('char','varchar','text','tinytext','mediumtext','longtext') AND LOWER(column_name) REGEXP 'password|passwd|pwd|jumin|rrn|resident|ssn' LIMIT 20;",
-    "vulnerable_keyword": "SENSITIVE_PLAINTEXT_CANDIDATE:",
-    "description": "중요정보(비밀번호, 주민등록번호 등)를 저장하는 컬럼에 안전한 암호화 알고리즘을 적용하여 저장",
+    "command": "SELECT CONCAT('WEAK_HASH:',User,'@',Host,':',plugin) FROM mysql.user WHERE plugin NOT IN ('caching_sha2_password','sha256_password') AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "vulnerable_keyword": "WEAK_HASH:",
+    "description": "KISA 2026 가이드 D-08은 업무 데이터 컬럼 암호화가 아니라 DBMS 계정 비밀번호 해시 알고리즘이 SHA-256 이상인지를 점검합니다. MySQL은 mysql.user.plugin이 caching_sha2_password/sha256_password(SHA-256)가 아닌 경우(예: 구버전 기본값 mysql_native_password, SHA-1 기반) 취약으로 판정합니다.",
     "remediation": "해당 컬럼에 대해 AES_ENCRYPT() 등 안전한 암호화 알고리즘을 적용하여 평문 저장을 방지 (전송구간 암호화는 별도 항목: SSL/TLS 인증서 발급 후 have_ssl 활성화)"
   },
   {
@@ -122,9 +124,10 @@
     "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
     "category": "접근 관리",
     "importance": "중",
-    "command": "SELECT GRANTEE,PRIVILEGE_TYPE FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE TABLE_SCHEMA='mysql';",
-    "description": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
-    "remediation": "REVOKE ALL ON mysql.* FROM '<계정>'; (수동 검토 필요 - mysql 스키마 권한 보유자 확인)"
+    "command": "SELECT CONCAT('SYS_TABLE_ACCESS:',GRANTEE,':',PRIVILEGE_TYPE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE TABLE_SCHEMA IN ('mysql','sys','information_schema','performance_schema') AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%';",
+    "vulnerable_keyword": "SYS_TABLE_ACCESS:",
+    "description": "mysql/sys/information_schema/performance_schema 등 시스템 스키마에 root 등 승인된 관리자 계정을 제외한 일반 계정의 접근 권한이 부여되어 있는지로 판정합니다.",
+    "remediation": "REVOKE ALL ON mysql.* FROM '<계정>';"
   },
   {
     "code": "D-14",
@@ -150,9 +153,10 @@
     "name": "인가되지 않은 GRANT OPTION 사용 제한",
     "category": "옵션 관리",
     "importance": "상",
-    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE IS_GRANTABLE='YES' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES WHERE IS_GRANTABLE='YES';",
-    "description": "인가되지 않은 GRANT OPTION 사용 제한",
-    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (전역/스키마/테이블 단위 GRANT OPTION 보유 계정이 업무상 필요한지 수동 검토 필요)"
+    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%';",
+    "vulnerable_keyword": "GRANTABLE:",
+    "description": "root 등 승인된 관리자 계정을 제외하고 전역/스키마/테이블 단위로 WITH GRANT OPTION(IS_GRANTABLE='YES') 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (WITH GRANT OPTION 권한 보유가 업무상 필요한지 확인 후 제거)"
   },
   {
     "code": "D-22",

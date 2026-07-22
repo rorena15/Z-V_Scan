@@ -1,0 +1,202 @@
+[
+  {
+    "code": "D-01",
+    "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT 'SA_ENABLED:'+name FROM sys.sql_logins WHERE principal_id=1 AND is_disabled=0;",
+    "vulnerable_keyword": "SA_ENABLED:",
+    "description": "sa 계정(principal_id=1, 이름 변경 여부와 무관하게 고정 식별)이 활성화(is_disabled=0) 상태인지로 판정합니다.",
+    "remediation": "ALTER LOGIN sa DISABLE; 또는 강력한 비밀번호로 변경 후 이름 변경 (ALTER LOGIN sa WITH PASSWORD='<신규비밀번호>';)"
+  },
+  {
+    "code": "D-02",
+    "name": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT name,is_disabled,type_desc FROM sys.server_principals WHERE type IN ('S','U') AND name NOT LIKE '##%' AND principal_id<>1;",
+    "description": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "remediation": "DROP LOGIN <계정>; 또는 ALTER LOGIN <계정> DISABLE; (수동 검토 필요 - 세션/로그인 이력 등 실사용 여부는 별도 확인 필요)"
+  },
+  {
+    "code": "D-03",
+    "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT 'PW_POLICY_WEAK:'+name FROM sys.sql_logins WHERE is_disabled=0 AND principal_id<>1 AND (is_policy_checked=0 OR is_expiration_checked=0);",
+    "vulnerable_keyword": "PW_POLICY_WEAK:",
+    "description": "활성 SQL 로그인 계정(sa 제외) 중 CHECK_POLICY 또는 CHECK_EXPIRATION이 꺼져 있는 계정이 있는지로 판정합니다 (OS 암호 최대 사용 기간 자체는 별도 확인 필요).",
+    "remediation": "ALTER LOGIN <계정> WITH CHECK_POLICY=ON, CHECK_EXPIRATION=ON;"
+  },
+  {
+    "code": "D-04",
+    "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT 'SYSADMIN_PRIV:'+sp.name FROM sys.server_role_members rm JOIN sys.server_principals sp ON rm.member_principal_id=sp.principal_id JOIN sys.server_principals r ON rm.role_principal_id=r.principal_id WHERE r.name='sysadmin' AND sp.principal_id<>1;",
+    "vulnerable_keyword": "SYSADMIN_PRIV:",
+    "description": "sa 계정(principal_id=1)을 제외하고 sysadmin 서버 역할을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "ALTER SERVER ROLE sysadmin DROP MEMBER <계정>;"
+  },
+  {
+    "code": "D-05",
+    "name": "비밀번호 재사용에 대한 제약 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT name,is_policy_checked FROM sys.sql_logins WHERE is_disabled=0 AND principal_id<>1;",
+    "description": "비밀번호 재사용에 대한 제약 설정",
+    "remediation": "MSSQL은 비밀번호 재사용 제한을 자체 SQL 로그인 정책으로 직접 제공하지 않으므로, CHECK_POLICY 적용 여부 및 Windows/도메인 그룹 정책상 재사용 제한 정책 적용 여부를 별도 확인 (수동 검토 필요)"
+  },
+  {
+    "code": "D-06",
+    "name": "DB 사용자 계정을 개별적으로 부여하여 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT 'SHARED_ACCOUNT:'+name FROM sys.sql_logins WHERE is_disabled=0 AND LOWER(name) IN ('admin','user','test','app','shared','guest','demo','anonymous','common');",
+    "vulnerable_keyword": "SHARED_ACCOUNT:",
+    "description": "admin/user/test/app/shared/guest 등 다수가 공용으로 사용할 가능성이 높은 범용 로그인명이 활성 상태로 존재하는지로 판정합니다 (계정명만으로는 실제 공용 사용 여부를 완전히 판정하기 어려우므로, 이 목록에 없는 계정은 개별 계정으로 간주해 양호 처리합니다).",
+    "remediation": "공용 계정 사용을 지양하고 업무별 개별 로그인 발급"
+  },
+  {
+    "code": "D-07",
+    "name": "root 권한으로 서비스 구동 제한",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT SUSER_SNAME();",
+    "description": "root 권한으로 서비스 구동 제한",
+    "remediation": "MSSQL 서비스가 root 또는 과도한 권한 계정이 아닌 전용 서비스 계정으로 실행되도록 설정 (OS 레벨 점검 필요 - SSH 접속 후 ps -ef | grep sqlservr 로 확인)"
+  },
+  {
+    "code": "D-08",
+    "name": "안전한 암호화 알고리즘 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT 'OLD_HASH_VERSION:'+CAST(SERVERPROPERTY('ProductMajorVersion') AS VARCHAR(10)) WHERE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) < 11;",
+    "vulnerable_keyword": "OLD_HASH_VERSION:",
+    "description": "KISA 2026 가이드 D-08은 업무 데이터 컬럼 암호화가 아니라 DBMS 계정 비밀번호 해시 알고리즘이 SHA-256 이상인지를 점검합니다. MSSQL은 2012(메이저 버전 11) 이상부터 SQL 로그인 비밀번호에 32bit Salt + SHA-512를 항상 사용하므로 계정별 설정값이 아니라 제품 버전(11 미만이면 취약)으로 판정합니다.",
+    "remediation": "Always Encrypted 또는 컬럼 수준 암호화(ENCRYPTBYKEY 등)를 적용해 해당 컬럼을 암호화 저장으로 전환"
+  },
+  {
+    "code": "D-09",
+    "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT name,is_policy_checked FROM sys.sql_logins WHERE is_disabled=0 AND principal_id<>1;",
+    "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "remediation": "MSSQL은 SQL 로그인 자체에 실패 횟수 잠금 기능이 없어 CHECK_POLICY(Windows 계정 정책 위임)와 기관 정책상 로그인 실패 잠금 정책 적용 여부를 별도 확인 (수동 검토 필요)"
+  },
+  {
+    "code": "D-10",
+    "name": "원격에서 DB 서버로의 접속 제한",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "SELECT local_net_address, local_tcp_port FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+    "description": "원격에서 DB 서버로의 접속 제한",
+    "remediation": "SQL Server Configuration Manager에서 TCP/IP 리스닝 주소를 특정 IP로 제한하거나 방화벽으로 접근 통제 (OS/네트워크 레벨 점검 필요)"
+  },
+  {
+    "code": "D-11",
+    "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SELECT 'SYS_TABLE_ACCESS:'+dp.name FROM sys.database_permissions perm JOIN sys.database_principals dp ON perm.grantee_principal_id=dp.principal_id WHERE perm.major_id IN (SELECT object_id FROM sys.objects WHERE schema_id=SCHEMA_ID('sys')) AND dp.name NOT IN ('dbo','sys');",
+    "vulnerable_keyword": "SYS_TABLE_ACCESS:",
+    "description": "sys 스키마 객체에 대한 권한이 dbo 등 승인된 관리자 계정을 제외한 일반 사용자에게 부여되어 있는지로 판정합니다. KISA 2026 가이드 D-11 MSSQL 조치사례가 'PUBLIC, GUEST 또는 비인가된 사용자에게 부여된 경우 제거'라고 명시하므로 public/guest는 제외 목록에서 뺐습니다(Oracle D-11과 달리 MSSQL은 PUBLIC 접근 자체가 취약 신호).",
+    "remediation": "REVOKE <권한> ON <sys 객체> FROM <계정>;"
+  },
+  {
+    "code": "D-13",
+    "name": "불필요한 ODBC/OLE-DB 데이터 소스와 드라이브를 제거하여 사용",
+    "category": "접근 관리",
+    "importance": "하",
+    "command": "SELECT @@VERSION;",
+    "description": "불필요한 ODBC/OLE-DB 데이터 소스와 드라이브를 제거하여 사용 (주로 Windows 기반 MSSQL 환경에서 중점 점검되는 항목이며, 자동 판정이 어려움)",
+    "remediation": "제어판 > ODBC 데이터 원본 관리자에서 불필요한 DSN/드라이버 제거 (수동 검토 필요)"
+  },
+  {
+    "code": "D-14",
+    "name": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SELECT SERVERPROPERTY('InstanceDefaultDataPath') AS data_path;",
+    "description": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "remediation": "mssql.conf 등 주요 설정 파일의 소유자를 mssql/root로, other 권한 제거 (OS 레벨 점검 필요 - SSH 접속 후 확인)"
+  },
+  {
+    "code": "D-16",
+    "name": "Windows 인증 모드 사용",
+    "category": "옵션 관리",
+    "importance": "상",
+    "command": "SELECT name,is_disabled FROM sys.sql_logins WHERE principal_id=1;",
+    "description": "리눅스 기반 MSSQL 환경에서는 Windows 인증 전용 모드를 직접 적용하기 어려워 비대상 또는 확인 항목으로 판단합니다. sa 계정의 활성화 여부는 D-01과 함께 참고하십시오.",
+    "remediation": "Windows 기반: Windows 인증 전용 모드 적용 검토 / Linux 기반: sa 계정 비활성화, SQL 로그인 계정 관리 강화 (수동 검토 필요)"
+  },
+  {
+    "code": "D-18",
+    "name": "응용프로그램 또는 DBA 계정의 Role이 Public으로 설정되지 않도록 조정",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT 'PUBLIC_HIGH_PRIV:'+permission_name FROM sys.database_permissions WHERE grantee_principal_id=(SELECT principal_id FROM sys.database_principals WHERE name='public') AND permission_name IN ('CONTROL','ALTER','IMPERSONATE','TAKE OWNERSHIP','ALTER ANY LOGIN','CONTROL SERVER');",
+    "vulnerable_keyword": "PUBLIC_HIGH_PRIV:",
+    "description": "public 역할에 CONTROL, ALTER, IMPERSONATE, TAKE OWNERSHIP 등 고위험 권한이 부여되어 있는지로 판정합니다.",
+    "remediation": "REVOKE <고위험권한> FROM public;"
+  },
+  {
+    "code": "D-20",
+    "name": "인가되지 않은 Object Owner의 제한",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT s.name AS schema_name, dp.name AS owner_name FROM sys.schemas s JOIN sys.database_principals dp ON s.principal_id = dp.principal_id WHERE dp.name NOT IN ('dbo','sys','guest','INFORMATION_SCHEMA');",
+    "description": "인가되지 않은 Object Owner의 제한",
+    "remediation": "ALTER AUTHORIZATION ON SCHEMA::<스키마> TO dbo; 등으로 승인된 관리자 계정으로 소유자 이전 (수동 검토 필요 - 업무상 필요한 소유자인지 확인)"
+  },
+  {
+    "code": "D-21",
+    "name": "인가되지 않은 GRANT OPTION 사용 제한",
+    "category": "옵션 관리",
+    "importance": "상",
+    "command": "SELECT 'GRANTABLE:'+dp.name FROM sys.database_permissions perm JOIN sys.database_principals dp ON perm.grantee_principal_id=dp.principal_id WHERE perm.state='W' AND dp.name NOT IN ('dbo','sys','public');",
+    "vulnerable_keyword": "GRANTABLE:",
+    "description": "dbo 등 승인된 관리자 계정을 제외하고 WITH GRANT OPTION(state='W')으로 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE GRANT OPTION FOR <권한> ON <객체> FROM <계정> CASCADE;"
+  },
+  {
+    "code": "D-23",
+    "name": "xp_cmdshell 사용 제한",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "SELECT 'XP_CMDSHELL_ON:'+CAST(value_in_use AS VARCHAR(10)) FROM sys.configurations WHERE name='xp_cmdshell' AND value_in_use=1;",
+    "vulnerable_keyword": "XP_CMDSHELL_ON:",
+    "description": "xp_cmdshell 기능의 value_in_use가 1(활성화)인지로 판정합니다.",
+    "remediation": "EXEC sp_configure 'xp_cmdshell', 0; RECONFIGURE;"
+  },
+  {
+    "code": "D-24",
+    "name": "Registry Procedure 권한 제한",
+    "category": "패치 관리",
+    "importance": "하",
+    "command": "SELECT 'REGISTRY_PROC_ACCESS:'+dp.name+':'+o.name FROM sys.database_permissions perm JOIN sys.objects o ON perm.major_id = o.object_id JOIN sys.database_principals dp ON perm.grantee_principal_id = dp.principal_id WHERE o.name IN ('xp_regread','xp_regwrite','xp_regdeletevalue','xp_regenumvalues','xp_regremovemultistring','xp_regdeletekey','xp_regaddmultistring') AND dp.name IN ('public','guest');",
+    "vulnerable_keyword": "REGISTRY_PROC_ACCESS:",
+    "description": "KISA 2026 가이드 D-24 조치사례에 명시된 xp_reg* 시스템 확장 저장 프로시저 목록에 대해 DBA 외 public/guest에 실행 권한이 부여되어 있는지로 판정합니다. 리눅스 기반 MSSQL은 이 프로시저들이 애초에 존재하지 않아 자연히 결과가 없어 양호로 처리됩니다 (별도의 OS 분기 불필요).",
+    "remediation": "REVOKE EXECUTE ON <프로시저명> FROM public;"
+  },
+  {
+    "code": "D-25",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "SELECT @@VERSION;",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "SERVERPROPERTY('ProductVersion')이 기준 시점의 동일 메이저 최신 CU 수준인지 확인 후 최신 누적 업데이트(CU) 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "D-26",
+    "name": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "category": "패치 관리",
+    "importance": "중",
+    "command": "SELECT 'AUDIT_ON:'+a.name FROM sys.server_audits a JOIN sys.server_audit_specifications s ON a.audit_guid=s.audit_guid WHERE a.is_state_enabled=1 AND s.is_state_enabled=1;",
+    "safe_keyword": "AUDIT_ON:",
+    "description": "활성화된 Server Audit과 그에 연결된 활성 Audit Specification이 함께 존재하는지로 판정합니다 (감사 객체가 아예 없는 경우와 있지만 비활성화된 경우를 모두 취약으로 잡기 위해 안전 조건을 직접 확인하는 방식입니다).",
+    "remediation": "CREATE SERVER AUDIT ... TO FILE (...); CREATE SERVER AUDIT SPECIFICATION ... FOR SERVER AUDIT ...; ALTER SERVER AUDIT <감사이름> WITH (STATE=ON); ALTER SERVER AUDIT SPECIFICATION <감사이름> WITH (STATE=ON);"
+  }
+]
