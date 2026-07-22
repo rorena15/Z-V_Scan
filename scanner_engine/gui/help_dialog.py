@@ -14,8 +14,14 @@
 덩어리로 보였다. HELP_TEXTS의 원문은 그대로 두고(내용 재작성 없음), 여기서만
 그 표기 규칙(■=소제목, ★=강조 경고, ·=목록)을 읽어서 실제 제목 크기/색/볼드,
 목록 들여쓰기, 문단 줄간격이 있는 HTML로 변환해 보여주는 방식으로 바꿨다.
+
+[표 형태 보존] license 항목의 등급 비교표처럼 공백으로 칸을 맞춘 줄 블록을 일반
+문단과 똑같이 strip() 후 한 칸으로 join해버리면 정렬이 전부 무너진다(실측 확인됨).
+한 줄에 "글자 + 공백 2개 이상 + 글자" 패턴이 있으면 표로 간주해 원본 공백을 그대로
+보존한 <pre> 블록으로 렌더링한다.
 """
 import html as html_lib
+import re
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QTextEdit, QPushButton, QLabel, QFrame
 )
@@ -77,12 +83,21 @@ def _format_detail_html(text):
                     i += 1
                 out.append(f'<ul style="margin:2px 0 12px 0; padding-left:24px;">{"".join(items)}</ul>')
             else:
-                para_lines = []
+                raw_lines = []
                 while i < n and lines[i].strip() and not lines[i].strip().startswith(('■', '★', '·')):
-                    para_lines.append(lines[i].strip())
+                    raw_lines.append(lines[i])
                     i += 1
-                joined = html_lib.escape(' '.join(para_lines))
-                out.append(f'<p style="margin:0 0 12px 0; line-height:1.6;">{joined}</p>')
+                tabular_count = sum(1 for l in raw_lines if re.search(r'\S {2,}\S', l))
+                if raw_lines and tabular_count >= max(1, len(raw_lines) // 2):
+                    # 칸 정렬된 표 - strip/join으로 합치면 정렬이 무너지므로 원본 공백을 그대로 보존
+                    table_text = html_lib.escape('\n'.join(l.rstrip() for l in raw_lines))
+                    out.append(
+                        '<pre style="margin:6px 0 12px 0; font-family:Consolas,\'D2Coding\',monospace; '
+                        f'font-size:10pt; line-height:1.4;">{table_text}</pre>'
+                    )
+                else:
+                    joined = html_lib.escape(' '.join(l.strip() for l in raw_lines))
+                    out.append(f'<p style="margin:0 0 12px 0; line-height:1.6;">{joined}</p>')
     return ''.join(out)
 
 

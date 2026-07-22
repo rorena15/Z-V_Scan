@@ -123,50 +123,53 @@ class VulnMatcher:
                 break
 
         if not valid_rule_path:
-            print("[Warning] 'rules' folder not found. Using Defaults.")
+            print("[Info] 'rules' folder not found. Using built-in port/CVE defaults.")
             return False
 
         # 2. 파일 로딩 (유연한 파싱 적용)
-        target_files = ["linux_rules.json", "windows_rules.json"]
-        loaded_count = 0
-        
-        print(f"[Info] Loading rules from: {valid_rule_path}")
+        # [버그 수정] 예전엔 linux_rules.json/windows_rules.json(KISA 감사룰 스키마 -
+        # code/command/vulnerable_keyword 등, port 필드 자체가 없음)을 대상으로 했었는데,
+        # 이 클래스가 실제로 필요로 하는 건 "포트 번호 -> service/cve/kisa/risk/desc/remediation"
+        # 매핑이다(위 DEFAULT_DB 예시와 동일한 스키마). 그래서 매 항목마다 item.get('port')가
+        # 항상 None이라 실제로는 아무 것도 병합되지 않으면서도, "파일을 파싱하는 데 성공했다"는
+        # 이유만으로 loaded_count가 올라가 "(2 files merged)"라는 오해의 소지가 있는 로그가
+        # 찍히고 있었다(실측 확인됨). 원래 의도대로 kisa_guide.json(포트 키 스키마) 하나만
+        # 대상으로 하고, 실제로 반영된 "항목 수"를 세도록 고친다.
+        target_file = "kisa_guide.json"
+        merged_entries = 0
 
-        for file_name in target_files:
-            full_path = os.path.join(valid_rule_path, file_name)
-            
-            if os.path.exists(full_path):
-                try:
-                    with open(full_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                        # [핵심 수정] List 타입과 Dict 타입 모두 처리
-                        if isinstance(data, list):
-                            # JSON이 리스트([])인 경우: [ {"port":21, ...}, ... ]
-                            for item in data:
-                                # 'port' 또는 'Port' 키를 찾아서 ID로 사용
-                                port_key = item.get('port') or item.get('Port')
-                                if port_key:
-                                    VulnMatcher.VULN_DB[int(port_key)] = item
-                                    
-                        elif isinstance(data, dict):
-                            # JSON이 딕셔너리({})인 경우: { "21": {...}, ... }
-                            for port, info in data.items():
-                                VulnMatcher.VULN_DB[int(port)] = info
-                                
-                        else:
-                            print(f"[Warning] '{file_name}' has unknown structure.")
-                            continue
+        full_path = os.path.join(valid_rule_path, target_file)
+        if os.path.exists(full_path):
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
 
-                        loaded_count += 1
-                except Exception as e:
-                    print(f"[Error] Failed to parse '{file_name}': {e}")
+                # [핵심 수정] List 타입과 Dict 타입 모두 처리
+                if isinstance(data, list):
+                    # JSON이 리스트([])인 경우: [ {"port":21, ...}, ... ]
+                    for item in data:
+                        # 'port' 또는 'Port' 키를 찾아서 ID로 사용
+                        port_key = item.get('port') or item.get('Port')
+                        if port_key:
+                            VulnMatcher.VULN_DB[int(port_key)] = item
+                            merged_entries += 1
 
-        if loaded_count > 0:
-            print(f"[Info] Rule loading complete. ({loaded_count} files merged)")
+                elif isinstance(data, dict):
+                    # JSON이 딕셔너리({})인 경우: { "21": {...}, ... }
+                    for port, info in data.items():
+                        VulnMatcher.VULN_DB[int(port)] = info
+                        merged_entries += 1
+
+                else:
+                    print(f"[Warning] '{target_file}' has unknown structure.")
+            except Exception as e:
+                print(f"[Error] Failed to parse '{target_file}': {e}")
+
+        if merged_entries > 0:
+            print(f"[Info] {target_file}: {merged_entries} port entries merged over built-in defaults.")
             return True
         else:
-            print("[Warning] Rules invalid. Using Defaults.")
+            print(f"[Info] No external '{target_file}' override found. Using built-in port/CVE defaults ({len(VulnMatcher.DEFAULT_DB)} entries).")
             return False
     
     @staticmethod
