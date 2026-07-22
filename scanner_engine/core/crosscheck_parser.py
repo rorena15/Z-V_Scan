@@ -6,7 +6,7 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 """
-[교차검증 모드] 컨설턴트 산출 TXT(Z-VulnScan text_report.py와 동일 포맷 가정)를
+[교차검증 모드] 스크립트 산출 TXT(Z-VulnScan text_report.py와 동일 포맷 가정)를
 파싱해 항목 단위 레코드로 변환한다.
 
 text_report.py는 수정하지 않는다 (외부 엑셀 매크로가 그 출력 포맷에 의존하므로
@@ -17,8 +17,12 @@ import os
 import re
 
 # 호스트 구획 경계: `---------[ {host} Result - {ip} ]-------`
+# ip 그룹에 숫자를 최소 1개 요구한다 - 실제 스크립트의 공통 안내문
+# `---------[ ICTIS Script Result - Windows PC ]-------` (host="ICTIS Script",
+# ip="Windows PC")가 이 패턴에 거짓 매칭되어 text_report.py 자체 포맷으로
+# 잘못 라우팅되던 버그를 막기 위함.
 HOST_HEADER_RE = re.compile(
-    r'-{5,}\[\s*(?P<host>.+?)\s+Result\s*-\s*(?P<ip>.+?)\s*\]-{5,}'
+    r'-{5,}\[\s*(?P<host>.+?)\s+Result\s*-\s*(?P<ip>.*\d.*?)\s*\]-{5,}'
 )
 
 # 카테고리 그룹 헤더: `-------------- \n {idx}. {category}  \n -------------- `
@@ -58,7 +62,7 @@ OS_VERSION_RE = re.compile(r'OS version is\s*"(?P<os>[^"]*)"')
 FILENAME_TAG_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\]')
 
 # ----------------------------------------------------------------------
-# [실제 컨설턴트 스크립트 포맷] text_report.py를 그대로 흉내낸 자체 포맷과 달리,
+# [실제 스크립트 포맷] text_report.py를 그대로 흉내낸 자체 포맷과 달리,
 # 실제 KISA 대조검증 스크립트(00. Script/01. UNIX 서버/2026_ICTIS_Linux_v0.96.sh 등)는
 # 호스트 구분선이 파일 안에 없고(파일당 1호스트), 파일명 자체에 호스트/OS/IP를 담는다:
 #   CREATE_FILE="$BASE_DIR/[RESULT]${HOST}_${OS}_${IP}.txt"
@@ -68,10 +72,23 @@ FILENAME_TAG_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\]')
 # ----------------------------------------------------------------------
 CONSULTANT_FILENAME_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\](?P<rest>.+)\.txt$', re.I)
 
+# 파일명 안에서 IP를 앵커로 찾는다 - host_os_ip(UNIX, 3파트) / host_os_ip_date(PC, 4파트,
+# os필드에 대괄호 포함 가능 - 예: WINDOWS[11]) / host_ip(Server, 2파트, os필드 없음) 등
+# 밑줄 파트 개수가 포맷마다 달라 고정 rsplit으로는 대응 불가하므로, IP 패턴 위치를
+# 기준으로 앞쪽을 host_os로, 뒤쪽(날짜 등)은 버린다.
+_FILENAME_IP_RE = re.compile(r'\d{1,3}(?:\.\d{1,3}){3}')
+
 KISA_CODE_PREFIXES = ("U-", "W-", "D-", "WEB-", "PC-")
 
 # 항목 하나의 [START]...[END] 블록 (제목/판단기준 영역은 별도로 preamble에서 찾는다)
-CONSULTANT_ITEM_BODY_RE = re.compile(r'^\[START\]\s*$\n(?P<body>.*?)\n^\[END\]\s*$', re.M | re.S)
+# [버그 수정] 이전에는 \[START\]/\[END\] 뒤에 \s*를 썼는데, \s가 개행도 포함하다 보니
+# 본문이 빈 줄만 있는 경우(예: 빈 PowerShell 명령 결과) 탐욕적 매칭이 다음 줄들까지
+# 집어삼켜 [END]를 못 찾고 그다음 항목의 [END]까지 넘어가 버리는 문제가 실측으로
+# 확인됐다(항목이 통째로 누락되거나, 다음 항목 코드에 엉뚱한 항목의 증적이 붙음).
+# 같은 줄 안의 공백/탭/캐리지리턴만 소비하도록 [ \t\r]*로 제한해 줄 경계(\n)를 넘지
+# 않게 한다 - \r을 빼면 CRLF(\r\n) 파일에서 [END]\r 형태가 안 잡히는 회귀가 생긴다
+# (Windows Server 샘플에서 실측으로 확인됨).
+CONSULTANT_ITEM_BODY_RE = re.compile(r'^\[START\][ \t\r]*$\n(?P<body>.*?)\n^\[END\][ \t\r]*$', re.M | re.S)
 
 # preamble(직전 [END] ~ 이번 [START] 사이)에서 "[코드] 이름" 형태의 줄을 전부 찾는다
 CONSULTANT_CODE_LINE_RE = re.compile(r'^\[(?P<code>[A-Za-z]+-\d+)\]\s*(?P<name>.+?)\s*$', re.M)
@@ -82,20 +99,45 @@ CONSULTANT_EXEC_TRACE_RE = re.compile(r'###\s*실행\s*흔적\s*\n(?P<trace>.*?)
 CONSULTANT_REASON_RE = re.compile(r'^\[REASON\]\s*(?P<reason>.*)$', re.M)
 CONSULTANT_RESULT_RE = re.compile(r'^\[RESULT\]\s*(?P<result>\S+)', re.M)
 
+# [PC 진단 도구 전용] pc_toolkit.py가 세부기준(criteria) 중 자체 command가 있는 항목을
+# 실제로 실행해 남기는 블록 - "[CRIT:0]"부터 command가 있는 criteria 등장 순서대로 번호가
+# 매겨진다(command가 없는 criteria는 원래 최상위 출력을 재사용하므로 여기 안 나온다).
+# 같은 [ \t\r]* 제한을 쓰는 이유는 CONSULTANT_ITEM_BODY_RE와 동일(빈 출력이 다음 블록까지
+# 집어삼키는 것을 방지).
+CONSULTANT_CRIT_RE = re.compile(
+    r'^\[CRIT:(?P<idx>\d+)\][ \t\r]*$\n(?P<output>.*?)(?=\n^\[CRIT:\d+\][ \t\r]*$|\Z)',
+    re.M | re.S,
+)
+
+# [PC 진단 도구 전용] rule.get('evidence_command')가 있으면 pc_toolkit.py가 사람이 볼
+# 상세 증적(raw_output)을 여기 추가로 남긴다 - 항상 [CRIT:N] 블록들 뒤, 본문 맨 끝에
+# 한 번만 나온다. 이 값은 절대 judge_rule()의 판정 입력에 섞이지 않는다(별도 필드로
+# 분리해 record["evidence_output"]로만 넘김) - crosscheck_engine.import_pc_results()가
+# DB의 raw_output(리포트 상세 증적) 컬럼에만 쓴다.
+CONSULTANT_EVIDENCE_RE = re.compile(r'^\[EVIDENCE\][ \t\r]*$\n(?P<output>.*)\Z', re.M | re.S)
+
 
 def _match_consultant_filename(filepath):
-    """파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴이면 (host, os_field, ip)를 반환, 아니면 None."""
+    """파일명이 '[TAG]{host}_{os}_{ip}(_{date})?.txt' 패턴이면 (host, os_field, ip)를 반환,
+    아니면 None. IP 패턴을 앵커로 삼아 그 앞쪽만 host/os로 나눈다 - 밑줄 파트 개수가
+    3개(UNIX: host_os_ip), 4개(PC: host_os_ip_date, os에 대괄호 포함 가능), 2개
+    (Server: host_ip, os 필드 없음) 등 포맷마다 달라 고정 rsplit으로는 대응 불가하다.
+    IP 뒤쪽(날짜 등)은 사용하지 않는다."""
     base = os.path.basename(filepath)
     m = CONSULTANT_FILENAME_RE.match(base)
     if not m:
         return None
     rest = m.group('rest')
-    parts = rest.rsplit('_', 2)
-    if len(parts) != 3:
+    ip_m = _FILENAME_IP_RE.search(rest)
+    if not ip_m:
         return None
-    host, os_field, ip = parts
-    if not re.match(r'^\d{1,3}(\.\d{1,3}){3}$', ip):
+    ip = ip_m.group(0)
+    before = rest[:ip_m.start()].rstrip('_')
+    if not before:
         return None
+    parts = before.split('_', 1)
+    host = parts[0]
+    os_field = parts[1] if len(parts) > 1 else None
     return host, os_field, ip
 
 
@@ -109,19 +151,42 @@ def _infer_os_tag_from_os_field(os_field):
 
 
 def _parse_consultant_body(body):
-    trace_m = CONSULTANT_EXEC_TRACE_RE.search(body)
-    raw_output = trace_m.group('trace').strip() if trace_m else body.strip()
-    reasons = [m.group('reason').strip() for m in CONSULTANT_REASON_RE.finditer(body) if m.group('reason').strip()]
-    result_m = CONSULTANT_RESULT_RE.search(body)
+    # [PC 진단 도구 전용] [EVIDENCE]가 있으면 본문 맨 끝의 사람이 볼 상세 증적 블록이므로
+    # 먼저 떼어낸다 - 그래야 그 안의 텍스트가 [CRIT:N]/raw_output 파싱에 섞이지 않는다.
+    evi_m = CONSULTANT_EVIDENCE_RE.search(body)
+    if evi_m:
+        body_wo_evidence = body[:evi_m.start()]
+        evidence_output = evi_m.group('output').strip()
+    else:
+        body_wo_evidence = body
+        evidence_output = ""
+
+    # [PC 진단 도구 전용] [CRIT:N] 블록이 있으면 그건 세부기준별 개별 증거이지 최상위
+    # raw_output이 아니므로, 첫 [CRIT:N] 마커 이전까지만 top_body로 잘라서 아래
+    # raw_output/consultant_result 추출에 쓴다. 없는 파일(실제 스크립트 등)은 이전과 동일.
+    crit_matches = list(CONSULTANT_CRIT_RE.finditer(body_wo_evidence))
+    if crit_matches:
+        top_body = body_wo_evidence[:crit_matches[0].start()]
+        criteria_outputs = {int(m.group('idx')): m.group('output').strip() for m in crit_matches}
+    else:
+        top_body = body_wo_evidence
+        criteria_outputs = {}
+
+    trace_m = CONSULTANT_EXEC_TRACE_RE.search(top_body)
+    raw_output = trace_m.group('trace').strip() if trace_m else top_body.strip()
+    reasons = [m.group('reason').strip() for m in CONSULTANT_REASON_RE.finditer(top_body) if m.group('reason').strip()]
+    result_m = CONSULTANT_RESULT_RE.search(top_body)
     return {
         "raw_output": raw_output,
         "consultant_reason": "; ".join(reasons) if reasons else None,
         "consultant_result": result_m.group('result') if result_m else None,
+        "criteria_outputs": criteria_outputs,
+        "evidence_output": evidence_output,
     }
 
 
 def _parse_consultant_format(text, host, ip, os_tag, source_file):
-    """실제 컨설턴트 스크립트 출력 포맷 파서. 호스트 구분선이 없으므로 파일 전체를
+    """실제 스크립트 출력 포맷 파서. 호스트 구분선이 없으므로 파일 전체를
     훑어서 [START]...[END] 블록마다 직전 preamble에서 코드/이름을 찾는다."""
     records = []
     prev_end = 0
@@ -153,6 +218,8 @@ def _parse_consultant_format(text, host, ip, os_tag, source_file):
             consultant_result=parsed["consultant_result"],
             consultant_reason=parsed["consultant_reason"],
             command=None, raw_output=parsed["raw_output"],
+            criteria_outputs=parsed["criteria_outputs"],
+            evidence_output=parsed["evidence_output"],
             parse_ok=True,
             parse_warning=None if code is not None else "KISA 코드 없음 (주통 해당사항 없음 등 - 코드 매핑 불가 항목)",
             line_no=line_no,
@@ -161,15 +228,29 @@ def _parse_consultant_format(text, host, ip, os_tag, source_file):
 
 
 def _read_text(filepath):
-    """UTF-8 우선, 실패 시 cp949(현장 담당자 PC에서 흔한 인코딩) fallback."""
+    """UTF-8 우선, 실패 시 cp949(현장 담당자 PC에서 흔한 인코딩) fallback.
+
+    실제 샘플 중 하나(Windows Server 포맷)는 대부분 UTF-8인데 극히 일부 명령어
+    출력만 CP949/EUC-KR로 섞여 들어간 혼합 인코딩 파일이었다 - 어느 쪽으로도
+    strict 디코딩이 되지 않는다. 이 경우 둘 다 errors='replace'로 디코딩해 본 뒤
+    치환문자(�) 개수가 더 적은(=원문 손실이 더 적은) 쪽을 채택한다. 파일 전체가
+    한쪽 인코딩인 일반적인 경우는 위 strict 시도에서 이미 걸러지므로 이 비교는
+    혼합 인코딩 파일에만 영향을 준다."""
     for encoding in ("utf-8", "utf-8-sig"):
         try:
             with open(filepath, 'r', encoding=encoding) as f:
                 return f.read()
         except UnicodeDecodeError:
             continue
-    with open(filepath, 'r', encoding='cp949', errors='replace') as f:
-        return f.read()
+    try:
+        with open(filepath, 'r', encoding='cp949') as f:
+            return f.read()
+    except UnicodeDecodeError:
+        pass
+    with open(filepath, 'rb') as f:
+        raw = f.read()
+    candidates = [raw.decode(enc, errors='replace') for enc in ("utf-8", "cp949")]
+    return min(candidates, key=lambda t: t.count('�'))
 
 
 def _infer_os_tag(filename, section_text):
@@ -263,6 +344,7 @@ def _new_record(**fields):
         "category": None, "code": None, "name": None, "remediation": None,
         "consultant_result": None, "consultant_reason": None, "status_text": None,
         "waived_hint": False, "command": None, "raw_output": "",
+        "criteria_outputs": {}, "evidence_output": "",
         "parse_ok": True, "parse_warning": None, "line_no": None,
     }
     base.update(fields)
@@ -322,7 +404,7 @@ def parse_single_file(filepath):
 
     두 포맷을 자동 판별한다:
     - text_report.py 자체 포맷: 파일 안에 '---------[ host Result - ip ]-------' 구분선이 있음
-    - 실제 컨설턴트 스크립트 포맷: 구분선이 없고, 파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴
+    - 실제 스크립트 포맷: 구분선이 없고, 파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴
       (00. Script/ 아래 실제 KISA 대조검증 스크립트들의 출력 - 호스트 구분선 없이 파일당 1호스트)
     둘 다 아니면 기존처럼 파일 전체를 단일 미상 호스트로 취급(전체 실패 처리하지 않기 위함)."""
     text = _read_text(filepath)

@@ -6,8 +6,8 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 """
-[교차검증 모드] 파싱된 컨설턴트 TXT 레코드를 Z-VulnScan 룰셋으로 재판정하고,
-컨설턴트 원 판정과 대조(Diff)한다.
+[교차검증 모드] 파싱된 스크립트 TXT 레코드를 Z-VulnScan 룰셋으로 재판정하고,
+스크립트 원 판정과 대조(Diff)한다.
 
 이 모드는 scanner_engine/core/ 의 실제 접속/스캔 로직(ssh_inspector 등)을
 전혀 호출하지 않는다 - 오직 이미 확보된 증적 텍스트(raw_output)만 입력으로 쓰고,
@@ -72,7 +72,8 @@ def load_rulesets(rules_dir=None):
 
 def build_code_index(rulesets):
     """bare code -> [(ruleset_file, rule_dict), ...]. U-/W-/PC-/WEB-는 1개,
-    D-xx(mysql/postgresql 공유)만 2개가 된다."""
+    D-xx는 rulesets에 실제 로드된 DB 엔진 룰셋 수만큼(현재 RULE_FILES 기준 mysql/postgresql
+    2개; oracle_rules.json/mssql_rules.json은 아직 RULE_FILES에 등록되지 않아 로드되지 않음)."""
     index = {}
     for filename, rules in rulesets.items():
         for rule in rules:
@@ -117,13 +118,30 @@ def resolve_rule(record, code_index):
     return None, None, True
 
 
+def _make_positional_execute_fn(criteria_outputs):
+    """judge_rule()은 criteria 리스트를 순서대로 돌면서 command가 있는 것마다 정확히
+    한 번씩 execute_fn(command)를 호출한다. pc_toolkit.py가 스크립트를 생성할 때도
+    똑같이 "criteria 중 command가 있는 것만, 등장 순서"로 실행/캡처해 [CRIT:N]으로
+    남기므로, 명령 문자열을 파싱/매칭할 필요 없이 호출 순번(위치)만으로 안전하게
+    매칭할 수 있다."""
+    state = {"i": 0}
+
+    def execute_fn(_command):
+        idx = state["i"]
+        state["i"] += 1
+        return criteria_outputs.get(idx, "")
+
+    return execute_fn
+
+
 def rejudge_record(record, code_index):
     """resolve_rule 후 judge_rule()로 재판정한다.
 
-    execute_fn=None을 고정으로 쓴다: TXT에는 룰 최상위 command 실행 결과 하나만
-    남아있고, criteria(세부기준) 각각의 개별 증적은 원래부터 저장되지 않으므로
-    (judge_rule 자체가 execute_fn 없이는 세부기준마다 이 하나의 full_output을
-    공유하도록 되어 있음) 여기서 나오는 결과는 criteria형 룰에 한해 근사치다.
+    record에 criteria_outputs(= pc_toolkit.py가 세부기준별로 직접 실행해 캡처한
+    [CRIT:N] 증거)가 있으면 그걸로 execute_fn을 구성해 라이브 스캔과 동일하게
+    세부기준별 개별 판정을 한다(근사치 아님). 없으면(제3자 스크립트 TXT 등, 세부기준
+    개별 증거를 원래 남기지 않는 포맷) execute_fn=None으로 최상위 raw_output 하나를
+    모든 세부기준이 공유하는 근사 판정으로 폴백한다.
     """
     rule, ruleset_file, ambiguous = resolve_rule(record, code_index)
     result = {
@@ -135,6 +153,7 @@ def rejudge_record(record, code_index):
         "rejudged_result": None,
         "rejudged_detail": None,
         "has_criteria": False,
+        "criteria_is_approx": False,
         "approx_note": None,
         "engine_error": None,
     }
@@ -142,17 +161,23 @@ def rejudge_record(record, code_index):
         return result
 
     result["has_criteria"] = bool(rule.get("criteria"))
+    criteria_outputs = record.get("criteria_outputs") or {}
+    execute_fn = None
     if result["has_criteria"]:
-        result["approx_note"] = (
-            "세부기준별 개별 증적 없음 (근사치 - TXT의 증적은 존재하지만 이 룰 최상위 "
-            "명령(CMD) 결과 하나뿐이라, 세부기준마다 원래 실행해야 할 별도 명령 대신 "
-            "이 공통 출력을 그대로 재사용합니다. 그 출력에 세부기준의 safe/vulnerable_keyword가 "
-            "문맥과 무관하게 우연히 포함돼 있으면 - 예: 주석 처리된 설정 줄도 통과 - "
-            "오탐이 발생할 수 있습니다)"
-        )
+        if criteria_outputs:
+            execute_fn = _make_positional_execute_fn(criteria_outputs)
+        else:
+            result["criteria_is_approx"] = True
+            result["approx_note"] = (
+                "세부기준별 개별 증적 없음 (근사치 - TXT의 증적은 존재하지만 이 룰 최상위 "
+                "명령(CMD) 결과 하나뿐이라, 세부기준마다 원래 실행해야 할 별도 명령 대신 "
+                "이 공통 출력을 그대로 재사용합니다. 그 출력에 세부기준의 safe/vulnerable_keyword가 "
+                "문맥과 무관하게 우연히 포함돼 있으면 - 예: 주석 처리된 설정 줄도 통과 - "
+                "오탐이 발생할 수 있습니다)"
+            )
 
     try:
-        status, detail = judge_rule(rule, record.get("raw_output", ""), execute_fn=None)
+        status, detail = judge_rule(rule, record.get("raw_output", ""), execute_fn=execute_fn)
         result["rejudged_status"] = status
         result["rejudged_detail"] = detail
         result["rejudged_result"] = STATUS_TO_RESULT.get(status, "N/A")
@@ -171,7 +196,7 @@ def diff_records(rejudge_results):
 
         if not record.get("code"):
             classification = "NO_KISA_CODE"
-            detail_note = record.get("parse_warning") or "컨설턴트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
+            detail_note = record.get("parse_warning") or "스크립트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
         elif not record.get("parse_ok", True):
             classification = "PARSE_ERROR"
             detail_note = record.get("parse_warning") or "파싱 실패"
@@ -186,33 +211,35 @@ def diff_records(rejudge_results):
             detail_note = f"재판정 엔진 오류: {r['engine_error']}"
         elif not record.get("consultant_result"):
             classification = "NO_CONSULTANT_RESULT"
-            detail_note = f"컨설턴트 쪽에 결과값 자체가 없습니다(수동 확인 항목 등). Z-VulnScan 재판정: {r['rejudged_result']}"
+            detail_note = f"스크립트 쪽에 결과값 자체가 없습니다(수동 확인 항목 등). Z-VulnScan 재판정: {r['rejudged_result']}"
         elif record.get("consultant_result") == "확인":
-            # [실제 컨설턴트 포맷] 컨설턴트 스크립트 자신도 자동 판정을 보류하고 "확인"으로
-            # 남긴 항목 - Z-VulnScan 재판정과 다르다고 해서 "불일치"로 단정할 근거가 컨설턴트
+            # [실제 스크립트 포맷] 스크립트 자신도 자동 판정을 보류하고 "확인"으로
+            # 남긴 항목 - Z-VulnScan 재판정과 다르다고 해서 "불일치"로 단정할 근거가 스크립트
             # 쪽에도 없으므로, 일반 MISMATCH와 구분해 별도로 표시한다.
             classification = "CONSULTANT_UNCERTAIN"
-            detail_note = f"컨설턴트도 자동판정 보류(확인 필요) / Z-VulnScan 재판정: {r['rejudged_result']}"
-        elif r["has_criteria"]:
-            # [실측 확인됨] criteria(세부기준)형 룰은 execute_fn 없이 재판정하면 모든
-            # 세부기준이 동일한 최상위 raw_output 하나를 공유한다. 예: U-06의
-            # safe_keyword="wheel"은 grep 결과에 "pam_wheel.so"라는 문자열만 있어도
-            # (실제로 비활성 상태여도) 우연히 매칭돼 버려 원래 "취약"이던 항목이
-            # "부분만족"으로 잘못 재판정되는 사례가 실측으로 확인됐다. 그래서 MATCH가
-            # 나와도 우연의 일치일 수 있고, MISMATCH가 나와도 실제 불일치가 아닐 수
-            # 있어 자동 대조 자체가 신뢰할 수 없다 - MATCH/MISMATCH로 단정하지 않고
-            # 항상 "수동 검증 필요"로 분류한다.
+            detail_note = f"스크립트도 자동판정 보류(확인 필요) / Z-VulnScan 재판정: {r['rejudged_result']}"
+        elif r["has_criteria"] and r["criteria_is_approx"]:
+            # [실측 확인됨] criteria(세부기준)형 룰인데 [CRIT:N] 개별 증거가 없으면(제3자
+            # 스크립트 TXT 등) execute_fn 없이 재판정해 모든 세부기준이 동일한 최상위
+            # raw_output 하나를 공유한다. 예: U-06의 safe_keyword="wheel"은 grep 결과에
+            # "pam_wheel.so"라는 문자열만 있어도(실제로 비활성 상태여도) 우연히 매칭돼
+            # 버려 원래 "취약"이던 항목이 "부분만족"으로 잘못 재판정되는 사례가 실측으로
+            # 확인됐다. 그래서 MATCH가 나와도 우연의 일치일 수 있고, MISMATCH가 나와도
+            # 실제 불일치가 아닐 수 있어 자동 대조 자체가 신뢰할 수 없다 - MATCH/MISMATCH로
+            # 단정하지 않고 항상 "수동 검증 필요"로 분류한다. (pc_toolkit.py가 만든 파일처럼
+            # [CRIT:N] 개별 증거가 있으면 criteria_is_approx=False라 이 분기를 타지 않고
+            # 아래 일반 MATCH/MISMATCH 비교로 넘어간다 - 근사치가 아니므로 신뢰 가능.)
             classification = "MANUAL_VERIFICATION_NEEDED"
             detail_note = (
                 f"세부기준형 룰(criteria) - 자동 재판정은 근사치라 신뢰할 수 없어 수동 확인 필요. "
-                f"컨설턴트: {record.get('consultant_result')} / Z-VulnScan 재판정: {r['rejudged_result']}"
+                f"스크립트: {record.get('consultant_result')} / Z-VulnScan 재판정: {r['rejudged_result']}"
             )
         elif record.get("consultant_result") == r["rejudged_result"]:
             classification = "MATCH"
             detail_note = "일치"
         else:
             classification = "MISMATCH"
-            detail_note = f"컨설턴트: {record.get('consultant_result')} / 재판정: {r['rejudged_result']}"
+            detail_note = f"스크립트: {record.get('consultant_result')} / 재판정: {r['rejudged_result']}"
 
         entries.append({
             "host": record.get("host"), "ip": record.get("ip"),
@@ -249,7 +276,7 @@ def find_missing_codes(records, rulesets, rejudge_results=None):
 
     by_host = {}
     for rec in records:
-        # [실제 컨설턴트 포맷] 코드가 아예 없는 항목(주통 해당사항 없음 등)은 어떤 룰셋과도
+        # [실제 스크립트 포맷] 코드가 아예 없는 항목(주통 해당사항 없음 등)은 어떤 룰셋과도
         # 매칭할 수 없으므로 누락 계산에서 제외 - 포함하면 _prefix_of(None)에서 예외 발생.
         if not rec.get("parse_ok", True) or not rec.get("code"):
             continue
@@ -318,7 +345,7 @@ def run_cross_check(filepaths, rules_dir=None):
                     "record": r, "rule_found": False, "ruleset_file": None,
                     "ruleset_ambiguous": False, "rejudged_status": None,
                     "rejudged_result": None, "rejudged_detail": None,
-                    "has_criteria": False, "approx_note": None, "engine_error": None,
+                    "has_criteria": False, "criteria_is_approx": False, "approx_note": None, "engine_error": None,
                 })
 
         diff_entries = diff_records(rejudge_results)
@@ -352,10 +379,10 @@ def run_cross_check(filepaths, rules_dir=None):
 
 
 # ----------------------------------------------------------------------
-# [DB 직접대조 모드] 컨설턴트 증적을 우리 룰 키워드로 재판정하는 방식은, 서로 다른
+# [DB 직접대조 모드] 스크립트 증적을 우리 룰 키워드로 재판정하는 방식은, 서로 다른
 # 스크립트가 만든 증적 문장이 우리 safe_keyword("OK" 등)/vulnerable_keyword와
 # 우연히도 일치할 수가 없어서 실측상 신뢰도가 매우 낮다는 게 확인됐다(예: safe_keyword가
-# "OK"인 룰은 컨설턴트의 한국어 서술형 증적에 "OK"라는 글자가 나올 리 없어 항상
+# "OK"인 룰은 스크립트의 한국어 서술형 증적에 "OK"라는 글자가 나올 리 없어 항상
 # 취약으로 오판정). 이 모드는 재판정을 아예 하지 않고, Z-VulnScan이 같은 호스트를
 # 실제로 스캔해 DB에 이미 저장해 둔 "최종 판정값"을 코드 단위로 직접 대조한다 -
 # 키워드 매칭 문제 자체를 우회한다.
@@ -368,7 +395,7 @@ def run_cross_check(filepaths, rules_dir=None):
 
 def get_latest_db_results(db, asset_id):
     """asset_id의 최신 회차(scan_round) 결과를 {code: status} 형태로 반환한다.
-    code는 kisa_code가 있으면 그걸(컨설턴트 TXT의 코드와 동일 체계), 없으면 vuln_code를 쓴다."""
+    code는 kisa_code가 있으면 그걸(스크립트 TXT의 코드와 동일 체계), 없으면 vuln_code를 쓴다."""
     import sqlite3
     conn = sqlite3.connect(db.db_path, check_same_thread=False)
     cursor = conn.cursor()
@@ -405,7 +432,7 @@ def diff_records_db(records, db):
 
         if not code:
             classification = "NO_KISA_CODE"
-            detail_note = record.get("parse_warning") or "컨설턴트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
+            detail_note = record.get("parse_warning") or "스크립트 항목에 매핑된 KISA 코드가 없습니다(주통 해당사항 없음 등)."
             z_result = None
         elif not record.get("parse_ok", True):
             classification = "PARSE_ERROR"
@@ -431,16 +458,16 @@ def diff_records_db(records, db):
                 consultant_result = record.get("consultant_result")
                 if not consultant_result:
                     classification = "NO_CONSULTANT_RESULT"
-                    detail_note = f"컨설턴트 쪽에 결과값이 없습니다. Z-VulnScan(DB) 실제 판정: {z_result}"
+                    detail_note = f"스크립트 쪽에 결과값이 없습니다. Z-VulnScan(DB) 실제 판정: {z_result}"
                 elif consultant_result == "확인":
                     classification = "CONSULTANT_UNCERTAIN"
-                    detail_note = f"컨설턴트도 자동판정 보류(확인 필요) / Z-VulnScan(DB) 실제 판정: {z_result}"
+                    detail_note = f"스크립트도 자동판정 보류(확인 필요) / Z-VulnScan(DB) 실제 판정: {z_result}"
                 elif consultant_result == z_result:
                     classification = "MATCH"
                     detail_note = "일치 (Z-VulnScan 실제 스캔 결과 기준)"
                 else:
                     classification = "MISMATCH"
-                    detail_note = f"컨설턴트: {consultant_result} / Z-VulnScan(DB) 실제 판정: {z_result}"
+                    detail_note = f"스크립트: {consultant_result} / Z-VulnScan(DB) 실제 판정: {z_result}"
 
         entries.append({
             "host": record.get("host"), "ip": record.get("ip"),
@@ -494,6 +521,121 @@ def run_cross_check_db(filepaths, db):
 
     except Exception as e:
         AppLogger.log_error("[CrossCheck] run_cross_check_db failed", e)
+        result["engine_error"] = str(e)
+
+    return result
+
+
+# ----------------------------------------------------------------------
+# [PC 진단 도구] 업무용 PC는 WinRM 원격 접속이 실무에서 안 되는 경우가 많아, 사용자가
+# pc_toolkit.generate_pc_script()로 만든 로컬 실행 스크립트를 PC에서 직접 돌려 얻은
+# TXT 결과를 여기서 불러온다. 이 경로는 스크립트 대조가 아니라 Z-VulnScan 자신의
+# 대체 스캔 경로이므로(외부 스크립트와의 "독립성"을 지킬 이유가 없음), 위 run_cross_check
+# 계열과 달리 정식 스캔 이력 DB(TBL_SCAN_RESULT)에 직접 쓴다.
+# ----------------------------------------------------------------------
+
+def import_pc_results(filepaths, db):
+    """PC 로컬 진단 스크립트가 만든 TXT를 파싱 -> judge_rule() 재판정 -> DB 반영까지
+    한 번에 수행한다. 반환값의 imported_entries가 dialog 테이블에 그대로 쓰인다."""
+    from core.crosscheck_parser import parse_files
+
+    summary = {"total": 0, "imported": 0, "skipped": 0, "manual_or_na": 0}
+    result = {
+        "records": [], "parse_errors": [], "imported_entries": [],
+        "failed_files": [], "summary": summary,
+    }
+
+    try:
+        records, warning_records, failed_files = parse_files(filepaths)
+        result["records"] = records
+        result["parse_errors"] = warning_records
+        result["failed_files"] = failed_files
+
+        rulesets = load_rulesets()
+        code_index = build_code_index(rulesets)
+        asset_id_by_ip = {}
+
+        for record in records:
+            code = record.get("code")
+            host = record.get("host")
+            ip = record.get("ip")
+            entry = {"host": host, "ip": ip, "code": code, "name": record.get("name"),
+                      "status": None, "imported": False, "note": ""}
+
+            if not record.get("parse_ok", True) or not code:
+                entry["note"] = record.get("parse_warning") or "코드 없음 (주통 해당사항 없음 등)"
+                summary["skipped"] += 1
+                result["imported_entries"].append(entry)
+                continue
+
+            rule, ruleset_file, ambiguous = resolve_rule(record, code_index)
+            if rule is None:
+                entry["note"] = "모호한 코드(D-xx 등)" if ambiguous else "현재 룰셋에 이 코드가 없습니다."
+                summary["skipped"] += 1
+                result["imported_entries"].append(entry)
+                continue
+
+            rej = rejudge_record(record, code_index)
+            status = rej["rejudged_status"]
+            entry["name"] = rule.get("name", code)
+            if status is None:
+                entry["note"] = f"판정 엔진 오류: {rej['engine_error']}"
+                summary["skipped"] += 1
+                result["imported_entries"].append(entry)
+                continue
+
+            # [신뢰도 고지] criteria_is_approx=True(= [CRIT:N] 개별 증거가 없어 크로스체크의
+            # MANUAL_VERIFICATION_NEEDED와 동일한 근사 판정 한계에 걸린 경우)에만 확정
+            # 취약/양호 대신 MANUAL로 낮춘다. pc_toolkit.py가 만든 정상 파일은 세부기준별
+            # 명령을 실제로 실행해 캡처하므로(criteria_is_approx=False) 라이브 스캔과 동일한
+            # 정밀도라 여기 해당하지 않고 판정값을 그대로 신뢰한다.
+            detail = rej["rejudged_detail"]
+            if rej["criteria_is_approx"]:
+                status = "MANUAL"
+                detail = (
+                    f"[세부기준형 룰 - 수동 확인 필요] 근사 재판정 결과 참고용: "
+                    f"{STATUS_TO_RESULT.get(rej['rejudged_status'], 'N/A')} / {rej['approx_note']}"
+                )
+
+            if ip not in asset_id_by_ip:
+                asset_id = db.get_asset_id(ip)
+                if not asset_id:
+                    db.save_asset(ip, hostname=host or "Unknown", os_type="Windows")
+                    asset_id = db.get_asset_id(ip)
+                asset_id_by_ip[ip] = asset_id
+            asset_id = asset_id_by_ip[ip]
+
+            importance = rule.get("importance", "중")
+            if status == "VULNERABLE":
+                risk = {"상": "Critical", "중": "High", "하": "Medium"}.get(importance, "High")
+            elif status == "PARTIAL":
+                risk = {"상": "High", "중": "Medium", "하": "Low"}.get(importance, "Medium")
+            else:
+                risk = "Info"
+
+            # [증적 보강] evidence_output(pc_toolkit.py의 evidence_command 결과)이 있으면
+            # 판정용 raw_output보다 사람이 볼 상세 증적으로 더 적합하므로 DB의 raw_output
+            # (리포트 상세 증적) 컬럼에는 그걸 우선 쓴다 - judge_rule() 판정 자체는 위에서
+            # 이미 record["raw_output"]만으로 끝났으므로 이 선택은 판정 결과에 영향 없다.
+            report_evidence = record.get("evidence_output") or record.get("raw_output", "")
+            db.save_result(
+                asset_id, code, rule.get("name", code), risk, status,
+                detail, rule.get("remediation", "-"),
+                report_evidence, rule.get("kisa_code", code),
+            )
+
+            entry["status"] = STATUS_TO_RESULT.get(status, "N/A")
+            entry["imported"] = True
+            entry["note"] = detail or ""
+            summary["imported"] += 1
+            if status in ("MANUAL", "NA"):
+                summary["manual_or_na"] += 1
+            result["imported_entries"].append(entry)
+
+        summary["total"] = len(records)
+
+    except Exception as e:
+        AppLogger.log_error("[PCToolkit] import_pc_results failed", e)
         result["engine_error"] = str(e)
 
     return result

@@ -6,13 +6,13 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 """
-[교차검증 모드] 외부 컨설턴트가 산출한 TXT 결과 파일을 불러와 Z-VulnScan과 대조한다.
+[교차검증 모드] 외부 스크립트가 산출한 TXT 결과 파일을 불러와 Z-VulnScan과 대조한다.
 
 두 가지 대조 방식을 지원한다:
-- 재판정(오프라인, 기본값): 컨설턴트 증적을 Z-VulnScan 룰 키워드로 다시 판정한다.
+- 재판정(오프라인, 기본값): 스크립트 증적을 Z-VulnScan 룰 키워드로 다시 판정한다.
   DB(TBL_SCAN_RESULT)에 전혀 접근하지 않는다. 다만 서로 다른 스크립트가 만든 증적
   문장이 우리 룰의 safe_keyword("OK" 등)와 우연히 일치할 수 없어 실측상 신뢰도가
-  낮다는 게 확인됐다 - 예: safe_keyword가 "OK"인 룰은 컨설턴트의 한국어 서술형
+  낮다는 게 확인됐다 - 예: safe_keyword가 "OK"인 룰은 스크립트의 한국어 서술형
   증적에 "OK"가 나올 리 없어 거의 항상 취약으로 오판정된다.
 - DB 직접대조: 재판정을 하지 않고, Z-VulnScan이 같은 호스트를 실제로 스캔해 DB에
   이미 저장해 둔 최종 판정값을 코드 단위로 직접 비교한다. 키워드 매칭 문제 자체를
@@ -42,8 +42,8 @@ class CrossCheckDialog(QDialog):
         "AMBIGUOUS_RULESET": "룰셋 판별 불가",
         "PARSE_ERROR": "파싱 실패",
         "NO_KISA_CODE": "KISA 코드 없음",
-        "NO_CONSULTANT_RESULT": "컨설턴트 결과 없음",
-        "CONSULTANT_UNCERTAIN": "컨설턴트도 확인 필요",
+        "NO_CONSULTANT_RESULT": "스크립트 결과 없음",
+        "CONSULTANT_UNCERTAIN": "스크립트도 확인 필요",
         "MANUAL_VERIFICATION_NEEDED": "수동 검증 필요(세부기준형)",
         "DB_NO_ASSET": "Z-VulnScan 스캔 자산 없음",
         "DB_NO_SCAN_RESULT": "Z-VulnScan 스캔 이력 없음",
@@ -60,7 +60,7 @@ class CrossCheckDialog(QDialog):
 
     def __init__(self, parent=None, db=None):
         super().__init__(parent)
-        self.setWindowTitle("교차검증 (컨설턴트 TXT 대조)")
+        self.setWindowTitle("교차검증 (스크립트 TXT 대조)")
         self.resize(1100, 680)
 
         self.db = db
@@ -70,7 +70,7 @@ class CrossCheckDialog(QDialog):
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            "컨설턴트가 산출한 TXT 결과 파일을 선택해 Z-VulnScan과 대조합니다. Z-VulnScan "
+            "스크립트가 산출한 TXT 결과 파일을 선택해 Z-VulnScan과 대조합니다. Z-VulnScan "
             "자체 리포트 포맷과 실제 KISA 대조검증 스크립트 포맷을 모두 자동 인식합니다."
         )
         intro.setWordWrap(True)
@@ -80,7 +80,7 @@ class CrossCheckDialog(QDialog):
         mode_row.addWidget(QLabel("대조 방식:"))
         self.rb_rejudge = QRadioButton("재판정(오프라인, DB 미사용)")
         self.rb_rejudge.setToolTip(
-            "컨설턴트 증적을 Z-VulnScan 룰 키워드로 재판정합니다. DB에 접근하지 않지만,\n"
+            "스크립트 증적을 Z-VulnScan 룰 키워드로 재판정합니다. DB에 접근하지 않지만,\n"
             "서로 다른 스크립트의 증적 문장은 우리 키워드와 우연히 일치하기 어려워 신뢰도가 낮습니다."
         )
         self.rb_dbcompare = QRadioButton("DB 직접대조 (Z-VulnScan 실제 스캔 결과와 비교, 추천)")
@@ -149,7 +149,7 @@ class CrossCheckDialog(QDialog):
         layout.addWidget(self.warning_label)
 
         self.table = QTableWidget()
-        headers = ["Host", "IP", "Code", "Name", "컨설턴트 판정", "Z-VulnScan 판정", "구분", "비고"]
+        headers = ["Host", "IP", "Code", "Name", "스크립트 판정", "Z-VulnScan 판정", "구분", "비고"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.verticalHeader().hide()
@@ -187,14 +187,14 @@ class CrossCheckDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _pick_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "컨설턴트 결과 TXT 선택", "", "Text files (*.txt)")
+        files, _ = QFileDialog.getOpenFileNames(self, "스크립트 결과 TXT 선택", "", "Text files (*.txt)")
         for f in files:
             if f not in self._selected_files:
                 self._selected_files.append(f)
         self._refresh_file_list()
 
     def _pick_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "컨설턴트 결과 폴더 선택")
+        folder = QFileDialog.getExistingDirectory(self, "스크립트 결과 폴더 선택")
         if not folder:
             return
         for name in sorted(os.listdir(folder)):
@@ -247,7 +247,7 @@ class CrossCheckDialog(QDialog):
             self.summary_label.setText(
                 f"[DB 직접대조] 총 {s.get('total', 0)} / 일치 {s.get('match', 0)} / 불일치 {s.get('mismatch', 0)} / "
                 f"KISA코드없음 {s.get('no_kisa_code', 0)} / 파싱실패 {s.get('parse_error', 0)} / "
-                f"컨설턴트결과없음 {s.get('no_consultant_result', 0)} / 컨설턴트도확인필요 {s.get('consultant_uncertain', 0)} / "
+                f"스크립트결과없음 {s.get('no_consultant_result', 0)} / 스크립트도확인필요 {s.get('consultant_uncertain', 0)} / "
                 f"자산없음 {s.get('db_no_asset', 0)} / DB스캔이력없음 {s.get('db_no_scan_result', 0)}"
             )
         else:
@@ -256,7 +256,7 @@ class CrossCheckDialog(QDialog):
                 f"판별불가 {s.get('ambiguous', 0)} / 룰셋에 없음 {s.get('missing_in_ruleset', 0)} / "
                 f"파싱실패 {s.get('parse_error', 0)} / 근사치 {s.get('approx_count', 0)} / "
                 f"누락코드 {s.get('missing_codes', 0)} / KISA코드없음 {s.get('no_kisa_code', 0)} / "
-                f"컨설턴트결과없음 {s.get('no_consultant_result', 0)} / 컨설턴트도확인필요 {s.get('consultant_uncertain', 0)} / "
+                f"스크립트결과없음 {s.get('no_consultant_result', 0)} / 스크립트도확인필요 {s.get('consultant_uncertain', 0)} / "
                 f"수동검증필요(세부기준형) {s.get('manual_verification_needed', 0)}"
             )
         self.btn_export.setEnabled(bool(result.get("diff_entries")))

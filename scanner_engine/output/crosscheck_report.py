@@ -66,8 +66,8 @@ class CrossCheckReportGenerator:
         "AMBIGUOUS_RULESET": "룰셋 판별 불가",
         "PARSE_ERROR": "파싱 실패",
         "NO_KISA_CODE": "KISA 코드 없음",
-        "NO_CONSULTANT_RESULT": "컨설턴트 결과 없음",
-        "CONSULTANT_UNCERTAIN": "컨설턴트도 확인 필요",
+        "NO_CONSULTANT_RESULT": "스크립트 결과 없음",
+        "CONSULTANT_UNCERTAIN": "스크립트도 확인 필요",
         "MANUAL_VERIFICATION_NEEDED": "수동 검증 필요(세부기준형)",
         "DB_NO_ASSET": "Z-VulnScan 스캔 자산 없음",
         "DB_NO_SCAN_RESULT": "Z-VulnScan 스캔 이력 없음",
@@ -108,16 +108,16 @@ class CrossCheckReportGenerator:
 
         rows = [
             ("총 점검 항목 수", s.get("total", 0)),
-            ("일치 (컨설턴트 판정 = 재판정)", s.get("match", 0)),
+            ("일치 (스크립트 판정 = 재판정)", s.get("match", 0)),
             ("불일치", s.get("mismatch", 0)),
             ("룰셋에 코드 없음", s.get("missing_in_ruleset", 0)),
             ("룰셋 판별 불가 (D-xx MySQL/PostgreSQL)", s.get("ambiguous", 0)),
             ("파싱 실패 (수동 확인 필요)", s.get("parse_error", 0)),
             ("근사치 재판정 항목 (세부기준형 룰)", s.get("approx_count", 0)),
             ("호스트별 누락 코드 수", s.get("missing_codes", 0)),
-            ("KISA 코드 없음 (컨설턴트 측 매핑 불가 항목)", s.get("no_kisa_code", 0)),
-            ("컨설턴트 결과 없음 (수동 확인 항목 등)", s.get("no_consultant_result", 0)),
-            ("컨설턴트도 확인 필요 (\"확인\" 판정)", s.get("consultant_uncertain", 0)),
+            ("KISA 코드 없음 (스크립트 측 매핑 불가 항목)", s.get("no_kisa_code", 0)),
+            ("스크립트 결과 없음 (수동 확인 항목 등)", s.get("no_consultant_result", 0)),
+            ("스크립트도 확인 필요 (\"확인\" 판정)", s.get("consultant_uncertain", 0)),
             ("수동 검증 필요 (세부기준형 룰, 자동 대조 신뢰 불가)", s.get("manual_verification_needed", 0)),
             ("[DB 직접대조 모드] Z-VulnScan 스캔 자산 없음", s.get("db_no_asset", 0)),
             ("[DB 직접대조 모드] Z-VulnScan 스캔 이력 없음", s.get("db_no_scan_result", 0)),
@@ -141,7 +141,7 @@ class CrossCheckReportGenerator:
         ws.cell(row=r, column=1).alignment = Alignment(wrap_text=True)
         r += 1
         ws.cell(row=r, column=1,
-                value="'N/A' 판정은 컨설턴트 원본에서도 해당없음/수동확인/접속실패가 모두 동일 문자열로 "
+                value="'N/A' 판정은 스크립트 원본에서도 해당없음/수동확인/접속실패가 모두 동일 문자열로 "
                       "기록되므로(Z-VulnScan 자체 출력 포맷의 알려진 제약), 세부 원인까지는 구분되지 않습니다.").font = self.FONT_NORMAL
         ws.cell(row=r, column=1).alignment = Alignment(wrap_text=True)
 
@@ -169,7 +169,7 @@ class CrossCheckReportGenerator:
 
     def _write_mismatch_sheet(self, wb):
         ws = wb.create_sheet("Mismatch")
-        headers = ["Host", "IP", "Code", "Name", "Category", "컨설턴트 판정", "재판정", "구분", "근사치", "비고"]
+        headers = ["Host", "IP", "Code", "Name", "Category", "스크립트 판정", "재판정", "구분", "근사치", "비고"]
         self._write_header(ws, headers)
         mismatches = [e for e in self.result.get("diff_entries", []) if e["classification"] == "MISMATCH"]
         self._write_diff_rows(ws, mismatches)
@@ -194,7 +194,7 @@ class CrossCheckReportGenerator:
 
     def _write_all_items_sheet(self, wb):
         ws = wb.create_sheet("All Items")
-        headers = ["Host", "IP", "Code", "Name", "Category", "컨설턴트 판정", "재판정", "구분", "근사치", "비고"]
+        headers = ["Host", "IP", "Code", "Name", "Category", "스크립트 판정", "재판정", "구분", "근사치", "비고"]
         self._write_header(ws, headers)
         self._write_diff_rows(ws, self.result.get("diff_entries", []))
         self._autofit(ws, [18, 15, 10, 30, 16, 12, 12, 16, 30, 40])

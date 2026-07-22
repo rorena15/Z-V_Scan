@@ -56,6 +56,7 @@ from output.text_report import TextReportGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
+from utils.logger import AppLogger
 from utils.update_checker import check_for_updates
 from gui.styles import STYLESHEET, LIGHT_STYLESHEET
 from gui.help_texts import HELP_TEXTS
@@ -283,8 +284,16 @@ class ScannerApp(QMainWindow):
         self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], checkable=False)
         self.nav_reports.clicked.connect(self._show_reports_menu)
 
-        self.nav_crosscheck = make_nav_button("교차검증", "컨설턴트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", checkable=False)
+        self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", checkable=False)
         self.nav_crosscheck.clicked.connect(self.open_cross_check)
+
+        # [기능 비활성화] PC 진단 도구: 컨설턴트 스크립트 로직/방식을 아무리 따라가도 컨설턴트가
+        # 제공하는 엑셀 결과물과 호환성을 맞출 수 없다는 사용자 판단으로 비활성화(코드는 보존,
+        # 삭제하지 않음 - pc_toolkit.py/pc_toolkit_dialog.py/import_pc_results()는 그대로 둠).
+        # 기존 WinRM 기반 PC 점검 경로(worker.py)는 이 결정과 무관하게 그대로 유지된다.
+        self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", checkable=False)
+        self.nav_pc_toolkit.clicked.connect(self.open_pc_toolkit)
+        self.nav_pc_toolkit.setVisible(False)
 
         layout.addStretch()
 
@@ -1225,13 +1234,21 @@ class ScannerApp(QMainWindow):
         dlg.exec()
 
     def open_cross_check(self):
-        """[교차검증 모드] 컨설턴트 TXT 결과를 재판정 또는 DB 직접대조로 대조.
+        """[교차검증 모드] 스크립트 TXT 결과를 재판정 또는 DB 직접대조로 대조.
         기본(재판정) 모드는 DB에 접근하지 않지만, self.db를 넘겨주면 사용자가 다이얼로그
         안에서 "DB 직접대조" 모드를 선택할 수 있다 - 그 경우에만 실제로 DB를 조회한다.
         어느 모드든 DB에 쓰지는 않으므로 닫힌 뒤 refresh_dashboard()는 불필요하다."""
         from gui.crosscheck_dialog import CrossCheckDialog
         dlg = CrossCheckDialog(self, db=self.db)
         dlg.exec()
+
+    def open_pc_toolkit(self):
+        """[PC 진단 도구] 교차검증과 달리 이 경로로 가져온 결과는 TBL_SCAN_RESULT에
+        직접 반영되므로, 닫힌 뒤 대시보드를 갱신한다(open_db_manager와 동일한 이유)."""
+        from gui.pc_toolkit_dialog import PCToolkitDialog
+        dlg = PCToolkitDialog(self, db=self.db)
+        dlg.exec()
+        self.refresh_dashboard()
 
     def open_settings(self):
         from gui.settings_dialog import SettingsDialog
