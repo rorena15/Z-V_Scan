@@ -141,6 +141,18 @@ class DBConnector:
                 cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN zone_tag TEXT DEFAULT ''")
             except sqlite3.OperationalError: pass
 
+            # [자산평가] Excel 리포트의 컨설턴트 스타일 자산평가(C/I/A -> 등급)를 위한 컬럼.
+            # 스캔이 채우는 값이 아니라 사람이 입력하는 값이라 save_asset()이 아닌
+            # update_asset_assessment()로만 갱신한다.
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN asset_purpose TEXT DEFAULT ''")
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN department TEXT DEFAULT ''")
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN owner_name TEXT DEFAULT ''")
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN conf_score INTEGER")
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN integ_score INTEGER")
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN avail_score INTEGER")
+            except sqlite3.OperationalError: pass
+
             conn.commit()
             conn.close()
 
@@ -183,6 +195,60 @@ class DBConnector:
             except Exception as e:
                 AppLogger.log_error(f"[DB] Save Asset Error: {ip}", e)
                 return None
+            finally:
+                conn.close()
+
+    @staticmethod
+    def compute_asset_grade(c, i, a):
+        """C/I/A(각 1~3점) 합산으로 자산등급을 계산한다. 컨설턴트 엑셀 서식(별첨07 '점검대상'
+        시트)의 실제 수식 `=IF(H+I+J<=2,"-",IF(sum>=7,"상",IF(sum>=5,"중","하")))`을 그대로
+        옮긴 것 - 값이 하나라도 없으면(미평가) "-"를 반환한다."""
+        if c is None or i is None or a is None:
+            return "-"
+        total = c + i + a
+        if total <= 2:
+            return "-"
+        if total >= 7:
+            return "상"
+        if total >= 5:
+            return "중"
+        return "하"
+
+    def update_asset_assessment(self, asset_id, purpose="", department="", owner="", c=None, i=None, a=None):
+        """[자산평가] 스캔이 채우는 값이 아니라 사람이 입력하는 값이라 save_asset()과
+        분리한다 - 스캔 재실행/재발견 시 이 값들이 덮어써지면 안 된다."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE TBL_ASSETS
+                    SET asset_purpose=?, department=?, owner_name=?, conf_score=?, integ_score=?, avail_score=?
+                    WHERE asset_id=?
+                """, (purpose, department, owner, c, i, a, asset_id))
+                conn.commit()
+                return True
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Update Asset Assessment Error: {asset_id}", e)
+                return False
+            finally:
+                conn.close()
+
+    def get_asset_assessment_list(self):
+        """[자산평가 다이얼로그 / Excel 리포트 공용] 자산평가 컬럼을 포함한 자산 목록."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT asset_id, ip_addr, hostname, asset_purpose, department, owner_name,
+                           conf_score, integ_score, avail_score
+                    FROM TBL_ASSETS ORDER BY ip_addr ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Asset Assessment List Error", e)
+                return []
             finally:
                 conn.close()
 

@@ -35,6 +35,7 @@
     "importance": "상",
     "command": "$line = Select-String '^LockoutBadCount\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL'} else { $v = [int](($line.ToString() -split '=')[1].Trim()); if($v -ge 1 -and $v -le 5){'OK'}else{'FAIL'} }",
     "safe_keyword": "OK",
+    "evidence_command": "Select-String '^LockoutBadCount\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue",
     "description": "KISA 2026 가이드 W-04 기준(계정 잠금 임계값 5 이하)에 맞춰 LockoutBadCount가 1~5 범위인지로 판정합니다. 기존에는 '=0'(무제한/잠금없음) 문자열만 취약으로 잡아서 6 이상의 값(예: 999)은 놓치는 문제가 있었습니다.",
     "remediation": "net accounts /lockoutthreshold:5"
   },
@@ -144,6 +145,7 @@
     "importance": "중",
     "command": "$line = Select-String '^SeInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL'} else { $v = $line.ToString().Split('=')[1]; if($v -notmatch 'S-1-5-32-544'){'FAIL'} else { $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-17','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL'} } }",
     "safe_keyword": "OK",
+    "evidence_command": "Select-String '^SeInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue",
     "description": "불필요한 계정에 로컬 로그온이 허용되면 물리적 접근을 통한 침해 위험이 있습니다. Administrators(S-1-5-32-544) 및 IUSR(S-1-5-17) 외 SID/계정이 포함되면 취약으로 판정합니다.",
     "remediation": "로컬 로그온 허용 대상을 Administrators 등으로 제한"
   },
@@ -174,6 +176,7 @@
     "importance": "중",
     "command": "$deny = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections 2>$null | Select-String 'fDenyTSConnections'; if($deny){ $d = [int](($deny.ToString() -split '\\s+')[-1]); if($d -eq 1){'DISABLED_OK'} else { $line = Select-String '^SeRemoteInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL_NORIGHT'} else { $v = $line.ToString().Split('=')[1]; $rest = ($v -replace 'S-1-5-32-544','' -replace 'S-1-5-32-555','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL_EXTRA'} } } } else {'FAIL_NOVALUE'}",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections 2>$null; Select-String '^SeRemoteInteractiveLogonRight\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue",
     "description": "원격 데스크톱 접속 그룹에 불필요한 계정이 있으면 공격 표면이 늘어납니다. (Remote Desktop Users는 그룹명 로케일 의존적이라, fDenyTSConnections와 SeRemoteInteractiveLogonRight 사용자 권한 할당(Administrators/Remote Desktop Users SID)만으로 점검합니다)",
     "remediation": "불필요한 계정을 Remote Desktop Users 그룹에서 제거 (수동 검토 필요)"
   },
@@ -204,6 +207,7 @@
     "importance": "상",
     "command": "$sh = (net share 2>$null) -join \"`n\"; $hasDefault = ($sh -match '(?m)^[A-Za-z]\\$\\s') -or ($sh -match '(?m)^(ADMIN|IPC)\\$\\s'); $asrv = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name AutoShareServer -ErrorAction SilentlyContinue).AutoShareServer; $awks = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name AutoShareWks -ErrorAction SilentlyContinue).AutoShareWks; $regOk = ($asrv -eq 0) -or ($awks -eq 0); if ((-not $hasDefault) -and $regOk) { 'OK' } else { 'FAIL' }",
     "vulnerable_keyword": "FAIL",
+    "evidence_command": "net share; Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name AutoShareServer,AutoShareWks -ErrorAction SilentlyContinue | Select-Object AutoShareServer, AutoShareWks | Out-String",
     "description": "기본 공유(C$, ADMIN$)가 활성화되어 있으면 원격 공격의 진입점이 될 수 있습니다.",
     "remediation": "AutoShareServer, AutoShareWks 값을 0으로 설정 후 기본 공유 제거"
   },
@@ -273,6 +277,7 @@
     "importance": "상",
     "command": "$svc = Get-Service -Name FTPSVC -ErrorAction SilentlyContinue; if(-not $svc -or $svc.Status -ne 'Running'){'OK'} else { $cfg = Get-WebConfiguration -Filter '/system.ftpServer/security/ipSecurity' -PSPath 'IIS:\\Sites\\Default FTP Site' -ErrorAction SilentlyContinue; if($cfg -and $cfg.Collection.Count -gt 0){'OK'}else{'FAIL'} }",
     "safe_keyword": "OK",
+    "evidence_command": "(Get-Service -Name FTPSVC -ErrorAction SilentlyContinue) | Select-Object Status | Out-String; Get-WebConfiguration -Filter '/system.ftpServer/security/ipSecurity' -PSPath 'IIS:\\Sites\\Default FTP Site' -ErrorAction SilentlyContinue | Out-String",
     "description": "FTP 서비스가 구동 중이 아니면 해당 없음(양호)으로 처리하고, 구동 중이면 IP 접근 제어(ipSecurity) 등록 여부로 판정합니다. 접근 제어가 없으면 임의의 IP에서 접속을 시도할 수 있습니다.",
     "remediation": "IIS FTP IP 제한 설정으로 허용 IP만 등록"
   },
@@ -283,6 +288,7 @@
     "importance": "상",
     "command": "$svc = Get-Service -Name DNS -ErrorAction SilentlyContinue; if(-not $svc -or $svc.Status -ne 'Running'){'OK'} else { $bad = Get-DnsServerZone -ErrorAction SilentlyContinue | Where-Object { $_.SecureSecondaries -eq 'TransferAnyServer' }; if($bad){'FAIL'}else{'OK'} }",
     "safe_keyword": "OK",
+    "evidence_command": "(Get-Service -Name DNS -ErrorAction SilentlyContinue) | Select-Object Status | Out-String; Get-DnsServerZone -ErrorAction SilentlyContinue | Select-Object ZoneName, SecureSecondaries | Out-String",
     "description": "DNS 서비스가 구동 중이 아니면 해당 없음(양호)으로 처리하고, 구동 중이면 Zone Transfer 제한(SecureSecondaries) 설정으로 판정합니다. 제한되지 않으면 내부 네트워크 구조가 노출됩니다.",
     "remediation": "SecureSecondaries를 TransferToSecureServers로 설정"
   },
@@ -312,6 +318,7 @@
     "importance": "중",
     "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v MinEncryptionLevel 2>$null | Select-String 'MinEncryptionLevel'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -ge 2){'OK'}else{'FAIL'} }",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v MinEncryptionLevel 2>$null",
     "description": "RDP 암호화 수준이 낮으면 세션 데이터가 도청될 위험이 있습니다.",
     "remediation": "MinEncryptionLevel 값을 2(높음) 이상으로 설정"
   },
@@ -332,6 +339,7 @@
     "importance": "중",
     "command": "$sv = ((sc.exe query SNMP 2>$null) -join \"`n\"); if ($sv -notmatch 'SERVICE_NAME') { 'OK' } else { $running = $sv -match 'RUNNING'; $qc = ((sc.exe qc SNMP 2>$null) -join \"`n\"); $disabled = $qc -match 'DISABLED'; if ((-not $running) -and $disabled) { 'OK' } else { $comm = ((reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\ValidCommunities\" 2>$null) -join \"`n\"); if ([string]::IsNullOrWhiteSpace($comm)) { 'FAIL' } elseif ($comm -match '(?im)^\\s*public\\s' -or $comm -match '(?im)^\\s*private\\s') { 'FAIL' } else { 'OK' } } }",
     "vulnerable_keyword": "FAIL",
+    "evidence_command": "sc.exe query SNMP 2>$null; sc.exe qc SNMP 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\ValidCommunities\" 2>$null",
     "description": "기본 Community String(public/private) 사용 시 SNMP 정보가 쉽게 노출됩니다.",
     "remediation": "기본 Community String 제거 후 복잡한 문자열로 변경"
   },
@@ -390,6 +398,7 @@
     "importance": "중",
     "command": "$paths=@('CurrentControlSet','ControlSet001','ControlSet002'); $v=$null; foreach($cs in $paths){ $o = reg query \"HKLM\\SYSTEM\\$cs\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v MaxIdleTime 2>$null; if($o){ $l = $o | Select-String 'MaxIdleTime'; if($l){ $v=[int](($l.ToString() -split '\\s+')[-1]); break } } }; if($null -eq $v){'FAIL'} elseif($v -gt 0 -and $v -le 900000){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "foreach($cs in @('CurrentControlSet','ControlSet001','ControlSet002')) { reg query \"HKLM\\SYSTEM\\$cs\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v MaxIdleTime 2>$null }",
     "description": "유휴 세션 타임아웃이 없으면 방치된 원격 세션이 침해 경로가 될 수 있습니다.",
     "remediation": "MaxIdleTime을 900000(15분) 이하로 설정"
   },
@@ -418,6 +427,7 @@
     "importance": "상",
     "command": "$found=$false; try{ if((Get-Service -Name WinDefend -ErrorAction SilentlyContinue).Status -eq 'Running'){$found=$true} }catch{}; if(-not $found){ $procs=@('MsMpEng','V3Svc','V3Lite','avp','avguard','AvastSvc','ashServ','mcshield','mfemms','ekrn','ntrtscan','bdagent'); foreach($p in $procs){ if(Get-Process -Name $p -ErrorAction SilentlyContinue){ $found=$true; break } } }; if($found){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "(Get-Service -Name WinDefend -ErrorAction SilentlyContinue) | Select-Object Status | Out-String; Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('MsMpEng','V3Svc','V3Lite','avp','avguard','AvastSvc','ashServ','mcshield','mfemms','ekrn','ntrtscan','bdagent') } | Select-Object Name | Out-String",
     "description": "백신이 최신 상태로 업데이트되지 않으면 최신 악성코드 탐지가 불가능합니다. (Windows Defender뿐 아니라 V3/알약, ESET, McAfee, Avast 등 국내외 주요 서드파티 백신 프로세스/서비스도 함께 확인합니다)",
     "remediation": "Update-MpSignature로 백신 정의 업데이트 (서드파티 백신은 해당 제품의 업데이트 절차 수행)"
   },
@@ -470,6 +480,7 @@
     "importance": "중",
     "command": "$v = (reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters\" /v NtpServer 2>$null | Select-String 'NtpServer'); if($v){ $val = ($v.ToString() -split '\\s+')[-1]; if([string]::IsNullOrWhiteSpace($val)){'FAIL'}else{'OK'} } else {'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters\" /v NtpServer 2>$null",
     "description": "시각 동기화가 되지 않으면 로그 상관분석 및 침해사고 추적이 어려워집니다. (w32tm /query /status의 'Local CMOS Clock' 등 문구는 시스템 언어에 따라 달라져 NtpServer 레지스트리 값으로 점검합니다)",
     "remediation": "w32tm /config로 신뢰할 수 있는 NTP 서버와 동기화 설정"
   },
@@ -480,6 +491,7 @@
     "importance": "하",
     "command": "$p = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security' -ErrorAction SilentlyContinue; $maxSize=$p.MaxSize; $retention=$p.Retention; if($null -eq $maxSize -or $null -eq $retention){'FAIL'} elseif([int64]$maxSize -ge 10485760 -and [int64]$retention -ne 0){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security' -ErrorAction SilentlyContinue | Select-Object MaxSize, Retention | Out-String",
     "description": "Security 이벤트 로그의 최대 크기(MaxSize, 10240KB 이상)와 보존 기간(Retention, 0=무제한 순환이 아닌 명시적 값)이 모두 권고 기준을 충족하는지로 판정합니다. 이벤트 로그 크기가 작거나 보존 기간이 없으면 로그가 조기에 순환되어 증적이 유실될 수 있습니다.",
     "remediation": "Limit-EventLog로 로그 최대 크기를 10240KB 이상으로 설정"
   },
@@ -510,6 +522,7 @@
     "importance": "상",
     "command": "$found=$false; try{ if((Get-Service -Name WinDefend -ErrorAction SilentlyContinue).Status -eq 'Running'){$found=$true} }catch{}; if(-not $found){ $procs=@('MsMpEng','V3Svc','V3Lite','avp','avguard','AvastSvc','ashServ','mcshield','mfemms','ekrn','ntrtscan','bdagent'); foreach($p in $procs){ if(Get-Process -Name $p -ErrorAction SilentlyContinue){ $found=$true; break } } }; if($found){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "(Get-Service -Name WinDefend -ErrorAction SilentlyContinue) | Select-Object Status | Out-String; Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('MsMpEng','V3Svc','V3Lite','avp','avguard','AvastSvc','ashServ','mcshield','mfemms','ekrn','ntrtscan','bdagent') } | Select-Object Name | Out-String",
     "description": "백신 프로그램이 없으면 악성코드 감염에 취약합니다. (Windows Defender뿐 아니라 V3/알약, ESET, McAfee, Avast 등 서드파티 백신도 설치로 인정합니다)",
     "remediation": "Windows Defender 활성화 또는 백신 프로그램 설치"
   },
@@ -520,6 +533,7 @@
     "importance": "상",
     "command": "$allow=@('BUILTIN\\Administrators','NT AUTHORITY\\SYSTEM'); $bad=$false; try{ $acl = icacls \"C:\\Windows\\System32\\config\\SAM\"; foreach($l in $acl){ if($l -match ':' -and $l -notmatch 'Successfully processed' -and $l.Trim() -ne ''){ $matched=$false; foreach($a in $allow){ if($l -match [regex]::Escape($a)){$matched=$true} }; if(-not $matched){$bad=$true} } } }catch{$bad=$true}; if($bad){'FAIL'}else{'OK'}",
     "safe_keyword": "OK",
+    "evidence_command": "icacls \"C:\\Windows\\System32\\config\\SAM\"",
     "description": "SAM 파일에 과도한 접근 권한이 있으면 계정 해시가 유출되어 크래킹에 악용될 수 있습니다. (Everyone 리터럴만 검사하지 않고 BUILTIN\\Administrators/NT AUTHORITY\\SYSTEM만 허용하는 화이트리스트 방식으로 Users, Authenticated Users 등 과도한 권한도 탐지합니다)",
     "remediation": "icacls로 Administrators/SYSTEM만 접근 가능하도록 설정"
   },
@@ -530,6 +544,7 @@
     "importance": "하",
     "command": "$active=(reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive 2>$null | Select-String 'ScreenSaveActive'); $timeout=(reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null | Select-String 'ScreenSaveTimeOut'); $secure=(reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure 2>$null | Select-String 'ScreenSaverIsSecure'); $activeOk = $active -and (($active.ToString() -split '\\s+')[-1] -eq '1'); $timeoutVal = if($timeout){[int](($timeout.ToString() -split '\\s+')[-1])}else{-1}; $timeoutOk = $timeoutVal -gt 0 -and $timeoutVal -le 600; $secureOk = $secure -and (($secure.ToString() -split '\\s+')[-1] -eq '1'); if($activeOk -and $timeoutOk -and $secureOk){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive 2>$null; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure 2>$null",
     "description": "KISA 2026 가이드 W-47은 화면보호기 활성화(ScreenSaveActive=1) + 대기시간 10분 이하(ScreenSaveTimeOut≤600초) + 해제 암호 사용(ScreenSaverIsSecure=1) 3개 조건을 모두 요구합니다. 기존 룰은 활성화 여부만 확인해 대기시간이 길거나 암호 보호가 꺼져 있어도 양호로 오판정했습니다.",
     "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600, ScreenSaverIsSecure=1 설정"
   },
@@ -550,6 +565,7 @@
     "importance": "상",
     "command": "$line = Select-String '^SeRemoteShutdownPrivilege\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue; if(-not $line){'FAIL_NORIGHT'} else { $v = $line.ToString().Split('=')[1]; $rest = ($v -replace 'S-1-5-32-544','' -replace '[,*; ]',''); if([string]::IsNullOrEmpty($rest)){'OK'}else{'FAIL_EXTRA'} }",
     "safe_keyword": "OK",
+    "evidence_command": "Select-String '^SeRemoteShutdownPrivilege\\s*=' C:\\zvulnscan_secpol_cache.cfg -ErrorAction SilentlyContinue",
     "description": "관리자 외 계정이 원격 종료 권한을 가지면 서비스 거부 공격에 악용될 수 있습니다. (SeRemoteShutdownPrivilege 보유자가 Administrators(S-1-5-32-544)로만 제한되는지 판정)",
     "remediation": "해당 권한 보유자를 Administrators로 제한"
   },
@@ -591,6 +607,7 @@
     "importance": "상",
     "command": "$aal = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -ErrorAction SilentlyContinue).AutoAdminLogon; $dp = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name DefaultPassword -ErrorAction SilentlyContinue).DefaultPassword; if ($dp) { 'FAIL' } elseif ((-not $aal) -or (\"$aal\" -eq '0')) { 'OK' } else { 'FAIL' }",
     "vulnerable_keyword": "FAIL",
+    "evidence_command": "$aal = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -ErrorAction SilentlyContinue).AutoAdminLogon; $dpSet = [bool](Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name DefaultPassword -ErrorAction SilentlyContinue).DefaultPassword; \"AutoAdminLogon=$aal / DefaultPassword 설정여부=$dpSet\"",
     "description": "자동 로그온이 설정되면 물리적 접근만으로 시스템에 접근할 수 있습니다.",
     "remediation": "AutoAdminLogon 값을 0으로 설정하고 DefaultPassword 제거"
   },
@@ -622,6 +639,7 @@
     "importance": "중",
     "command": "$syn=(reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v SynAttackProtect 2>$null | Select-String 'SynAttackProtect'); $gw=(reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v EnableDeadGWDetect 2>$null | Select-String 'EnableDeadGWDetect'); $ka=(reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v KeepAliveTime 2>$null | Select-String 'KeepAliveTime'); $nr=(reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v NoNameReleaseOnDemand 2>$null | Select-String 'NoNameReleaseOnDemand'); $synOk = $syn -and ([int](($syn.ToString() -split '\\s+')[-1]) -ge 1); $gwOk = $gw -and ([int](($gw.ToString() -split '\\s+')[-1]) -eq 0); $kaOk = $ka -and ([int](($ka.ToString() -split '\\s+')[-1]) -eq 300000); $nrOk = $nr -and ([int](($nr.ToString() -split '\\s+')[-1]) -eq 1); if($synOk -and $gwOk -and $kaOk -and $nrOk){'OK'}else{'FAIL'}",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v SynAttackProtect 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v EnableDeadGWDetect 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v KeepAliveTime 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v NoNameReleaseOnDemand 2>$null",
     "description": "KISA 2026 가이드 W-54는 IPEnableRouter가 아니라 SynAttackProtect(1 이상)/EnableDeadGWDetect(0)/KeepAliveTime(300000)/NoNameReleaseOnDemand(1) 4개 레지스트리 값을 모두 요구합니다. 기존 룰은 이 중 어느 것도 아닌 IPEnableRouter(IP 라우팅 여부)를 체크하고 있어 완전히 다른 항목을 판정하고 있었습니다.",
     "remediation": "IPEnableRouter 값을 0으로 설정"
   },
@@ -696,6 +714,7 @@
     "importance": "중",
     "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel 2>$null | Select-String 'LmCompatibilityLevel'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -ge 3){'OK'}else{'FAIL'} }",
     "safe_keyword": "OK",
+    "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel 2>$null",
     "description": "낮은 LAN Manager 인증 수준은 해시 크래킹 등 인증 우회 공격에 취약합니다.",
     "remediation": "LmCompatibilityLevel 값을 3 이상으로 설정"
   },

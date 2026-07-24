@@ -317,13 +317,39 @@ class SSHInspector:
             # 판정 로직 (단일조건: 취약/양호/수동검토, 다중조건(criteria): 취약/부분만족/양호, 공통: 해당없음)
             status, detail = judge_rule(rule, full_output, execute_fn=self.execute_command)
 
+            # [증적 보강] 상당수 룰의 command가 "echo OK/FAIL" 식으로 판정용 센티널만
+            # 내놓기 때문에(예: U-03/U-12/U-37/U-43/U-52/U-58/U-62), 그 값을 그대로
+            # Raw Output(리포트 상세 증적)으로 저장하면 리포트에 "FAIL"/"VULNERABLE"라는
+            # 글자만 남고 실제 근거(설정값/프로세스/파일 등)가 안 보인다(실측 확인됨).
+            # evidence_command가 있으면 그 결과를 사람이 볼 raw_output으로 우선 사용한다 -
+            # windows_inspector.py에 이미 적용한 것과 동일한 원칙. 판정(judge_rule)은
+            # 여전히 위에서 top-level full_output만으로 이미 끝났으므로 판정 결과에는
+            # 영향이 없다.
+            evidence_command = rule.get('evidence_command')
+            report_evidence = full_output
+            if evidence_command:
+                report_evidence = self.execute_command(evidence_command, use_sudo=rule.get('privileged', False))
+                if report_evidence is None:
+                    report_evidence = full_output
+
+            # [현황 보강] utils/rule_judge.py의 _single_condition_result()는 양호일 때
+            # 실제 값과 무관하게 "양호 (점검 완료)"만 반환한다(취약일 때는 그나마
+            # "{safe_keyword} 누락"/취약 값 일부라도 detail에 남는데, 양호는 내용이
+            # 전혀 없음 - 실측 확인됨). evidence_command로 얻은 실제 값이 있으면
+            # 이 밋밋한 문구 뒤에 붙여서 "현황"에도 근거가 남게 한다. 판정(status)은
+            # 이미 위에서 끝났으므로 여기서는 표시 문구만 보강하고 판정에는 영향 없다.
+            if evidence_command and detail == "양호 (점검 완료)" and report_evidence:
+                snippet = report_evidence.strip().replace("\r\n", " / ").replace("\n", " / ")[:80]
+                if snippet:
+                    detail = f"양호 (확인됨: {snippet})"
+
             # [핵심 수정] 6개 -> 7개 튜플 반환 (증적 + 중요도 포함)
             results[code] = (
                 status,
                 detail,
                 rule.get('name', code),
                 rule.get('remediation', ''),
-                full_output,  # Raw Output (증적)
+                report_evidence,  # Raw Output (증적)
                 kisa_code,    # KISA Code
                 rule.get('importance', '중')  # 중요도 (상/중/하)
             )

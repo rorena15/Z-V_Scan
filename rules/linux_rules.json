@@ -64,6 +64,7 @@
     "importance": "상",
     "command": "d=$(grep -hE '^[[:space:]]*deny[[:space:]]*=' /etc/security/faillock.conf 2>/dev/null | tail -n 1 | sed -E 's/.*deny[[:space:]]*=[[:space:]]*([0-9]+).*/\\1/'); if [ -z \"$d\" ]; then d=$(grep -hoE 'deny=[0-9]+' /etc/pam.d/system-auth /etc/pam.d/password-auth /etc/pam.d/common-auth 2>/dev/null | tail -n 1 | cut -d= -f2); fi; if [ -n \"$d\" ] && [ \"$d\" -gt 0 ] 2>/dev/null && [ \"$d\" -le 10 ] 2>/dev/null; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "grep -hE '^[[:space:]]*deny[[:space:]]*=' /etc/security/faillock.conf 2>/dev/null; grep -hoE 'deny=[0-9]+' /etc/pam.d/system-auth /etc/pam.d/password-auth /etc/pam.d/common-auth 2>/dev/null",
     "description": "계정 잠금 임계값이 없거나 10회를 초과하면 무차별 대입 공격 시 인증 시도가 과도하게 허용됩니다.",
     "remediation": "pam_faillock(faillock.conf) 또는 레거시 pam_tally2 설정에 deny값을 1~10 사이로 설정"
   },
@@ -123,6 +124,7 @@
     "category": "계정 관리",
     "importance": "중",
     "command": "line=$(grep '^root:' /etc/group 2>/dev/null); members=$(echo \"$line\" | awk -F: '{print $4}'); if [ -z \"$members\" ]; then echo SAFE; else echo VULNERABLE; fi",
+    "evidence_command": "grep '^root:' /etc/group 2>/dev/null",
     "description": "관리자 그룹에 불필요한 계정이 포함되면 권한 남용 및 정보 유출 위험이 있습니다.",
     "remediation": "gpasswd -d로 불필요한 계정을 관리자 그룹에서 제거 (수동 검토 필요)",
     "vulnerable_keyword": "VULNERABLE"
@@ -133,6 +135,7 @@
     "category": "계정 관리",
     "importance": "하",
     "command": "missing=$(awk -F: 'NR==FNR{g[$3]=1; next} {if (!($4 in g)) print $4}' /etc/group /etc/passwd 2>/dev/null | sort -u); if [ -n \"$missing\" ]; then echo VULNERABLE; else echo SAFE; fi",
+    "evidence_command": "awk -F: 'NR==FNR{g[$3]=1; next} {if (!($4 in g)) print $1\": GID=\"$4}' /etc/group /etc/passwd 2>/dev/null",
     "description": "계정이 존재하지 않는 불필요한 그룹이 있으면 권한 남용 및 감사 추적 곤란의 원인이 됩니다.",
     "remediation": "groupdel로 불필요한 그룹 삭제 (수동 검토 필요)",
     "vulnerable_keyword": "VULNERABLE"
@@ -164,6 +167,7 @@
     "importance": "하",
     "command": "v=\"\"; for f in /etc/profile /etc/bashrc /etc/profile.d/*.sh; do [ -f \"$f\" ] || continue; t=$(grep -E '^[[:space:]]*TMOUT[[:space:]]*=' \"$f\" 2>/dev/null | grep -v '^[[:space:]]*#' | tail -n 1 | sed -E 's/^[^=]*=[[:space:]]*([0-9]+).*/\\1/'); [ -n \"$t\" ] && v=\"$t\"; done; if [ -n \"$v\" ] && [ \"$v\" -gt 0 ] 2>/dev/null && [ \"$v\" -le 600 ] 2>/dev/null; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "grep -E '^[[:space:]]*TMOUT[[:space:]]*=' /etc/profile /etc/bashrc /etc/profile.d/*.sh 2>/dev/null",
     "description": "세션 타임아웃이 설정되지 않거나 600초를 초과하면 방치된 터미널을 통한 비인가 접근 위험이 있습니다.",
     "remediation": "/etc/profile에 TMOUT=600, export TMOUT 설정"
   },
@@ -174,6 +178,7 @@
     "importance": "중",
     "command": "em=$(grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null | awk '{print $2}'); if [ -n \"$em\" ]; then case \"$em\" in SHA512|SHA256|sha512|sha256|yescrypt) echo OK ;; *) echo FAIL ;; esac; else if grep -qE '^[^:]+:\\$1\\$' /etc/shadow 2>/dev/null; then echo FAIL; else echo OK; fi; fi",
     "safe_keyword": "OK",
+    "evidence_command": "grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null; grep -oE '^[^:]+:\\$[0-9a-z]+\\$' /etc/shadow 2>/dev/null | head -5",
     "description": "MD5(\\$1\\$) 등 취약한 해시로 비밀번호를 암호화하면 크래킹 공격에 취약합니다. 최신 배포판은 ENCRYPT_METHOD 미설정 시 SHA-512가 기본값이므로 실제 /etc/shadow 해시 접두어로 보조 검증합니다.",
     "remediation": "/etc/login.defs에 ENCRYPT_METHOD SHA512 설정 (또는 배포판 기본값이 SHA-512/yescrypt인지 /etc/shadow 해시로 확인)"
   },
@@ -205,6 +210,7 @@
     "importance": "상",
     "command": "p=$(stat -c %a /etc/passwd 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 644 ]; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "stat -c '%a %U:%G %n' /etc/passwd 2>/dev/null",
     "description": "/etc/passwd 파일 권한이 부적절하면 계정 정보가 임의로 변조될 수 있습니다.",
     "remediation": "chown root, chmod 644 /etc/passwd"
   },
@@ -225,6 +231,7 @@
     "importance": "상",
     "command": "p=$(stat -c %a /etc/shadow 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 400 ]; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "stat -c '%a %U:%G %n' /etc/shadow 2>/dev/null",
     "description": "/etc/shadow 파일이 노출되면 비밀번호 해시가 크래킹되어 계정이 탈취될 수 있습니다.",
     "remediation": "chown root, chmod 400 /etc/shadow"
   },
@@ -235,6 +242,7 @@
     "importance": "상",
     "command": "p=$(stat -c %a /etc/hosts 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 644 ]; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "stat -c '%a %U:%G %n' /etc/hosts 2>/dev/null",
     "description": "/etc/hosts 파일이 변조되면 파밍(Pharming) 공격에 악용될 수 있습니다.",
     "remediation": "chown root, chmod 644 /etc/hosts"
   },
@@ -245,6 +253,7 @@
     "importance": "상",
     "command": "f=\"\"; for c in /etc/inetd.conf /etc/xinetd.conf; do [ -f \"$c\" ] && f=\"$c\" && break; done; if [ -z \"$f\" ]; then echo OK; else p=$(stat -c %a \"$f\" 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 600 ]; then echo OK; else echo FAIL; fi; fi",
     "safe_keyword": "OK",
+    "evidence_command": "for c in /etc/inetd.conf /etc/xinetd.conf; do [ -f \"$c\" ] && stat -c '%a %U:%G %n' \"$c\"; done",
     "description": "(x)inetd 설정 파일 권한이 부적절하면 비인가자가 서비스를 임의로 등록/변조할 수 있습니다.",
     "remediation": "chown root, chmod 600으로 (x)inetd.conf 권한 조정"
   },
@@ -255,6 +264,7 @@
     "importance": "상",
     "command": "f=\"\"; for c in /etc/rsyslog.conf /etc/syslog.conf; do [ -f \"$c\" ] && f=\"$c\" && break; done; if [ -z \"$f\" ]; then echo OK; else p=$(stat -c %a \"$f\" 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 640 ]; then echo OK; else echo FAIL; fi; fi",
     "safe_keyword": "OK",
+    "evidence_command": "for c in /etc/rsyslog.conf /etc/syslog.conf; do [ -f \"$c\" ] && stat -c '%a %U:%G %n' \"$c\"; done",
     "description": "로그 설정 파일이 변조되면 로그 기록 위치·수준이 임의로 변경될 수 있습니다.",
     "remediation": "chown root, chmod 640으로 (r)syslog.conf 권한 조정"
   },
@@ -265,6 +275,7 @@
     "importance": "상",
     "command": "p=$(stat -c %a /etc/services 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 644 ]; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "stat -c '%a %U:%G %n' /etc/services 2>/dev/null",
     "description": "/etc/services 파일이 변조되면 포트 매핑이 조작되어 비정상 서비스가 실행될 수 있습니다.",
     "remediation": "chown root, chmod 644 /etc/services"
   },
@@ -337,6 +348,7 @@
     "importance": "하",
     "command": "if [ ! -f /etc/hosts.lpd ]; then echo OK; else p=$(stat -c %a /etc/hosts.lpd 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 600 ]; then echo OK; else echo FAIL; fi; fi",
     "safe_keyword": "OK",
+    "evidence_command": "if [ -f /etc/hosts.lpd ]; then stat -c '%a %U:%G %n' /etc/hosts.lpd; else echo '파일 없음'; fi",
     "description": "hosts.lpd 파일 권한이 부적절하면 프린터 서비스 설정이 변조될 수 있습니다.",
     "remediation": "파일이 존재하면 chown root, chmod 600 설정"
   },
@@ -347,6 +359,7 @@
     "importance": "중",
     "command": "bad=0; for f in /etc/profile /etc/login.defs /etc/bashrc /etc/profile.d/*; do [ -f \"$f\" ] || continue; vals=$(grep -E '^[[:space:]]*(umask|UMASK)[[:space:]]+[0-9]{3,4}' \"$f\" 2>/dev/null | awk '{print $NF}'); for v in $vals; do d=$((8#$v)); [ \"$d\" -lt 18 ] && bad=1; done; done; if [ \"$bad\" -eq 1 ]; then echo FAIL; else echo OK; fi",
     "safe_keyword": "OK",
+    "evidence_command": "grep -E '^[[:space:]]*(umask|UMASK)[[:space:]]+[0-9]{3,4}' /etc/profile /etc/login.defs /etc/bashrc /etc/profile.d/* 2>/dev/null",
     "description": "UMASK 값이 낮으면 새로 생성되는 파일/디렉터리 권한이 과도하게 개방됩니다.",
     "remediation": "/etc/profile 및 /etc/login.defs에 umask 022 설정"
   },
@@ -387,6 +400,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active finger.socket 2>/dev/null | grep -qw active && r=yes; command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -qE '(:79[[:space:]]|:79$)' && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '(in\\.fingerd|fingerd)' && r=yes; [ -f /etc/xinetd.d/finger ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' /etc/xinetd.d/finger 2>/dev/null && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active finger.socket 2>/dev/null; ps -ef 2>/dev/null | grep -E '[i]n\\.fingerd|[f]ingerd'; (ss -lnt 2>/dev/null | grep -E '(:79[[:space:]]|:79$)'); [ -f /etc/xinetd.d/finger ] && cat /etc/xinetd.d/finger",
     "description": "Finger 서비스는 사용자 정보를 노출시켜 계정 추측 공격에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now finger.socket"
   },
@@ -407,6 +421,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active rlogin.socket rsh.socket rexec.socket 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active rlogin.socket rsh.socket rexec.socket 2>/dev/null",
     "description": "r 계열 서비스(rlogin, rsh, rexec)는 인증 절차가 취약해 원격 명령 실행에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now rlogin.socket rsh.socket rexec.socket"
   },
@@ -417,6 +432,7 @@
     "importance": "상",
     "command": "f=\"\"; for c in /usr/bin/crontab /bin/crontab; do [ -f \"$c\" ] && f=\"$c\" && break; done; if [ -z \"$f\" ]; then echo OK; else p=$(stat -c %a \"$f\" 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -le 750 ]; then echo OK; else echo FAIL; fi; fi",
     "safe_keyword": "OK",
+    "evidence_command": "for c in /usr/bin/crontab /bin/crontab; do [ -f \"$c\" ] && ls -l \"$c\"; done",
     "description": "crontab 실행 파일 권한이 부적절하면 비인가자가 예약 작업을 등록할 수 있습니다.",
     "remediation": "chown root, chmod 750 /usr/bin/crontab"
   },
@@ -427,6 +443,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active echo.socket discard.socket daytime.socket chargen.socket 2>/dev/null | grep -qw active && r=yes; ss -lntu 2>/dev/null | grep -qE '(:7[[:space:]]|:9[[:space:]]|:13[[:space:]]|:19[[:space:]]|:7$|:9$|:13$|:19$)' && r=yes; for s in echo discard daytime chargen; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active echo.socket discard.socket daytime.socket chargen.socket 2>/dev/null; ss -lntu 2>/dev/null | grep -E '(:7[[:space:]]|:9[[:space:]]|:13[[:space:]]|:19[[:space:]]|:7$|:9$|:13$|:19$)'",
     "description": "echo, discard, daytime, chargen 서비스는 DoS 공격에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now로 echo/discard/daytime/chargen 서비스 비활성화"
   },
@@ -437,6 +454,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active nfs-server 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -i nfs | grep -v grep >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active nfs-server 2>/dev/null; ps -ef 2>/dev/null | grep -i nfs | grep -v grep",
     "description": "불필요한 NFS 서비스는 파일 공유 취약점을 통한 공격 표면을 늘립니다.",
     "remediation": "systemctl disable --now nfs-server"
   },
@@ -457,6 +475,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active autofs 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active autofs 2>/dev/null",
     "description": "불필요한 automount 서비스는 알려진 취약점의 공격 표면이 됩니다.",
     "remediation": "systemctl disable --now autofs"
   },
@@ -478,6 +497,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active ypserv ypbind 2>/dev/null | grep -qw active && r=yes; pgrep -f 'ypserv|ypbind' >/dev/null 2>&1 && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active ypserv ypbind 2>/dev/null; ps -ef 2>/dev/null | grep -E '[y]pserv|[y]pbind'",
     "description": "NIS는 인증정보를 평문으로 전송하여 스니핑 공격에 취약합니다.",
     "remediation": "systemctl disable --now ypserv ypbind"
   },
@@ -488,6 +508,7 @@
     "importance": "상",
     "command": "r=no; systemctl is-active tftp.socket talk.socket ntalk.socket 2>/dev/null | grep -qw active && r=yes; ss -lnu 2>/dev/null | grep -qE '(:69[[:space:]]|:69$|:517[[:space:]]|:517$|:518[[:space:]]|:518$)' && r=yes; for s in tftp talk ntalk; do [ -f \"/etc/xinetd.d/$s\" ] && grep -qE '^[[:space:]]*disable[[:space:]]*=[[:space:]]*no' \"/etc/xinetd.d/$s\" 2>/dev/null && r=yes; done; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active tftp.socket talk.socket ntalk.socket 2>/dev/null; ss -lnu 2>/dev/null | grep -E '(:69[[:space:]]|:69$|:517[[:space:]]|:517$|:518[[:space:]]|:518$)'",
     "description": "tftp, talk 서비스는 인증 절차가 없어 정보 유출 및 시스템 침해에 악용될 수 있습니다.",
     "remediation": "systemctl disable --now tftp.socket talk.socket ntalk.socket"
   },
@@ -497,6 +518,7 @@
     "category": "서비스 관리",
     "importance": "상",
     "command": "r=no; systemctl is-active sendmail postfix exim4 exim 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[s]endmail|[m]aster.*qmgr|[e]xim' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else echo VULNERABLE; fi",
+    "evidence_command": "systemctl is-active sendmail postfix exim4 exim 2>/dev/null; ps -ef 2>/dev/null | grep -E '[s]endmail|[m]aster.*qmgr|[e]xim'",
     "description": "오래된 메일 서비스 버전은 알려진 취약점에 노출될 수 있습니다.",
     "remediation": "최신 메일 서비스 버전으로 패치 (수동 검토 필요)",
     "vulnerable_keyword": "VULNERABLE"
@@ -507,6 +529,7 @@
     "category": "서비스 관리",
     "importance": "상",
     "command": "if systemctl is-active sendmail 2>/dev/null | grep -qw active; then v=$(grep PrivacyOptions /etc/mail/sendmail.cf 2>/dev/null); case \"$v\" in *restrictqrun*) echo SAFE ;; *) echo VULNERABLE ;; esac; else echo SAFE; fi",
+    "evidence_command": "systemctl is-active sendmail 2>/dev/null; grep PrivacyOptions /etc/mail/sendmail.cf 2>/dev/null",
     "description": "일반 사용자가 메일 큐를 조작할 수 있으면 서비스 오남용 위험이 있습니다.",
     "remediation": "sendmail.cf의 PrivacyOptions에 restrictqrun 추가",
     "vulnerable_keyword": "VULNERABLE"
@@ -527,6 +550,7 @@
     "category": "서비스 관리",
     "importance": "중",
     "command": "if systemctl is-active postfix 2>/dev/null | grep -qw active; then v=$(grep disable_vrfy_command /etc/postfix/main.cf 2>/dev/null); case \"$v\" in *yes*) echo SAFE ;; *) echo VULNERABLE ;; esac; else echo SAFE; fi",
+    "evidence_command": "systemctl is-active postfix 2>/dev/null; grep disable_vrfy_command /etc/postfix/main.cf 2>/dev/null",
     "description": "expn/vrfy 명령이 허용되면 계정 존재 여부가 노출되어 계정 추측 공격에 악용됩니다.",
     "remediation": "postfix의 disable_vrfy_command=yes 설정 또는 sendmail의 noexpn/novrfy 설정",
     "vulnerable_keyword": "VULNERABLE"
@@ -567,6 +591,7 @@
     "importance": "중",
     "command": "r=no; ps -ef 2>/dev/null | grep -E '[t]elnetd|[i]n\\.telnetd' >/dev/null 2>&1 && r=yes; if command -v ss >/dev/null 2>&1; then ss -lnt 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; else netstat -an 2>/dev/null | grep -qE '[:.]23[[:space:]]' && r=yes; fi; systemctl is-active telnet.socket 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "ps -ef 2>/dev/null | grep -E '[t]elnetd|[i]n\\.telnetd'; (ss -lnt 2>/dev/null || netstat -an 2>/dev/null) | grep -E '[:.]23[[:space:]]'; systemctl is-active telnet.socket 2>/dev/null",
     "description": "Telnet은 평문 통신으로 계정정보 노출 위험이 있습니다.",
     "remediation": "systemctl disable --now telnet.socket 후 SSH 사용"
   },
@@ -576,6 +601,7 @@
     "category": "서비스 관리",
     "importance": "하",
     "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep ftpd_banner /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null); if [ -n \"$v\" ]; then echo SAFE; else echo VULNERABLE; fi; fi",
+    "evidence_command": "systemctl is-active vsftpd proftpd 2>/dev/null; ps -ef 2>/dev/null | grep -E '[v]sftpd|[p]roftpd'; grep ftpd_banner /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null",
     "description": "FTP 배너에 버전정보가 노출되면 표적 공격에 활용될 수 있습니다.",
     "remediation": "ftpd_banner를 일반 경고 문구로 변경 (수동 검토 필요)",
     "vulnerable_keyword": "VULNERABLE"
@@ -587,6 +613,7 @@
     "importance": "중",
     "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "systemctl is-active vsftpd proftpd 2>/dev/null; ps -ef 2>/dev/null | grep -E '[v]sftpd|[p]roftpd'",
     "description": "암호화되지 않은 FTP는 계정정보 스니핑에 취약합니다.",
     "remediation": "FTP 서비스 중지 후 SFTP 사용 권고"
   },
@@ -606,6 +633,7 @@
     "category": "서비스 관리",
     "importance": "하",
     "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep userlist_enable /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null); case \"$v\" in *YES*|*yes*) echo SAFE ;; *) echo VULNERABLE ;; esac; fi",
+    "evidence_command": "systemctl is-active vsftpd proftpd 2>/dev/null; ps -ef 2>/dev/null | grep -E '[v]sftpd|[p]roftpd'; grep userlist_enable /etc/vsftpd.conf /etc/vsftpd/vsftpd.conf 2>/dev/null",
     "description": "FTP 접근 제어가 없으면 임의 계정으로 접속을 시도할 수 있습니다.",
     "remediation": "vsftpd.conf에 userlist_enable=YES, userlist_deny 설정",
     "vulnerable_keyword": "VULNERABLE"
@@ -616,6 +644,7 @@
     "category": "서비스 관리",
     "importance": "중",
     "command": "r=no; systemctl is-active vsftpd proftpd 2>/dev/null | grep -qw active && r=yes; ps -ef 2>/dev/null | grep -v grep | grep -qE '[v]sftpd|[p]roftpd' && r=yes; if [ \"$r\" = \"no\" ]; then echo SAFE; else v=$(grep '^root' /etc/ftpusers /etc/vsftpd/ftpusers 2>/dev/null); case \"$v\" in *root*) echo SAFE ;; *) echo VULNERABLE ;; esac; fi",
+    "evidence_command": "systemctl is-active vsftpd proftpd 2>/dev/null; ps -ef 2>/dev/null | grep -E '[v]sftpd|[p]roftpd'; grep '^root' /etc/ftpusers /etc/vsftpd/ftpusers 2>/dev/null",
     "description": "ftpusers에 root가 등록되지 않으면 root 계정으로 FTP 접속이 가능해 위험합니다.",
     "remediation": "ftpusers 파일에 root 계정 추가",
     "vulnerable_keyword": "VULNERABLE"
@@ -627,6 +656,7 @@
     "importance": "중",
     "command": "r=no; ps -ef 2>/dev/null | grep -E '[s]nmpd|[s]nmptrapd' >/dev/null 2>&1 && r=yes; systemctl is-active snmpd 2>/dev/null | grep -qw active && r=yes; if [ \"$r\" = \"yes\" ]; then echo VULNERABLE; else echo SAFE; fi",
     "vulnerable_keyword": "VULNERABLE",
+    "evidence_command": "ps -ef 2>/dev/null | grep -E '[s]nmpd|[s]nmptrapd'; systemctl is-active snmpd 2>/dev/null",
     "description": "불필요한 SNMP 서비스는 정보 수집 및 공격 표면 확대의 원인이 됩니다.",
     "remediation": "systemctl disable --now snmpd"
   },
@@ -668,6 +698,7 @@
     "importance": "하",
     "command": "out=$(grep -Ev '^[[:space:]]*($|#)' /etc/issue.net 2>/dev/null); if echo \"$out\" | grep -qiE 'unauthorized|authori[sz]ed|warning|prohibited|monitor(ing)?|trespass|legal|notice|consent|policy|security|접속|경고|무단|불법|처벌|감시|모니터|허가|인가|보안|정책|통보'; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "grep -Ev '^[[:space:]]*($|#)' /etc/issue.net 2>/dev/null",
     "description": "경고 배너에 무단접속 경고 문구(법적 경고/모니터링 고지 등)가 없으면 비인가 접속에 대한 법적 근거가 약해집니다. (기존에는 반대로 'Welcome' 문구 존재 여부를 봐서, 정상적인 경고 배너를 오히려 취약으로 오판하는 반전 버그가 있었음)",
     "remediation": "/etc/issue.net에 '무단 접속 금지 및 모든 활동은 감시/기록됨' 등 법적 경고 문구를 포함하도록 수정"
   },
@@ -678,6 +709,7 @@
     "importance": "중",
     "command": "p=$(stat -c %a /etc/sudoers 2>/dev/null); if [ -n \"$p\" ] && [ \"$p\" -eq 640 ]; then echo OK; else echo FAIL; fi",
     "safe_keyword": "OK",
+    "evidence_command": "stat -c '%a %U:%G %n' /etc/sudoers 2>/dev/null",
     "description": "sudoers 파일 권한이 부적절하면 비인가자가 관리자 권한 명령을 임의로 등록할 수 있습니다.",
     "remediation": "chown root, chmod 640 /etc/sudoers"
   },

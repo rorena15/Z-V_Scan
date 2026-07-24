@@ -492,9 +492,17 @@ class ScannerApp(QMainWindow):
         self.btn_open_db_manager.setToolTip("자산 정보(호스트명/구역 태그/메모 등)를 직접 조회·수정·삭제합니다.")
         self.btn_open_db_manager.clicked.connect(self.open_db_manager)
 
+        # [자산평가] Excel 리포트의 점검대상/호스트별 시트에 쓰일 용도/부서/담당자/C-I-A
+        # 등급 입력 - 스캔이 채우는 값이 아니라 사람이 입력하는 값이라 DB Manager와
+        # 별개 다이얼로그로 둔다.
+        self.btn_open_asset_assessment = QPushButton("자산평가")
+        self.btn_open_asset_assessment.setToolTip("Excel 리포트에 들어갈 자산 용도/부서/담당자/C·I·A 등급을 입력합니다.")
+        self.btn_open_asset_assessment.clicked.connect(self.open_asset_assessment)
+
         list_header.addWidget(lbl_list)
         list_header.addStretch()
         list_header.addWidget(self.btn_open_db_manager)
+        list_header.addWidget(self.btn_open_asset_assessment)
         list_header.addWidget(self.btn_clear_assets)
         left_layout.addLayout(list_header)
 
@@ -1217,6 +1225,11 @@ class ScannerApp(QMainWindow):
 
         # 매니저 창이 닫히면 메인 화면의 통계나 리스트도 갱신하는 것이 좋음
         self.refresh_dashboard() # (만약 이런 기능이 있다면)
+
+    def open_asset_assessment(self):
+        from gui.asset_assessment_dialog import AssetAssessmentDialog
+        dlg = AssetAssessmentDialog(self.db, self)
+        dlg.exec()
 
     def open_expert_mode(self):
         if not self.license_mgr.can_use_expert_mode():
