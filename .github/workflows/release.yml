@@ -1,0 +1,155 @@
+name: Build & Release
+
+# v로 시작하는 태그를 push하면 자동 실행됨 (예: git tag v3.1.0 && git push origin v3.1.0).
+# workflow_dispatch로 수동 실행도 가능 - 이때는 입력한 버전 문자열을 쓰고,
+# 비워두면 실패한다(태그 push가 아니므로 github.ref_name이 브랜치명이라 버전으로
+# 못 씀).
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "릴리즈 버전 (예: v3.1.0)"
+        required: true
+
+# GitHub Release 생성 + 에셋 업로드에 필요
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: 저장소 체크아웃 (태그 간 커밋 로그 확보 위해 전체 이력 포함)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 릴리즈 버전 확정
+        id: ver
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            if ("${{ github.ref_type }}" -ne "tag") {
+              throw "태그 push가 아닌데 버전도 입력 안 됨 - workflow_dispatch일 땐 version 입력 필수"
+            }
+            $version = "${{ github.ref_name }}"
+          }
+          if (-not $version.StartsWith("v")) { $version = "v$version" }
+          Write-Host "Release version: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Python 3.14 설치
+        uses: actions/setup-python@v5
+        with:
+          # 이 저장소의 로컬 빌드 환경(python.version 파일 기준)과 동일한 라인.
+          # 러너 이미지에 3.14.x가 아직 없다면 "3.13"으로 낮춰서 재시도할 것.
+          python-version: "3.14"
+
+      - name: MSVC 빌드 환경 설정 (cl.exe/link.exe를 PATH에 추가)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: 런타임/빌드 의존성 설치
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install cython pyarmor pyinstaller setuptools
+
+      - name: 버전 삽입 - AppConfig.VERSION을 릴리즈 태그로 교체
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $configPath = "scanner_engine/core/config.py"
+          (Get-Content $configPath -Raw) -replace 'VERSION = "[^"]*"', "VERSION = `"$version`"" |
+            Set-Content $configPath -Encoding utf8 -NoNewline
+          Write-Host "--- config.py VERSION line ---"
+          Select-String -Path $configPath -Pattern "VERSION ="
+
+      - name: Cython 컴파일 (core/utils/output -> .pyd)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: "utf-8"
+          # 로컬 개발 환경(Visual Studio "18")에서 distutils가 버전 인식을 못 해
+          # 필요했던 우회 설정. GitHub 표준 windows-latest 이미지는 정식
+          # 지원되는 VS 버전이라 없어도 될 가능성이 높지만, 켜둬도 무해해서
+          # 로컬/CI 동작을 최대한 맞추기 위해 그대로 유지한다.
+          DISTUTILS_USE_SDK: "1"
+          MSSdk: "1"
+        run: |
+          python ci/build_cython.py build_ext --inplace
+
+      - name: PyArmor 난독화 (main_window.py는 trial 라이선스 한계로 제외 후 평문 병합)
+        shell: pwsh
+        run: |
+          if (Test-Path "dist/obfuscated") { Remove-Item "dist/obfuscated" -Recurse -Force }
+
+          pyarmor gen -O dist/obfuscated --obf-code 0 --no-wrap -r `
+              --exclude "*main_window.py" `
+              --exclude "dist/*" --exclude "build/*" `
+              --exclude ".git/*" `
+              .
+
+          Copy-Item "scanner_engine/gui/main_window.py" `
+              "dist/obfuscated/scanner_engine/gui/main_window.py" -Force
+
+      - name: 최종 패키징 (PyInstaller onefile)
+        shell: pwsh
+        run: |
+          ci/build_final_v3.ps1 -Version "${{ steps.ver.outputs.version }}"
+
+      - name: 릴리즈 노트(코멘터리) 생성 - 직전 태그 이후 커밋 로그
+        id: notes
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $prevTag = $null
+          try {
+            $prevTag = git describe --tags --abbrev=0 "$version^" 2>$null
+            if ($LASTEXITCODE -ne 0) { $prevTag = $null }
+          } catch { $prevTag = $null }
+
+          if ($prevTag) {
+            $range = "$prevTag..$version"
+            $log = git log --no-merges --pretty=format:"- %s (%h)" $range
+          } else {
+            # 첫 릴리즈 - 비교할 이전 태그가 없다. 전체 커밋 이력(350개 이상)을
+            # 그대로 넣으면 노트가 너무 길어지므로 최근 50개만 보여준다.
+            $range = "$version (첫 릴리즈, 최근 50개 커밋만 표시)"
+            $log = git log --no-merges --pretty=format:"- %s (%h)" -n 50 $version
+          }
+
+          if (-not $log) { $log = "- (변경 커밋 없음)" }
+
+          # PowerShell here-string(@"..."@)은 닫는 줄이 반드시 컬럼 0에 와야 하는데,
+          # YAML의 'run: |' 블록은 항상 들여쓰기가 들어가서 그 규칙과 충돌한다.
+          # 그래서 줄 배열을 만들어 join하는 방식으로 우회한다.
+          $lines = @(
+              "## Z-VulnScan Professional $version"
+              ""
+              "### 변경 사항 ($range)"
+              ""
+          ) + ($log -split "`n") + @(
+              ""
+              "---"
+              "하이브리드 빌드(Cython + PyArmor + PyInstaller)로 자동 생성됨."
+          )
+
+          $notesPath = "release_notes.md"
+          $lines -join "`n" | Set-Content $notesPath -Encoding utf8
+
+          "path=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: GitHub Release 생성 + exe 업로드
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: "Z-VulnScan Professional ${{ steps.ver.outputs.version }}"
+          body_path: ${{ steps.notes.outputs.path }}
+          files: |
+            Z-VulnScan_Professional_${{ steps.ver.outputs.version }}_Final/*.exe

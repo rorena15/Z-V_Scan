@@ -1,0 +1,35 @@
+# Z-VulnScan Professional Edition - 런타임 의존성
+#
+# library.py는 PyQt5/scapy 등 실제 코드와 이미 어긋난 목록이라(2절/3절 기준
+# 실제 임포트는 PySide6/paramiko/pywinrm/openpyxl/reportlab/keyring/
+# cryptography/requests) 이 파일을 대신 단일 소스로 사용한다. `pip install -r
+# requirements.txt`로 개발 환경을 구성하고, CI(.github/workflows/release.yml)도
+# 이 파일을 그대로 쓴다.
+#
+# 빌드 전용 도구(Cython/PyArmor/PyInstaller)는 여기 포함하지 않는다 - 최종
+# 사용자에게 배포되는 exe 실행에는 필요 없고, 빌드하는 사람/CI만 필요하기 때문.
+# (워크플로우에서 별도로 pip install cython pyarmor pyinstaller 실행)
+
+PySide6
+paramiko
+pywinrm
+openpyxl
+reportlab
+keyring
+cryptography
+requests
+
+# paramiko가 특정 키 타입(Ed25519 등) 처리에 선택적으로 쓰는 의존성 -
+# 명시적으로 import하진 않지만 build_final_v3.ps1이 --collect-all로 묶는다.
+bcrypt
+pynacl
+
+# 아래 3개는 현재 살아있는 코드에서 직접 import되지 않는다(죽은 코드로 추정되는
+# utils/network_visualizer.py 관련 잔재, 기술 명세서.md §8.2 참고). 그런데도
+# build_final_v3.ps1이 --collect-all "networkx"/--collect-all "matplotlib"/
+# --hidden-import "wmi"를 아직 쓰고 있어서, 설치돼 있지 않으면 PyInstaller
+# 단계에서 실패한다. 이 죽은 코드를 완전히 정리하기 전까지는 지우지 말 것.
+networkx
+matplotlib
+wmi
+Pillow
