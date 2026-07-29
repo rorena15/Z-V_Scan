@@ -56,7 +56,7 @@ class LegalDisclaimerDialog(QDialog):
         
         # 1. 경고 아이콘 및 제목
         title_layout = QHBoxLayout()
-        title_label = QLabel("⚠️ Security Tool Usage Warning")
+        title_label = QLabel("Security Tool Usage Warning")
         title_label.setStyleSheet("font-size: 18pt; font-weight: bold; color: #ff5555;")
         title_layout.addWidget(title_label)
         title_layout.addStretch()
@@ -151,7 +151,7 @@ class LicenseDialog(QDialog):
         layout.setContentsMargins(25, 25, 25, 25)
         
         # 안내 문구
-        lbl_info = QLabel("제품 키를 입력하여 잠금을 해제하십시오.\n(Format: ZV3-TIER-XXXX-XXXX)")
+        lbl_info = QLabel("제품 키를 입력하여 잠금을 해제하십시오.\n(Format: ZV3-TIER-XXXX-XXXX-XXXX)")
         lbl_info.setStyleSheet("color: #ccc; font-size: 10pt; font-weight: bold;")
         layout.addWidget(lbl_info)
         
@@ -201,20 +201,22 @@ class LicenseDialog(QDialog):
         layout.addLayout(btn_layout)
         
         self.setLayout(layout)
-        self.verified_tier = None 
+        self.verified_tier = None
+        self.verified_expiry = None
 
     def check_license(self):
         key = self.input_key.text().strip()
-        
-        is_valid, tier = LicenseValidator.validate_key(key)
-        
+
+        is_valid, tier, expiry_date = LicenseValidator.validate_key(key)
+
         if is_valid:
             if LicenseValidator.save_license(key):
                 self.verified_tier = tier
-                QMessageBox.information(self, "Activation Successful", 
-                                        f"✅ 정품 인증이 완료되었습니다.\n\n[Active Tier]: {tier}")
+                self.verified_expiry = expiry_date
+                QMessageBox.information(self, "Activation Successful",
+                                        f"정품 인증이 완료되었습니다.\n\n[Active Tier]: {tier}\n[만료일]: {expiry_date}")
                 self.accept()
             else:
                 QMessageBox.warning(self, "System Error", "라이선스 파일을 저장할 수 없습니다.\n권한을 확인하세요.")
         else:
-            QMessageBox.warning(self, "Invalid Key", "⛔ 유효하지 않은 라이선스 키입니다.\n입력한 내용을 다시 확인해주세요.")
+            QMessageBox.warning(self, "Invalid Key", "유효하지 않거나 만료된 라이선스 키입니다.\n입력한 내용을 다시 확인해주세요.")

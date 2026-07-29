@@ -1,0 +1,7 @@
+{
+  "log_retention_days": 90,
+  "theme": "light",
+  "report_output_dir": "",
+  "default_username": "",
+  "show_log_panel": false
+}

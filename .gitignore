@@ -26,6 +26,8 @@ audit_agreement.log
 error_log.txt
 scanner_engine/utils/scan_debug.log
 zvuln_scan.db
+zvuln_scan.db.enc
+DB_RECOVERY_KEY_BACKUP.txt
 
 ########################################
 # Python Cache / Compiled Files
@@ -55,15 +57,37 @@ app_icon_preview.png
 /Z-VulnScan_Professional_Edition_v2.1_Alpha/
 /Z-VulnScan_Professional_Edition_v2.2.0(Stable)/
 /Z-VulnScan_Professional_Edition_v3.0.0(01-02-newest)/
-/report/
-/img/
+/Z-VulnScan_Professional_v3.0.0_Final/
 /안써/
+
+########################################
+# Generated Reports (실행 결과물, 소스 아님)
+########################################
+reports/*.xlsx
+reports/*.pdf
+
+########################################
+# License (로컬 전용 - 저장소에 올리지 않음)
+########################################
+license.dat
+scanner_engine/license.dat
+licenses_generated.txt
+issued_licenses.json
 
 ########################################
 # Documents
 ########################################
 \[별첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
+프로그램저작권등록_명세서_초안.md
+Z-Vuln_Scan_기능명세서.md
 make_ppt.py
 ~$첨 1] 2026년도 예비창업패키지 사업계획서 양식.docx
 Z-Vuln Scan(Poc).pptx
 주요정보통신기반시설_기술적_취약점_분석_평가_방법_상세가이드.pdf
+파이아머 코드.txt
+/00. Script/
+/26년8월 포스코 인터 LNG 터미널/
+ROADMAP.md
+rules/HANDOVER_U-01_판정로직_검토.md
+PROJECT_MANIFEST.md
+config/known_hosts

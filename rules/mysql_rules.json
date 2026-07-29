@@ -1,0 +1,190 @@
+[
+  {
+    "code": "D-01",
+    "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('EMPTY_PW:',User,'@',Host) FROM mysql.user WHERE User IN ('root','admin','rdsadmin','azure_superuser','mysql.sys') AND (authentication_string='' OR authentication_string IS NULL) AND COALESCE(account_locked,'N')<>'Y' AND COALESCE(password_expired,'N')<>'Y';",
+    "vulnerable_keyword": "EMPTY_PW:",
+    "description": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "remediation": "기본/디폴트 계정(root, admin, rdsadmin, azure_superuser, mysql.sys)에 강력한 비밀번호를 설정하거나 미사용 시 계정 잠금(ALTER USER ... ACCOUNT LOCK) 처리 (ALTER USER 'root'@'localhost' IDENTIFIED BY '<신규비밀번호>'; FLUSH PRIVILEGES;)"
+  },
+  {
+    "code": "D-02",
+    "name": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT User,Host,account_locked FROM mysql.user WHERE account_locked='N' AND User NOT IN ('root','mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "description": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "remediation": "DROP USER '<계정>'@'<호스트>'; FLUSH PRIVILEGES; (수동 검토 필요 - 목록에서 불필요 계정 확인)"
+  },
+  {
+    "code": "D-03",
+    "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT VARIABLE_NAME, VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME IN ('default_password_lifetime','validate_password.policy','validate_password.length');",
+    "criteria": [
+      {
+        "label": "비밀번호 유효기간(default_password_lifetime) 설정",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='default_password_lifetime';",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "비밀번호 최소 길이(validate_password.length >= 8) 설정",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) >= 8, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='validate_password.length';",
+        "safe_keyword": "OK"
+      }
+    ],
+    "description": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "remediation": "SET GLOBAL default_password_lifetime = 90; validate_password 컴포넌트 설치 후 policy=MEDIUM 이상, length=8 이상 설정"
+  },
+  {
+    "code": "D-04",
+    "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('SUPER_PRIV:',User,'@',Host) FROM mysql.user WHERE Super_priv='Y' AND User NOT IN ('root','mysql.session','mysql.sys');",
+    "vulnerable_keyword": "SUPER_PRIV:",
+    "description": "root, mysql.session, mysql.sys 등 승인된 관리자 계정을 제외하고 SUPER 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE SUPER ON *.* FROM '<계정>'; FLUSH PRIVILEGES;"
+  },
+  {
+    "code": "D-05",
+    "name": "비밀번호 재사용에 대한 제약 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT VARIABLE_NAME, VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME IN ('password_history','password_reuse_interval');",
+    "criteria": [
+      {
+        "label": "password_history > 0",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='password_history';",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "password_reuse_interval > 0",
+        "command": "SELECT IF(VARIABLE_VALUE REGEXP '^[0-9]+$' AND CAST(VARIABLE_VALUE AS UNSIGNED) > 0, 'OK', 'FAIL') FROM performance_schema.global_variables WHERE VARIABLE_NAME='password_reuse_interval';",
+        "safe_keyword": "OK"
+      }
+    ],
+    "description": "비밀번호 재사용에 대한 제약 설정",
+    "remediation": "SET GLOBAL password_history = 5; SET GLOBAL password_reuse_interval = 365; (둘 다 0이면 취약, MySQL 8.0+)"
+  },
+  {
+    "code": "D-06",
+    "name": "DB 사용자 계정을 개별적으로 부여하여 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('SHARED_ACCOUNT:',User,'@',Host) FROM mysql.user WHERE LOWER(User) IN ('admin','user','test','app','shared','guest','demo','anonymous','common') AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema');",
+    "vulnerable_keyword": "SHARED_ACCOUNT:",
+    "description": "admin/user/test/app/shared/guest 등 다수가 공용으로 사용할 가능성이 높은 범용 계정명이 존재하는지로 판정합니다 (계정명만으로는 실제 공용 사용 여부를 완전히 판정하기 어려우므로, 이 목록에 없는 계정은 개별 계정으로 간주해 양호 처리합니다).",
+    "remediation": "공용 계정 사용을 지양하고 업무별 개별 계정 발급"
+  },
+  {
+    "code": "D-07",
+    "name": "root 권한으로 서비스 구동 제한",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT USER() AS current_connection;",
+    "description": "root 권한으로 서비스 구동 제한",
+    "remediation": "my.cnf [mysqld] 섹션에 user=mysql 지정 (OS 레벨 점검 필요 - SSH 접속 후 ps -ef | grep mysqld 로 확인)"
+  },
+  {
+    "code": "D-08",
+    "name": "안전한 암호화 알고리즘 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('WEAK_HASH:',User,'@',Host,':',plugin) FROM mysql.user WHERE plugin NOT IN ('caching_sha2_password','sha256_password') AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "vulnerable_keyword": "WEAK_HASH:",
+    "description": "KISA 2026 가이드 D-08은 업무 데이터 컬럼 암호화가 아니라 DBMS 계정 비밀번호 해시 알고리즘이 SHA-256 이상인지를 점검합니다. MySQL은 mysql.user.plugin이 caching_sha2_password/sha256_password(SHA-256)가 아닌 경우(예: 구버전 기본값 mysql_native_password, SHA-1 기반) 취약으로 판정합니다.",
+    "remediation": "해당 컬럼에 대해 AES_ENCRYPT() 등 안전한 암호화 알고리즘을 적용하여 평문 저장을 방지 (전송구간 암호화는 별도 항목: SSL/TLS 인증서 발급 후 have_ssl 활성화)"
+  },
+  {
+    "code": "D-09",
+    "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT IF(v REGEXP '^[0-9]+$' AND CAST(v AS UNSIGNED) BETWEEN 1 AND 5, 'OK', 'FAIL') AS verdict FROM (SELECT VARIABLE_VALUE AS v FROM performance_schema.global_variables WHERE VARIABLE_NAME='connection_control_failed_connections_threshold' UNION ALL SELECT VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME='max_password_errors') t LIMIT 1;",
+    "safe_keyword": "OK",
+    "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "remediation": "connection_control 플러그인 설치 후 connection_control_failed_connections_threshold를 1~5 사이로 설정 (INSTALL PLUGIN CONNECTION_CONTROL SONAME 'connection_control.so'; SET GLOBAL connection_control_failed_connections_threshold=5;) 또는 MariaDB는 max_password_errors를 1~5로 설정"
+  },
+  {
+    "code": "D-10",
+    "name": "원격에서 DB 서버로의 접속 제한",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('ANYHOST:',User,'@',Host) FROM mysql.user WHERE Host='%' OR Host='';",
+    "vulnerable_keyword": "ANYHOST:",
+    "description": "원격에서 DB 서버로의 접속 제한",
+    "remediation": "특정 IP에서만 접속 가능한 계정으로 재생성 (CREATE USER '<계정>'@'<허용IP>' ...) 후 '%' 계정 제거"
+  },
+  {
+    "code": "D-11",
+    "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('SYS_TABLE_ACCESS:',GRANTEE,':',PRIVILEGE_TYPE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE TABLE_SCHEMA IN ('mysql','sys','information_schema','performance_schema') AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%';",
+    "vulnerable_keyword": "SYS_TABLE_ACCESS:",
+    "description": "mysql/sys/information_schema/performance_schema 등 시스템 스키마에 root 등 승인된 관리자 계정을 제외한 일반 계정의 접근 권한이 부여되어 있는지로 판정합니다.",
+    "remediation": "REVOKE ALL ON mysql.* FROM '<계정>';"
+  },
+  {
+    "code": "D-14",
+    "name": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'datadir';",
+    "description": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "remediation": "chmod 640 /etc/my.cnf, chown mysql:mysql /etc/my.cnf (OS 레벨 점검 필요 - SSH 접속 후 확인)"
+  },
+  {
+    "code": "D-20",
+    "name": "인가되지 않은 Object Owner의 제한",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('ORPHAN_DEFINER:',d.definer) FROM (SELECT DISTINCT definer FROM information_schema.ROUTINES WHERE routine_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.VIEWS WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.TRIGGERS WHERE trigger_schema NOT IN ('mysql','information_schema','performance_schema','sys') UNION SELECT DISTINCT definer FROM information_schema.EVENTS WHERE event_schema NOT IN ('mysql','information_schema','performance_schema','sys')) d WHERE d.definer NOT IN (SELECT CONCAT(User,'@',Host) FROM mysql.user);",
+    "vulnerable_keyword": "ORPHAN_DEFINER:",
+    "description": "인가되지 않은 Object Owner의 제한",
+    "remediation": "불필요하거나 존재하지 않는 계정(orphan DEFINER)으로 생성된 뷰/프로시저/함수/트리거/이벤트를 검토 후 재생성 (수동 검토 필요)"
+  },
+  {
+    "code": "D-21",
+    "name": "인가되지 않은 GRANT OPTION 사용 제한",
+    "category": "옵션 관리",
+    "importance": "상",
+    "command": "SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.USER_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%' UNION SELECT CONCAT('GRANTABLE:',GRANTEE) FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES WHERE IS_GRANTABLE='YES' AND GRANTEE NOT LIKE '%root%' AND GRANTEE NOT LIKE '%mysql.sys%' AND GRANTEE NOT LIKE '%mysql.session%' AND GRANTEE NOT LIKE '%mysql.infoschema%' AND GRANTEE NOT LIKE '%mariadb.sys%';",
+    "vulnerable_keyword": "GRANTABLE:",
+    "description": "root 등 승인된 관리자 계정을 제외하고 전역/스키마/테이블 단위로 WITH GRANT OPTION(IS_GRANTABLE='YES') 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE GRANT OPTION ON *.* FROM '<계정>'; FLUSH PRIVILEGES; (WITH GRANT OPTION 권한 보유가 업무상 필요한지 확인 후 제거)"
+  },
+  {
+    "code": "D-22",
+    "name": "데이터베이스의 자원 제한 기능을 TRUE로 설정",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT CONCAT('NOLIMIT:',User,'@',Host) FROM mysql.user WHERE max_user_connections=0 AND User NOT IN ('mysql.sys','mysql.session','mysql.infoschema','mariadb.sys');",
+    "vulnerable_keyword": "NOLIMIT:",
+    "description": "데이터베이스의 자원 제한 기능을 TRUE로 설정",
+    "remediation": "ALTER USER '<계정>'@'<호스트>' WITH MAX_USER_CONNECTIONS <제한값>;"
+  },
+  {
+    "code": "D-25",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "SELECT VERSION();",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "https://dev.mysql.com/downloads/ 에서 최신 보안 패치 확인 및 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "D-26",
+    "name": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "category": "패치 관리",
+    "importance": "중",
+    "command": "SHOW VARIABLES LIKE 'general_log';",
+    "safe_keyword": "ON",
+    "description": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "remediation": "SET GLOBAL general_log = 'ON'; SET GLOBAL general_log_file = '/var/log/mysql/general.log';"
+  }
+]

@@ -1,0 +1,279 @@
+[
+  {
+    "code": "PC-01",
+    "name": "비밀번호의 주기적 변경",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "Select-String '^MaximumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg",
+    "safe_keyword": "MaximumPasswordAge",
+    "evidence_command": "Select-String '^(MinimumPasswordAge|MaximumPasswordAge|MinimumPasswordLength|PasswordComplexity|PasswordHistorySize)\\s*=' C:\\zvulnscan_secpol_cache.cfg | ForEach-Object { $_.Line }; Get-LocalUser | Where-Object Enabled | ForEach-Object { \"--- $($_.Name) ---\"; net user $_.Name | Select-String -Pattern 'expires|last set' }",
+    "description": "비밀번호의 주기적 변경 (net accounts 화면 출력은 시스템 언어에 따라 문구가 달라져 secedit 기반 수치로 점검합니다)",
+    "remediation": "net accounts /maxpwage:90 /minpwage:1 설정, 암호 사용 기간 제한 없음으로 설정된 계정 확인",
+    "criteria": [
+      {
+        "label": "최대 암호 사용 기간 90일 이하",
+        "command": "$v = (Select-String '^MaximumPasswordAge\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -le 90 -and [int]$v -gt 0){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 만료 미설정 계정 존재하지 않음",
+        "command": "$u = Get-WmiObject -Query \"SELECT Name FROM Win32_UserAccount WHERE LocalAccount='True' AND Disabled='False' AND PasswordExpires='False'\"; if (-not $u) { 'OK' } else { ($u | Select-Object -ExpandProperty Name) -join ',' }",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-02",
+    "name": "비밀번호 관리정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "Select-String '^MinimumPasswordLength\\s*=','^PasswordComplexity\\s*=' C:\\zvulnscan_secpol_cache.cfg",
+    "safe_keyword": "MinimumPasswordLength",
+    "evidence_command": "Select-String '^(MinimumPasswordLength|PasswordComplexity|PasswordHistorySize|MinimumPasswordAge)\\s*=' C:\\zvulnscan_secpol_cache.cfg | ForEach-Object { $_.Line }",
+    "description": "비밀번호 관리정책 설정 (기존 방식은 PasswordComplexity 문자열이 존재하기만 하면 통과되어 PasswordComplexity=0(사용 안 함)도 양호로 오판하는 결함이 있어, secedit 기반 실제 수치/값으로 점검합니다)",
+    "remediation": "최소 암호 길이 8자 이상, 암호 복잡성 사용함으로 설정",
+    "criteria": [
+      {
+        "label": "최소 암호 길이 8자 이상",
+        "command": "$v = (Select-String '^MinimumPasswordLength\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -ge 8){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "암호 복잡성(PasswordComplexity) 사용",
+        "command": "$v = (Select-String '^PasswordComplexity\\s*=' C:\\zvulnscan_secpol_cache.cfg).ToString().Split('=')[1].Trim(); if([int]$v -eq 1){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-03",
+    "name": "복구 콘솔에서 자동 로그온을 금지하도록 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Setup\\RecoveryConsole\" /v SecurityLevel",
+    "safe_keyword": "0x0",
+    "description": "복구 콘솔에서 자동 로그온을 금지하도록 설정 (기존 방식은 레지스트리 키가 없을 때 기본값을 양호로 오판했습니다. 명시적으로 0x0으로 설정된 경우에만 양호, 키 부재/기타 값은 취약으로 판정합니다)",
+    "remediation": "SecurityLevel 값을 0(사용 안 함)으로 설정"
+  },
+  {
+    "code": "PC-04",
+    "name": "공유폴더 제거",
+    "category": "서비스 관리",
+    "importance": "상",
+    "command": "$r = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v AutoShareWks 2>$null | Select-String 'AutoShareWks'; if ($r) { $r.ToString() } else { 'AutoShareWks 값 없음 -> Windows 기본값 0x1(관리 공유 자동 생성 사용)로 간주' }",
+    "vulnerable_keyword": "0x1",
+    "evidence_command": "net share; Get-CimInstance Win32_Share -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch '^(ADMIN\\$|IPC\\$|[A-Za-z]\\$)$'} | ForEach-Object { \"--- $($_.Name) ---\"; net share $_.Name 2>$null }",
+    "description": "공유폴더 제거 (AutoShareWks 기본 공유뿐 아니라, 수동으로 만든 공유에 Everyone 권한이 부여된 경우도 함께 점검합니다. AutoShareWks 레지스트리 값이 없으면 Windows는 기본적으로 관리 공유를 자동 생성하므로 - 값 없음을 '해당없음'이 아니라 기본값 0x1(취약)로 명시적으로 처리합니다)",
+    "remediation": "net share <공유명> /delete로 불필요한 공유 제거, AutoShareWks 값을 0으로 설정",
+    "criteria": [
+      {
+        "label": "AutoShareWks 비활성화(0x0)",
+        "vulnerable_keyword": "0x1"
+      },
+      {
+        "label": "공유별 Everyone 권한 없음",
+        "command": "$bad=$false; try{ $shares = Get-CimInstance Win32_Share -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch '^(ADMIN\\$|IPC\\$|[A-Za-z]\\$)$'}; foreach($sh in $shares){ $out = net share $sh.Name 2>$null; if($out -match 'Everyone'){$bad=$true} } }catch{}; if($bad){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-05",
+    "name": "불필요한 서비스 제거",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "$nameBlacklist = @('Dhcp','TrkWks','Dnscache','Spooler','Schedule','lmhosts','RemoteRegistry','Netlogon','TermService','RemoteAccess','SharedAccess','upnphost'); $running = Get-Service | Where-Object {$_.Status -eq 'Running'}; $hit = $running | Where-Object { $nameBlacklist -contains $_.Name -or $_.DisplayName -match 'Bluetooth|Telnet|SMTP|FTP' }; if($hit){'FAIL'}else{'OK'}",
+    "safe_keyword": "OK",
+    "evidence_command": "Get-Service | Where-Object { $_.Name -in @('Dhcp','TrkWks','Dnscache','Spooler','Schedule','lmhosts','RemoteRegistry','Netlogon','TermService','RemoteAccess','SharedAccess','upnphost') -or $_.DisplayName -match 'Bluetooth|Telnet|SMTP|FTP' } | Select-Object DisplayName, StartType, Status | Format-Table -AutoSize | Out-String",
+    "description": "PC 환경에서 흔히 불필요한 서비스(DHCP Client, Distributed Link Tracking Client, DNS Client, Print Spooler, Task Scheduler, TCP/IP NetBIOS Helper, Remote Registry, Net Logon, 원격 데스크톱(TermService), Routing and Remote Access, 인터넷 연결 공유(SharedAccess), UPnP Device Host, Bluetooth/Telnet/SMTP/FTP 관련 서비스)가 구동 중인지로 판정합니다. 실제 KISA 대조검증 스크립트가 점검하는 항목 중 XP~7 시대에 이미 제거된 서비스(Alerter, Clipbook, Computer Browser 등)는 최신 Windows에 존재하지 않아 제외했습니다.",
+    "remediation": "DHCP Client, Print Spooler, Remote Registry 등 불필요한 서비스 중지 및 사용 안 함 설정"
+  },
+  {
+    "code": "PC-06",
+    "name": "비인가 상용 메신저 사용 금지",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-Process | Where-Object {$_.ProcessName -match 'kakaotalk|skype|nateon|telegram'} | Select-Object ProcessName",
+    "vulnerable_keyword": "ProcessName",
+    "evidence_command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client\" /v PreventRun 2>&1; Get-ChildItem 'C:\\Program Files\\Kakao\\KakaoTalk' -ErrorAction SilentlyContinue | Select-Object Name; Get-ChildItem 'C:\\Program Files (x86)\\Kakao\\KakaoTalk' -ErrorAction SilentlyContinue | Select-Object Name; Get-ChildItem 'C:\\Program Files\\WindowsApps' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'facebook|telegram' } | Select-Object Name",
+    "description": "비인가 상용 메신저 사용 금지 (프로세스 스냅샷만으로는 '설치되어 있지만 현재 실행 중이 아닌' 경우를 놓치므로, 설치 폴더/WindowsApps 패키지/Messenger 서비스/GPO 실행 제한 설정도 함께 점검합니다)",
+    "remediation": "업무 목적 외 상용 메신저 제거 및 실행 제한(GPO Windows Messenger 정책) 설정",
+    "criteria": [
+      {
+        "label": "메신저 프로세스 미실행",
+        "vulnerable_keyword": "ProcessName"
+      },
+      {
+        "label": "카카오톡 설치 폴더 없음",
+        "command": "if((Test-Path 'C:\\Program Files\\Kakao\\KakaoTalk') -or (Test-Path 'C:\\Program Files (x86)\\Kakao\\KakaoTalk')){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "WindowsApps 메신저 패키지(facebook/telegram) 없음",
+        "command": "$p = Get-ChildItem 'C:\\Program Files\\WindowsApps' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'facebook|telegram' }; if($p){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "Windows Messenger 서비스 없음 또는 GPO로 실행 제한(PreventRun=1)",
+        "command": "$svc = Get-Service -Name Messenger -ErrorAction SilentlyContinue; if(-not $svc){'OK'} else { $pr = reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client\" /v PreventRun 2>$null | Select-String 'PreventRun'; if($pr -and ($pr.ToString() -match '0x1')){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-07",
+    "name": "파일 시스템이 NTFS 포맷으로 설정",
+    "category": "서비스 관리",
+    "importance": "중",
+    "command": "Get-Volume | Select-Object DriveLetter, FileSystemType",
+    "vulnerable_keyword": "FAT32",
+    "description": "파일 시스템이 NTFS 포맷으로 설정",
+    "remediation": "convert <드라이브>: /fs:ntfs 명령으로 NTFS 변환"
+  },
+  {
+    "code": "PC-08",
+    "name": "대상 시스템이 windows 서버를 제외한 다른 OS로 멀티 부팅이 가능하지 않도록 설정",
+    "category": "서비스 관리",
+    "importance": "하",
+    "command": "$out = bcdedit /enum 2>$null; $ids = ($out | Select-String '^identifier\\s+(\\{.+\\})') | ForEach-Object { $_.Matches[0].Groups[1].Value }; $osIds = $ids | Where-Object { $_ -ne '{bootmgr}' } | Select-Object -Unique; if($osIds.Count -le 1){'OK'}else{'FAIL'}",
+    "safe_keyword": "OK",
+    "evidence_command": "bcdedit /enum",
+    "description": "bcdedit 부팅 항목 중 {bootmgr}(부팅 관리자 자체)을 제외한 실제 OS 부팅 항목이 1개 이하인지로 판정합니다 - 'identifier'/'device' 등 필드명은 로케일에 관계없이 영문 고정이라 안전하게 파싱 가능합니다.",
+    "remediation": "불필요한 부팅 항목을 bcdedit /delete로 제거"
+  },
+  {
+    "code": "PC-09",
+    "name": "브라우저 종료 시 임시 인터넷 파일 폴더의 내용을 삭제하도록 설정",
+    "category": "서비스 관리",
+    "importance": "하",
+    "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\" /v ClearBrowsingDataOnExit",
+    "safe_keyword": "0x1",
+    "evidence_command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\" /v ClearBrowsingDataOnExit 2>&1; reg query \"HKLM\\SOFTWARE\\Policies\\Google\\Chrome\" /v ClearBrowsingDataOnExit 2>&1",
+    "description": "브라우저 종료 시 임시 인터넷 파일 폴더의 내용을 삭제하도록 설정 (레거시 Internet Explorer 키는 최신 Win10/11에서 사실상 사용되지 않으므로, 실제 설치된 Chromium 기반 Edge의 GPO 값을 점검합니다)",
+    "remediation": "ClearBrowsingDataOnExit 값을 1로 설정 (GPO: Microsoft Edge - 종료 시 브라우징 데이터 지우기 사용)"
+  },
+  {
+    "code": "PC-10",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "Windows Update로 최신 패치 적용 및 내부 관리 절차 수립 (수동 검토 필요)"
+  },
+  {
+    "code": "PC-11",
+    "name": "지원이 종료되지 않은 Windows OS Build 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "Get-ComputerInfo | Select-Object WindowsVersion, OsBuildNumber",
+    "description": "지원이 종료되지 않은 Windows OS Build 적용",
+    "remediation": "Windows Update로 최신 빌드 적용, 지원 종료 임박 여부 확인 (수동 검토 필요)"
+  },
+  {
+    "code": "PC-12",
+    "name": "Windows 자동 로그인 점검",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -ErrorAction SilentlyContinue).AutoAdminLogon",
+    "vulnerable_keyword": "1",
+    "description": "Windows 자동 로그인 점검",
+    "remediation": "AutoAdminLogon 값을 0으로 설정하고 DefaultPassword 레지스트리 값 삭제"
+  },
+  {
+    "code": "PC-13",
+    "name": "바이러스 백신 프로그램 설치 및 주기적 업데이트",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "$av = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue; if($av){'OK'}else{'FAIL'}",
+    "safe_keyword": "OK",
+    "evidence_command": "Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue | Select-Object displayName, productState | Format-Table -AutoSize | Out-String",
+    "description": "바이러스 백신 프로그램 설치 및 주기적 업데이트 (Get-MpComputerStatus는 Windows Defender 전용이라 V3/알약, ESET 등 서드파티 백신이 설치된 경우도 취약으로 오판했습니다. 벤더에 무관하게 등록되는 SecurityCenter2 WMI 네임스페이스로 점검합니다)",
+    "remediation": "백신 프로그램 설치 및 정의 파일 최신화"
+  },
+  {
+    "code": "PC-14",
+    "name": "바이러스 백신 프로그램에서 제공하는 실시간 감시 기능 활성화",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "$av = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue; if($av){ ($av | Select-Object displayName, productState | Format-Table -AutoSize | Out-String) } else { 'FAIL' }",
+    "evidence_command": "Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue | Select-Object displayName, productState | Format-Table -AutoSize | Out-String",
+    "description": "바이러스 백신 프로그램에서 제공하는 실시간 감시 기능 활성화. productState 값만으로 실시간 감시 활성화 여부를 벤더 무관하게 확정 판정하는 방법은 검증된 바 없어(실제 KISA 대조검증 스크립트도 이 항목만은 Defender/타사 여부와 무관하게 항상 '확인 필요'로 남겨둠 - 자체 자동판정을 시도하지 않음), safe_keyword/vulnerable_keyword를 두지 않고 항상 수동 확인(MANUAL)으로 분류합니다. productState 값은 참고용 증거로만 제공합니다.",
+    "remediation": "백신 프로그램의 실시간 감시(실시간 보호) 기능을 활성화"
+  },
+  {
+    "code": "PC-15",
+    "name": "OS에서 제공하는 침입차단 기능 활성화",
+    "category": "보안 관리",
+    "importance": "상",
+    "command": "(Get-Service -Name MpsSvc -ErrorAction SilentlyContinue).Status",
+    "safe_keyword": "Running",
+    "evidence_command": "(Get-Service -Name MpsSvc -ErrorAction SilentlyContinue) | Select-Object DisplayName, Status | Format-Table -AutoSize | Out-String; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile\" /v EnableFirewall 2>&1",
+    "description": "OS에서 제공하는 침입차단 기능 활성화 (Domain 프로필만 확인하면 워크그룹/독립형 PC처럼 도메인 개념이 없는 환경에서는 항상 취약으로 오판하므로, 방화벽 서비스(MpsSvc)의 실행 상태로 점검합니다)",
+    "remediation": "Windows Defender 방화벽 서비스(MpsSvc)를 시작하고 자동 실행으로 설정"
+  },
+  {
+    "code": "PC-16",
+    "name": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive",
+    "safe_keyword": "1",
+    "description": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
+    "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600(10분 이하), ScreenSaverIsSecure=1 설정",
+    "evidence_command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive 2>&1; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure 2>&1; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>&1",
+    "criteria": [
+      {
+        "label": "ScreenSaveActive=1(화면보호기 사용)",
+        "safe_keyword": "1"
+      },
+      {
+        "label": "ScreenSaverIsSecure=1(재시작 시 암호 보호)",
+        "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure",
+        "safe_keyword": "1"
+      },
+      {
+        "label": "ScreenSaveTimeOut 600초(10분) 이하",
+        "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null | Select-String 'ScreenSaveTimeOut'; if(-not $o){'FAIL'} else { $v=[int](($o.ToString() -split '\\s+')[-1]); if($v -gt 0 -and $v -le 600){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-17",
+    "name": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\" /v NoDriveTypeAutoRun",
+    "safe_keyword": "0xff",
+    "description": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립 (NoDriveTypeAutoRun만으로는 CD-ROM 자동실행이 별도로 켜져 있는 경우를 놓치므로 DisableAutoplay, cdrom AutoRun도 함께 점검합니다)",
+    "remediation": "NoDriveTypeAutoRun 값을 0xff(모든 드라이브 자동 실행 끄기), DisableAutoplay=1, cdrom AutoRun=0으로 설정",
+    "evidence_command": "reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\AutoplayHandlers\" /v DisableAutoplay 2>&1; reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\" /v NoDriveTypeAutoRun 2>&1; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\services\\cdrom\" /v AutoRun 2>&1",
+    "criteria": [
+      {
+        "label": "NoDriveTypeAutoRun=0xff(모든 드라이브 자동 실행 끄기)",
+        "safe_keyword": "0xff"
+      },
+      {
+        "label": "DisableAutoplay=1(자동 실행 사용 안 함)",
+        "command": "reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\AutoplayHandlers\" /v DisableAutoplay",
+        "safe_keyword": "0x1"
+      },
+      {
+        "label": "CD-ROM AutoRun 사용 안 함",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\services\\cdrom\" /v AutoRun 2>$null | Select-String 'AutoRun'; if(-not $o){'OK'} elseif($o.ToString() -match '0x1'){'FAIL'}else{'OK'}",
+        "safe_keyword": "OK"
+      }
+    ]
+  },
+  {
+    "code": "PC-18",
+    "name": "원격 지원을 금지하도록 정책이 설정",
+    "category": "보안 관리",
+    "importance": "중",
+    "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\" /v fAllowUnsolicited",
+    "vulnerable_keyword": "0x1",
+    "description": "원격 지원을 금지하도록 정책이 설정 (fAllowToGetHelp는 '요청한' 원격 지원 여부만 제어하는 값으로 실제 KISA 점검 대상이 아닙니다. 실제 악용 경로인 '요청하지 않은(Unsolicited)' 원격 지원 제공 여부를 제어하는 fAllowUnsolicited로 점검합니다)",
+    "remediation": "fAllowUnsolicited 값을 0으로 설정하여 요청하지 않은 원격 지원 제공 차단"
+  }
+]

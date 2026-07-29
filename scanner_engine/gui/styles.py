@@ -140,12 +140,156 @@ QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
 
 /* [상태바 & 프로그레스바] */
 QSplitter::handle { background-color: #333; }
-QProgressBar { 
-    background: #1e1e1e; 
-    border: 1px solid #444; 
-    border-radius: 3px; 
+QProgressBar {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 3px;
     text-align: center;
     color: white;
-} 
+}
 QProgressBar::chunk { background: #888; }
+
+/* [Phase 3: UI 재구성] 대시보드 카드 스크롤 영역 - 기본값은 팔레트 기반 불투명 배경이라
+   QMainWindow의 어두운 배경과 분리되어 보이므로 명시적으로 투명 처리 */
+QScrollArea { background: transparent; border: none; }
+QScrollArea > QWidget > QWidget { background: transparent; }
+"""
+
+# [Phase 3: 설정 페이지 - 테마] 라이트 테마 (다크 테마의 색상 반전 버전)
+LIGHT_STYLESHEET = """
+QMainWindow { background-color: #f3f3f3; }
+QWidget { color: #1e1e1e; font-size: 10pt; font-family: 'Segoe UI', sans-serif; }
+QToolTip { color: #1e1e1e; background-color: #ffffe1; border: 1px solid #767676; }
+
+QLineEdit {
+    background-color: #ffffff;
+    color: #1e1e1e;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    padding: 6px;
+}
+QLineEdit:focus { border: 1px solid #007acc; background-color: #ffffff; }
+QLineEdit:disabled { background-color: #e8e8e8; color: #999999; }
+
+QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    padding: 5px;
+    color: #1e1e1e;
+}
+QComboBox::drop-down { border: none; }
+QComboBox::down-arrow { image: none; border-left: 2px solid #555; width: 0; height: 0; }
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #1e1e1e;
+    border: 1px solid #c0c0c0;
+    selection-background-color: #cce8ff;
+    selection-color: #1e1e1e;
+}
+
+QPushButton {
+    background-color: #e8e8e8;
+    border: 1px solid #b0b0b0;
+    border-radius: 6px;
+    padding: 10px 15px;
+    color: #1e1e1e;
+    font-weight: bold;
+}
+QPushButton:hover { background-color: #d8d8d8; border-color: #007acc; }
+QPushButton:pressed { background-color: #c8c8c8; }
+QPushButton:disabled { background-color: #f0f0f0; color: #a0a0a0; border-color: #d0d0d0; }
+
+QPushButton#ClearBtn {
+    padding: 4px 10px;
+    font-size: 9pt;
+    background-color: #eee;
+    border: 1px solid #ccc;
+}
+QPushButton#ClearBtn:hover { background-color: #e74c3c; color: white; border-color: #c0392b; }
+
+QGroupBox {
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    margin-top: 10px;
+    background-color: #fafafa;
+    color: #333;
+    font-weight: bold;
+    padding-top: 15px;
+}
+QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; }
+
+QTableWidget {
+    background-color: #ffffff;
+    gridline-color: #ddd;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    alternate-background-color: #f5f5f5;
+}
+QHeaderView::section {
+    background-color: #eaeaea;
+    color: #333;
+    padding: 8px;
+    border: none;
+    border-bottom: 1px solid #c0c0c0;
+    font-weight: bold;
+}
+QTableWidget::item { padding: 5px; color: #1e1e1e; }
+QTableWidget::item:selected {
+    background-color: #cce8ff;
+    color: #1e1e1e;
+    border-left: 2px solid #007acc;
+}
+QTableWidget::item:hover { background-color: #eef6ff; }
+
+QTextEdit {
+    background-color: #ffffff;
+    color: #1e1e1e;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 9pt;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+QToolBar { background: #eaeaea; border-bottom: 1px solid #c0c0c0; spacing: 10px; padding: 5px; }
+QToolButton { color: #1e1e1e; background: transparent; padding: 6px; border-radius: 4px; font-weight: bold; }
+QToolButton:hover { background: #d8d8d8; color: #000; }
+QToolButton:disabled { color: #aaa; }
+
+QMessageBox, QInputDialog {
+    background-color: #f3f3f3;
+    color: #1e1e1e;
+    border: 1px solid #c0c0c0;
+}
+QMessageBox QLabel, QInputDialog QLabel {
+    color: #1e1e1e;
+    font-weight: normal;
+}
+QMessageBox QPushButton, QInputDialog QPushButton {
+    background-color: #e8e8e8;
+    color: #1e1e1e;
+    border: 1px solid #b0b0b0;
+    border-radius: 4px;
+    padding: 6px 20px;
+    min-width: 60px;
+}
+QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
+    background-color: #d8d8d8;
+    border-color: #999;
+}
+
+QSplitter::handle { background-color: #d0d0d0; }
+QProgressBar {
+    background: #ffffff;
+    border: 1px solid #c0c0c0;
+    border-radius: 3px;
+    text-align: center;
+    color: #1e1e1e;
+}
+QProgressBar::chunk { background: #007acc; }
+
+/* [Phase 3: UI 재구성] 대시보드 카드 스크롤 영역 - 다크 테마와 동일한 이유로 투명 처리 */
+QScrollArea { background: transparent; border: none; }
+QScrollArea > QWidget > QWidget { background: transparent; }
 """

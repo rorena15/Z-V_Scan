@@ -1,0 +1,167 @@
+[
+  {
+    "code": "D-01",
+    "name": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT 'EMPTY_PW:'||rolname FROM pg_authid WHERE rolname='postgres' AND rolcanlogin=true AND rolpassword IS NULL;",
+    "vulnerable_keyword": "EMPTY_PW:",
+    "description": "기본 계정의 비밀번호, 정책 등을 변경하여 사용",
+    "remediation": "ALTER USER postgres WITH PASSWORD '<신규비밀번호>'; 또는 로그인이 불필요하면 ALTER ROLE postgres NOLOGIN; (rolcanlogin=false 이면 비밀번호 상태와 무관하게 양호)"
+  },
+  {
+    "code": "D-02",
+    "name": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT rolname FROM pg_roles WHERE rolcanlogin=true ORDER BY rolname;",
+    "description": "데이터베이스의 불필요 계정을 제거하거나, 잠금설정 후 사용",
+    "remediation": "DROP ROLE '<불필요계정>'; (수동 검토 필요 - 로그인 가능 역할 목록 확인)"
+  },
+  {
+    "code": "D-03",
+    "name": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "passwordcheck",
+    "description": "비밀번호의 사용기간 및 복잡도를 기관의 정책에 맞도록 설정",
+    "remediation": "passwordcheck 확장을 shared_preload_libraries에 실제로 등록(shared_preload_libraries='passwordcheck') 후 재시작 (단순 설치만으로는 미적용, 로드 여부까지 확인 필요)"
+  },
+  {
+    "code": "D-04",
+    "name": "데이터베이스 관리자 권한을 꼭 필요한 계정 및 그룹에 대해서만 허용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT 'ADMIN_PRIV:'||rolname FROM pg_roles WHERE (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls) AND rolname NOT IN ('postgres','rdsadmin','azure_pg_admin');",
+    "vulnerable_keyword": "ADMIN_PRIV:",
+    "description": "postgres 등 승인된 관리자 계정을 제외하고 rolsuper/rolcreaterole/rolcreatedb/rolreplication/rolbypassrls 권한을 보유한 역할이 있는지로 판정합니다 (KISA 2026 가이드 D-04 조치방법이 이 5개 속성을 모두 관리자 권한으로 다룸: NOSUPERUSER/NOCREATEROLE/NOCREATEDB/NOREPLICATION/NOBYPASSRLS).",
+    "remediation": "ALTER ROLE <계정> NOSUPERUSER;"
+  },
+  {
+    "code": "D-05",
+    "name": "비밀번호 재사용에 대한 제약 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "passwordcheck",
+    "description": "비밀번호 재사용에 대한 제약 설정",
+    "remediation": "PostgreSQL은 비밀번호 재사용 제약 기능이 내장되어 있지 않아 passwordcheck 확장을 shared_preload_libraries에 등록하여 보완 (D-03과 동일 기전 - 근본적으로는 외부 정책/IdP 연동 필요)"
+  },
+  {
+    "code": "D-06",
+    "name": "DB 사용자 계정을 개별적으로 부여하여 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT 'SHARED_ACCOUNT:'||rolname FROM pg_roles WHERE rolcanlogin=true AND LOWER(rolname) IN ('admin','user','test','app','shared','guest','demo','anonymous','common');",
+    "vulnerable_keyword": "SHARED_ACCOUNT:",
+    "description": "admin/user/test/app/shared/guest 등 다수가 공용으로 사용할 가능성이 높은 범용 역할명이 로그인 가능 상태로 존재하는지로 판정합니다 (역할명만으로는 실제 공용 사용 여부를 완전히 판정하기 어려우므로, 이 목록에 없는 역할은 개별 계정으로 간주해 양호 처리합니다).",
+    "remediation": "공용 계정 사용을 지양하고 업무별 개별 역할 발급"
+  },
+  {
+    "code": "D-07",
+    "name": "root 권한으로 서비스 구동 제한",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SELECT current_user;",
+    "description": "root 권한으로 서비스 구동 제한",
+    "remediation": "postgres 전용 OS 계정으로 서비스 구동 (OS 레벨 점검 필요 - SSH 접속 후 ps -ef | grep postgres 로 확인)"
+  },
+  {
+    "code": "D-08",
+    "name": "안전한 암호화 알고리즘 사용",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "SELECT 'WEAK_HASH:'||usename FROM pg_shadow WHERE passwd IS NOT NULL AND passwd NOT LIKE 'SCRAM-SHA-256%';",
+    "vulnerable_keyword": "WEAK_HASH:",
+    "description": "KISA 2026 가이드 D-08은 업무 데이터 컬럼 암호화가 아니라 DBMS 계정 비밀번호 해시 알고리즘이 SHA-256 이상인지를 점검합니다. PostgreSQL은 pg_shadow.passwd가 SCRAM-SHA-256 형식이 아닌 경우(예: 구버전 md5 접두 해시) 취약으로 판정합니다.",
+    "remediation": "pgcrypto 확장(CREATE EXTENSION pgcrypto;)을 사용해 해당 컬럼을 암호화 저장으로 전환 (전송구간 암호화는 별도 항목: postgresql.conf에서 ssl=on 설정)"
+  },
+  {
+    "code": "D-09",
+    "name": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "SHOW shared_preload_libraries;",
+    "safe_keyword": "auth_delay",
+    "description": "일정 횟수의 로그인 실패 시 이에 대한 잠금정책 설정",
+    "remediation": "PostgreSQL 자체 계정 잠금 기능은 없음 - auth_delay 확장을 shared_preload_libraries에 등록해 무차별 대입 지연 및 fail2ban 등 OS 레벨 접근제어로 보완 (주의: 실제 KISA 기준의 핵심 통제는 OS의 fail2ban 서비스 활성 여부이며, 이는 SQL로 확인 불가하므로 SSH 기반 별도 점검 필요)"
+  },
+  {
+    "code": "D-10",
+    "name": "원격에서 DB 서버로의 접속 제한",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "SELECT 'ANYHOST:'||address FROM pg_hba_file_rules WHERE type ~ '^host' AND address IN ('0.0.0.0/0','::/0','all');",
+    "vulnerable_keyword": "ANYHOST:",
+    "description": "원격에서 DB 서버로의 접속 제한",
+    "remediation": "pg_hba.conf에서 허용 IP 대역만 명시 (host all all <허용IP>/32 md5) 후 postgresql 재적재(SELECT pg_reload_conf();)"
+  },
+  {
+    "code": "D-11",
+    "name": "DBA이외의 인가되지 않은 사용자가 시스템 테이블에 접근할 수 없도록 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SELECT 'SYS_TABLE_ACCESS:'||grantee FROM information_schema.role_table_grants WHERE table_schema IN ('pg_catalog','information_schema') AND grantee NOT IN ('postgres','rdsadmin','azure_pg_admin');",
+    "vulnerable_keyword": "SYS_TABLE_ACCESS:",
+    "description": "pg_catalog/information_schema 등 시스템 스키마에 postgres 등 승인된 관리자 계정을 제외한 일반 계정의 접근 권한이 부여되어 있는지로 판정합니다.",
+    "remediation": "REVOKE ALL ON ALL TABLES IN SCHEMA pg_catalog FROM <계정>;"
+  },
+  {
+    "code": "D-14",
+    "name": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "SHOW data_directory;",
+    "description": "데이터베이스의 주요 설정파일, 비밀번호 파일 등과 같은 주요 파일들의 접근 권한이 적절하게 설정",
+    "remediation": "chmod 600 pg_hba.conf postgresql.conf, chown postgres:postgres (OS 레벨 점검 필요 - SSH 접속 후 확인)"
+  },
+  {
+    "code": "D-18",
+    "name": "응용프로그램 또는 DBA 계정의 Role이 Public으로 설정되지 않도록 조정",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT 'PUBLIC_CREATE:'||nspname FROM pg_namespace WHERE nspname='public' AND has_schema_privilege('public', nspname, 'CREATE');",
+    "vulnerable_keyword": "PUBLIC_CREATE:",
+    "description": "응용프로그램 또는 DBA 계정의 Role이 Public으로 설정되지 않도록 조정",
+    "remediation": "REVOKE CREATE ON SCHEMA public FROM PUBLIC; (PostgreSQL 15+ 는 기본 적용됨)"
+  },
+  {
+    "code": "D-20",
+    "name": "인가되지 않은 Object Owner의 제한",
+    "category": "옵션 관리",
+    "importance": "중",
+    "command": "SELECT DISTINCT r.rolname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles r ON r.oid = c.relowner WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg\\_%' AND c.relkind IN ('r','v','m','S','f','p');",
+    "description": "인가되지 않은 Object Owner의 제한",
+    "remediation": "불필요한 소유자의 테이블을 적절한 역할로 이전 (ALTER TABLE <테이블> OWNER TO <역할>;) - 수동 검토 필요"
+  },
+  {
+    "code": "D-21",
+    "name": "인가되지 않은 GRANT OPTION 사용 제한",
+    "category": "옵션 관리",
+    "importance": "상",
+    "command": "SELECT 'GRANTABLE:'||grantee FROM information_schema.table_privileges WHERE is_grantable='YES' AND grantee NOT IN ('postgres','rdsadmin','azure_pg_admin') UNION SELECT 'GRANTABLE:'||grantee FROM information_schema.usage_privileges WHERE is_grantable='YES' AND grantee NOT IN ('postgres','rdsadmin','azure_pg_admin');",
+    "vulnerable_keyword": "GRANTABLE:",
+    "description": "postgres 등 승인된 관리자 계정을 제외하고 테이블/시퀀스 등에 WITH GRANT OPTION(is_grantable='YES') 권한을 보유한 계정이 있는지로 판정합니다.",
+    "remediation": "REVOKE GRANT OPTION FOR <권한> ON <테이블/시퀀스 등> FROM <계정>; (WITH GRANT OPTION 권한 보유가 업무상 필요한지 확인 후 제거)"
+  },
+  {
+    "code": "D-25",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "SELECT version();",
+    "description": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "remediation": "https://www.postgresql.org/support/security/ 에서 최신 보안 패치 확인 및 적용 (수동 검토 필요)"
+  },
+  {
+    "code": "D-26",
+    "name": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "category": "패치 관리",
+    "importance": "중",
+    "command": "SHOW log_connections;",
+    "safe_keyword": "on",
+    "description": "데이터베이스의 접근, 변경, 삭제 등의 감사기록이 기관의 감사기록 정책에 적합하도록 설정",
+    "remediation": "postgresql.conf에서 log_connections=on, log_disconnections=on, log_statement='all' 설정"
+  }
+]

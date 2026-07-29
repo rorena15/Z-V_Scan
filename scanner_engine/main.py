@@ -13,13 +13,14 @@ import multiprocessing
 import traceback
 from datetime import datetime
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from PySide6.QtGui import QIcon
 
 # 분리된 UI 및 다이얼로그 import
 from gui.main_window import ScannerApp
 from gui.dialogs import LegalDisclaimerDialog
 from utils.logger import AppLogger
+from utils import db_crypto
 
 def resource_path(relative_path):
     try:
@@ -62,9 +63,27 @@ if __name__ == '__main__':
 
     app = QApplication(sys.argv)
 
-    icon_path = resource_path("app_icon.ico") 
+    icon_path = resource_path("app_icon.ico")
     app.setWindowIcon(QIcon(icon_path))
-    
+
+    # [DB 암호화] 시작 시 이전 세션에서 암호화해 둔 zvuln_scan.db.enc가 있으면
+    # 복호화해서 평문 작업 파일을 만든다. 정상 종료 시에는 아래 aboutToQuit에서
+    # 다시 암호화한다 - DBConnector 등 기존 코드는 그 사이엔 평문 파일을 그대로 쓰므로
+    # 변경할 필요가 없다.
+    _db_plain_path = db_crypto.get_default_db_path()
+    _db_key_is_new = db_crypto.ensure_decrypted(_db_plain_path)
+    app.aboutToQuit.connect(lambda: db_crypto.encrypt_on_exit(_db_plain_path))
+
+    if _db_key_is_new:
+        QMessageBox.information(
+            None, "DB 암호화 키 생성됨",
+            "스캔 결과 DB(zvuln_scan.db)를 프로그램 종료 시 자동으로 암호화하도록\n"
+            "암호화 키를 새로 생성했습니다.\n\n"
+            f"복구용 키 백업 파일이 여기 저장되었습니다:\n{db_crypto.get_recovery_backup_path()}\n\n"
+            "이 키를 잃어버리면(OS 재설치 등) 암호화된 DB를 복구할 방법이 없으니,\n"
+            "위 파일을 USB 등 안전한 곳에 반드시 별도로 백업해두세요."
+        )
+
     if args.target:
         # [연동 모드] 미들웨어가 호출했을 때: 법적 고지 패스하고 바로 스캔 돌입
         scanner = ScannerApp()
