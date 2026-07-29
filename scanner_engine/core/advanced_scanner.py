@@ -29,20 +29,29 @@ class AdvancedScanner:
     #2. UDP Payload Scan (Nmap -sU Style)
     #3. HTTP Title Extraction (Asset Identification)
     #4. Passive OS Fingerprinting (TTL)
-    
+
+    # [최적화] worker.py의 discover_target()이 호스트마다 AdvancedScanner()를 새로
+    # 생성하므로 인스턴스 속성 캐시는 소용없다 - 클래스 변수로 스캔 세션 전체에서
+    # 로컬 IP 조회 결과를 공유한다(대상 IP가 바뀌어도 "내 PC의 IP" 자체는 안 바뀜).
+    _local_ip_cache = None
+
     def __init__(self):
         # 기본 스캔 대상 포트
         self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
         
         # [Strategy 1] TCP Service Probes
         # [Update v4.4] HTTP Title 수집을 위해 HEAD -> GET 변경
+        # [버그 수정] 80/8080/443은 예전엔 여기서 "Host: 127.0.0.1"로 고정된 정적 바이트를
+        # 썼는데, 이름 기반 가상 호스트(Apache/Nginx의 흔한 기본 구성)를 쓰는 서버는
+        # Host 헤더로 응답할 사이트를 결정한다 - 실제 대상 IP가 아니라 127.0.0.1을 보내면
+        # 엉뚱한 기본/에러 페이지가 오거나 400이 나서 Title/서비스 정보가 잘못 수집된다.
+        # 그래서 HTTP 계열은 여기 정적으로 안 두고 grab_banner()에서 실제 ip로 매번
+        # 새로 만든다 - 이 dict에는 더 이상 80/8080/443을 넣지 않는다.
+        self.HTTP_PORTS = (80, 8080, 443)
         self.PROBES = {
-            80: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            8080: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            443: b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: Z-VulnScan\r\n\r\n",
-            21: None, 
-            22: None, 
-            23: None, 
+            21: None,
+            22: None,
+            23: None,
             25: b"EHLO z-vulnscan\r\n", 
         }
 
@@ -175,6 +184,17 @@ class AdvancedScanner:
         except: pass
         return mac_address
 
+    @classmethod
+    def _get_local_ip(cls):
+        """스캔을 실행 중인 이 PC 자신의 IP - 클래스 변수에 캐시해 매 호스트마다
+        다시 조회하지 않는다(값이 스캔 도중 바뀔 일이 없음)."""
+        if cls._local_ip_cache is None:
+            try:
+                cls._local_ip_cache = socket.gethostbyname(socket.gethostname())
+            except OSError:
+                cls._local_ip_cache = ""
+        return cls._local_ip_cache
+
     def resolve_hostname(self, ip):
         """[Discovery 단계 hostname] 인증 정보 없이도 역DNS(PTR)로 hostname을 얻어본다.
         실패해도 예외를 던지지 않고 None만 반환 - 호출부(worker.py)가 기존 vendor 기반
@@ -215,7 +235,7 @@ class AdvancedScanner:
                 # "Unknown Vendor"를 반환하므로, 예전 "vendor == 'Unknown'" 비교는 항상
                 # 거짓이 되어 아래 wmic 폴백이 죽어 있었다. MAC 자체가 안 잡혔는지로 직접 판단한다.
                 #만약 MAC으로 벤더를 못 찾았고, 내 로컬 PC(localhost)를 스캔 중이라면 wmic 시도
-                if mac_address == "Unknown" and ip in ["127.0.0.1", "localhost", socket.gethostbyname(socket.gethostname())]:
+                if mac_address == "Unknown" and ip in ["127.0.0.1", "localhost", self._get_local_ip()]:
                     wmic_vendor = self.get_system_vendor()
                     if wmic_vendor:
                         vendor = wmic_vendor
@@ -318,32 +338,51 @@ class AdvancedScanner:
 
     def grab_banner(self, ip, port):
         banner_raw = ""
-        probe_data = self.PROBES.get(port, b"\r\n") 
+        if port in self.HTTP_PORTS:
+            # [버그 수정] Host 헤더를 실제 대상 ip로 채운다(위 __init__ 주석 참고) -
+            # 가상 호스트 서버에서 정확한 사이트의 Title/배너를 받기 위함.
+            probe_data = (
+                f"GET / HTTP/1.1\r\nHost: {ip}\r\nUser-Agent: Z-VulnScan\r\n"
+                f"Connection: close\r\n\r\n"
+            ).encode()
+        else:
+            probe_data = self.PROBES.get(port, b"\r\n")
+        # [버그 수정] 예전엔 sock = socket.socket(...)이 try 블록 "안"에 있으면서
+        # finally에서 sock.close()를 호출했다. socket.socket() 생성 자체가 실패하면
+        # (예: 대량 동시 스캔 중 파일 디스크립터 고갈, "Too many open files") sock 변수가
+        # 아예 할당되지 못한 채로 finally가 실행되어 UnboundLocalError가 발생하고, 그
+        # 예외는 바깥 except에도 안 잡혀 그대로 전파된다(실측 확인됨) - 스캔 부하가
+        # 가장 높을 때, 즉 이 실패가 가장 잘 나는 바로 그 순간에 해당 호스트의 나머지
+        # 포트/배너/UDP 스캔이 통째로 중단되는 결과로 이어진다. sock=None으로 미리
+        # 초기화하고 finally에서 존재할 때만 닫는다.
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2.0)
-            
+
             if port == 443:
                 context = ssl.create_default_context()
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
                 try: sock = context.wrap_socket(sock, server_hostname=ip)
-                except: pass 
+                except: pass
 
             sock.connect((ip, port))
             if probe_data: sock.send(probe_data)
-            
+
             #Title 추출을 위해 읽는 바이트 수 증가
             raw_data = sock.recv(4096)
-            
+
             # 인코딩 처리 (한글 타이틀 지원)
             try:
                 banner_raw = raw_data.decode('utf-8', errors='strict').strip()
             except UnicodeDecodeError:
                 banner_raw = raw_data.decode('cp949', errors='ignore').strip()
-            
+
         except: pass
-        finally: sock.close()
+        finally:
+            if sock is not None:
+                sock.close()
 
         if banner_raw:
             return self.analyze_banner(banner_raw, port)

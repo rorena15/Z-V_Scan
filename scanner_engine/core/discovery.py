@@ -5,6 +5,7 @@
 # Unauthorized copying, modification, distribution, or reverse engineering 
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
+import errno
 import socket
 import concurrent.futures
 from utils.logger import AppLogger
@@ -32,10 +33,13 @@ class HostDiscovery:
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, 0) 
                     
                     result = s.connect_ex((ip, port))
-                    
+
                     # 0: Open (확실히 살아있음)
-                    # 10061: Connection Refused (방화벽이 포트는 막았으나 호스트는 켜져 있음!)
-                    if result == 0 or result == 10061:
+                    # ECONNREFUSED: Connection Refused (방화벽이 포트는 막았으나 호스트는 켜져 있음!)
+                    # [버그 수정] 이전엔 10061(Windows WSAECONNREFUSED)을 하드코딩했는데, 이 값은
+                    # 스캔 "실행 PC"가 Windows일 때만 맞다(Linux는 111, macOS는 61). errno 모듈이
+                    # 각 OS에서 자동으로 올바른 값을 주므로 여기서는 그걸 쓴다.
+                    if result == 0 or result == errno.ECONNREFUSED:
                         return ip
             except:
                 pass
@@ -58,8 +62,11 @@ class HostDiscovery:
                     active_hosts.append(result)
         
         # IP 주소 정렬 (문자열 정렬 보정: 10이 2보다 뒤에 오도록)
+        # [버그 수정] 마지막 옥텟만으로 정렬하면 대상이 여러 서브넷에 걸칠 때
+        # (예: /23 CIDR 하나에 .0.x와 .1.x가 섞이는 경우) 서로 다른 대역의 IP가
+        # 마지막 옥텟 값만으로 뒤섞여 정렬된다 - 4옥텟을 모두 비교해야 한다.
         try:
-            active_hosts.sort(key=lambda ip: int(ip.split('.')[-1]))
+            active_hosts.sort(key=lambda ip: tuple(int(part) for part in ip.split('.')))
         except:
             active_hosts.sort()
             

@@ -311,6 +311,7 @@ class ScanWorker(QThread):
         scanner = AdvancedScanner()
 
         # 1. Host Discovery & OS Detection (가짜 데이터 주입)
+        icmp_alive = None
         if is_sim:
             if ip in ["0.0.0.0", "127.0.0.2"]:
                 os_type = "Windows Server 2019"
@@ -324,7 +325,12 @@ class ScanWorker(QThread):
             # 이미 생존을 확인한 IP만 여기 도달한다. host_discovery()의 ICMP 결과는
             # OS 추정(TTL)용 "참고 정보"로만 쓰고, ICMP가 차단됐다고 자산을 스킵하지 않는다
             # (예전에는 ICMP 차단망에서 TCP로 확인된 자산이 조용히 스킵되는 문제가 있었음).
-            _icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
+            # [버그 수정] 이 값을 예전엔 밑줄(_icmp_alive)로 버려놓고, 밑에서 열린 포트가
+            # 없을 때 항상 "ICMP Ping Response Only"라고 근거를 고정해서 남겼다 - 실제로는
+            # 이 호스트가 TCP(445/22/80/135 중 하나가 연결거부=생존)로 확인됐고 ICMP는
+            # 막혀있는 경우에도 똑같이 "ICMP 응답"이라고 거짓 증적이 남는 문제가 실측으로
+            # 확인됐다. 값을 그대로 써서 실제로 ICMP가 응답했는지를 증적에 정확히 남긴다.
+            icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
 
         # [역DNS] 인증 정보 없이도 hostname을 채울 수 있으면 vendor 기반 placeholder 대신 사용.
         # 실패(PTR 레코드 없음 등)하면 기존처럼 "(Vendor) Device" placeholder로 폴백하고,
@@ -361,9 +367,15 @@ class ScanWorker(QThread):
         self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor)))
 
         if not open_ports:
+            if icmp_alive:
+                alive_note = "ICMP Ping Response"
+            elif icmp_alive is False:
+                alive_note = "TCP Connect/Refused on Discovery Port (ICMP Blocked)"
+            else:
+                alive_note = "TCP Connect/Refused on Discovery Port"
             self.db_queue.put(("SCAN_RESULT", (
                 ip, "INFO-00", "Host Alive", "Info", "Safe",
-                "ICMP Ping Response Only", "-", "", ""
+                f"{alive_note} - No Open Ports in Scanned Range", "-", "", ""
             )))
 
         # 포트별 배너 및 기본 취약점 확인
