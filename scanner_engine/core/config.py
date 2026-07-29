@@ -47,11 +47,13 @@ class AppConfig:
     ENGINE_ACCESS_TOKEN = "ZVulnScan_V3_Pro_Secure_Engine_Key_2026_!@#"
 
     # ----------------------------------------------------------------------
-    # [4] 버전 업데이트 확인 (Update Check) - 실제 배포 호스팅이 정해지기 전까지 비활성
+    # [4] 버전 업데이트 확인 (Update Check) - GitHub Releases 기반
     # ----------------------------------------------------------------------
-    # 지금은 이 프로그램을 배포할 실제 서버/홈페이지가 없어서 빈 값으로 둔다.
-    # 빈 값인 동안은 utils/update_checker.py가 어떤 네트워크 요청도 보내지 않는다.
-    # 나중에 실제 배포 경로가 생기면, 최신 버전 정보를 담은 JSON
-    # ({"latest_version": "...", "download_url": "...", "notes": "..."})을
-    # 반환하는 URL을 여기에 채우기만 하면 된다.
-    UPDATE_CHECK_URL = ""
+    # 배포 경로로 GitHub Releases(공개 저장소 rorena15/Z-V_Scan)를 사용한다.
+    # 이 URL은 GitHub REST API의 "최신 릴리즈 조회" 엔드포인트이며, 저장소가
+    # public이므로 인증 토큰 없이도 호출 가능하다(비공개 저장소였다면 배포된
+    # 실행파일에 토큰을 심어야 해서 이 방식을 못 썼을 것).
+    # utils/update_checker.py가 이 URL을 호출해 tag_name을 VERSION과 비교하고,
+    # 더 최신이면 release assets의 다운로드 링크를 사용자에게 안내한다.
+    # 빈 문자열로 되돌리면 예전처럼 완전히 비활성화된다.
+    UPDATE_CHECK_URL = "https://api.github.com/repos/rorena15/Z-V_Scan/releases/latest"

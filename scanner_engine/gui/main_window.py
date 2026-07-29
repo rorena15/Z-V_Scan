@@ -31,9 +31,9 @@ from PySide6.QtWidgets import (
     QToolButton,
 )
 # [PySide6 핵심 기능]
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QUrl
 # [PySide6 그래픽 및 액션]
-from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QKeySequence
+from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QKeySequence, QDesktopServices
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -1347,17 +1347,28 @@ class ScannerApp(QMainWindow):
                 self.log_message(f"[System] License Activated: {dlg.verified_tier} (expires {dlg.verified_expiry})")
         
     def _check_for_updates(self):
-        # [버전 업데이트 배포 경로] AppConfig.UPDATE_CHECK_URL이 비어있는 동안은
-        # check_for_updates()가 항상 즉시 None을 반환하므로(네트워크 요청 없음),
-        # 지금은 이 호출이 실질적으로 아무 일도 하지 않는다. 나중에 실제 배포
-        # URL이 채워지면 여기서 알림이 뜨기 시작한다.
+        # [버전 업데이트 배포 경로] GitHub Releases(공개 저장소)를 조회한다.
+        # 네트워크 실패/릴리즈 없음/이미 최신 버전이면 update_info가 None이라
+        # 아무 일도 일어나지 않는다 - 시작 속도에 영향을 주지 않기 위해 짧은
+        # timeout(기본 5초)으로 best-effort 조회만 한다.
         update_info = check_for_updates()
-        if update_info:
-            QMessageBox.information(
-                self, "새 버전 알림",
-                f"새 버전이 있습니다: {update_info.get('latest_version')}\n\n"
-                f"{update_info.get('notes', '')}"
-            )
+        if not update_info:
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("새 버전 알림")
+        box.setText(
+            f"새 버전이 있습니다: {update_info.get('latest_version')}\n\n"
+            f"{update_info.get('notes', '')}"
+        )
+        download_btn = box.addButton("다운로드 페이지 열기", QMessageBox.AcceptRole)
+        box.addButton("나중에", QMessageBox.RejectRole)
+        box.exec()
+
+        if box.clickedButton() == download_btn:
+            download_url = update_info.get("download_url", "")
+            if download_url:
+                QDesktopServices.openUrl(QUrl(download_url))
 
     def sync_to_cloud(self):
         # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도

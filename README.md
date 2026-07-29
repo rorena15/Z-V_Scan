@@ -154,7 +154,7 @@ Apache · Nginx · Tomcat · JEUS · WebtoB 대상 (`WEB-01` ~ `WEB-26`)
 
 ### 🔮 Future (Enterprise 상용화 대비)
 - [x] **라이선스 발급/회수 체계:** CLI 기반 키 발급·취소 대장 (실시간 원격 회수는 서버 인프라 필요 — 보류)
-- [x] **버전 업데이트 확인 경로:** 개발 완료, 실제 배포 URL 확정 전까지 기본 비활성
+- [x] **버전 업데이트 확인:** GitHub Releases 연동 완료, 새 릴리즈 발행 시 앱 시작 시 알림 + 다운로드 페이지 바로가기
 - [ ] **Headless Mode:** CLI 지원을 통한 스케줄러 연동 및 자동화
 - [ ] **SIEM Integration:** Syslog/CEF 포맷 로그 전송 기능
 - [ ] **Centralized DB:** 로컬 SQLite를 넘어 MySQL/PostgreSQL 중앙 저장소 연동
