@@ -108,20 +108,28 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.ver.outputs.version }}"
+
+          # [버그 수정] 예전엔 "$version^"(예: "v3.1.0^")을 git 리비전으로 직접
+          # 넘겼는데, 이건 실제 태그 push로 트리거된 경우에만 유효한 git 객체다.
+          # workflow_dispatch로 수동 실행하면 $version은 사용자가 입력창에 타이핑한
+          # 문자열일 뿐 그 이름의 git 태그가 실제로 존재하지 않을 수 있어서
+          # "fatal: ambiguous argument ... unknown revision" 에러가 난다.
+          # git 조회는 항상 실제로 존재가 보장되는 HEAD 기준으로 하고, $version은
+          # 노트에 표시되는 텍스트로만 쓴다.
           $prevTag = $null
           try {
-            $prevTag = git describe --tags --abbrev=0 "$version^" 2>$null
+            $prevTag = git describe --tags --abbrev=0 "HEAD^" 2>$null
             if ($LASTEXITCODE -ne 0) { $prevTag = $null }
           } catch { $prevTag = $null }
 
           if ($prevTag) {
             $range = "$prevTag..$version"
-            $log = git log --no-merges --pretty=format:"- %s (%h)" $range
+            $log = git log --no-merges --pretty=format:"- %s (%h)" "$prevTag..HEAD"
           } else {
             # 첫 릴리즈 - 비교할 이전 태그가 없다. 전체 커밋 이력(350개 이상)을
             # 그대로 넣으면 노트가 너무 길어지므로 최근 50개만 보여준다.
             $range = "$version (첫 릴리즈, 최근 50개 커밋만 표시)"
-            $log = git log --no-merges --pretty=format:"- %s (%h)" -n 50 $version
+            $log = git log --no-merges --pretty=format:"- %s (%h)" -n 50 HEAD
           }
 
           if (-not $log) { $log = "- (변경 커밋 없음)" }
