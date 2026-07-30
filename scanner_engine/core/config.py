@@ -57,3 +57,22 @@ class AppConfig:
     # 더 최신이면 release assets의 다운로드 링크를 사용자에게 안내한다.
     # 빈 문자열로 되돌리면 예전처럼 완전히 비활성화된다.
     UPDATE_CHECK_URL = "https://api.github.com/repos/rorena15/Z-V_Scan/releases/latest"
+
+    # ----------------------------------------------------------------------
+    # [5] 룰셋 파일 암호화 키 (rules/*_rules.json 보호)
+    # ----------------------------------------------------------------------
+    # PyArmor는 .py 코드만 보호하고 rules/*.json 같은 데이터 파일은 손대지
+    # 않는다 - onedir 빌드로 바꾸면 이 파일들이 설치 폴더에 평문 그대로 노출돼
+    # KISA 판정 로직/조치방안 전체를 누구나 열어볼 수 있게 된다.
+    #
+    # 그래서 빌드 시점에(ci/encrypt_rules.py) rules/*_rules.json을 이 키로
+    # Fernet 암호화해서 {name}_rules.json.enc로 바꿔 그것만 배포판에 담고,
+    # 실행 중에는 utils/rule_crypto.py가 이 키로 메모리에서만 복호화한다(디스크에
+    # 평문으로 풀어놓지 않음). LICENSE_SALT/ENGINE_ACCESS_TOKEN과 마찬가지로
+    # 이 키 자체도 PyArmor로 보호된 코드 안에 있다는 점에 기대는 방식이라, 완벽한
+    # DRM이 아니라 "진입장벽을 높이는" 수준의 보호라는 한계는 동일하게 적용된다.
+    #
+    # 개발 중에는 rules/*.json 평문을 그대로 쓸 수 있어야 하므로(빌드 없이
+    # 바로 룰 수정/테스트), rule_crypto.load_ruleset()은 .enc가 없으면 평문
+    # 파일로 자동 폴백한다 - 이 키는 오직 "빌드된 배포판"에서만 실제로 쓰인다.
+    RULE_ENCRYPTION_KEY = "8gUHbl7QOUhhyeZyK_6wrTMxJbrwWJnufELuYQTk_YQ="
