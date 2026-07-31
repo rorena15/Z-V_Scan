@@ -24,14 +24,29 @@ $DIST_DIR = "Z-VulnScan_Professional_${VERSION}_Final"
 # 난독화된 소스가 있는 위치
 $SRC_DIR = "dist\obfuscated"
 
+# rules/*_rules.json을 암호화해서 담아둘 스테이징 폴더 (평문 rules/*.json
+# 자체는 여기 안 들어가고 .enc로만 들어간다 - 아래 [4/4] PyInstaller 단계가
+# rules/ 대신 이 폴더를 배포판의 "rules"로 채택한다)
+$RULES_STAGED_DIR = "dist\rules_staged"
+
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " 🚀 Hybrid Build Started: $APP_NAME" -ForegroundColor Cyan
 Write-Host "=========================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------
-# [1/3] 누락된 모듈(Cython + GUI) 수동 병합
+# [1/4] rules/*_rules.json 암호화 스테이징
 # ---------------------------------------------------------------------
-Write-Host "[1/3] Merging modules into obfuscated folder..." -ForegroundColor Yellow
+Write-Host "[1/4] Encrypting rules/*_rules.json..." -ForegroundColor Yellow
+python ci\encrypt_rules.py rules $RULES_STAGED_DIR
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n ❌ Rules encryption failed!" -ForegroundColor Red
+    exit 1
+}
+
+# ---------------------------------------------------------------------
+# [2/4] 누락된 모듈(Cython + GUI) 수동 병합
+# ---------------------------------------------------------------------
+Write-Host "[2/4] Merging modules into obfuscated folder..." -ForegroundColor Yellow
 
 $modules_to_copy = @("core", "utils", "output", "gui")
 
@@ -61,7 +76,7 @@ foreach ($folder in $modules_to_copy) {
 }
 
 # ---------------------------------------------------------------------
-# [2/3] PyArmor 런타임 폴더 자동 감지
+# [3/4] PyArmor 런타임 폴더 자동 감지
 # ---------------------------------------------------------------------
 $RUNTIME_DIR = Get-ChildItem "$SRC_DIR" -Directory -Filter "pyarmor_runtime_*" | Select-Object -ExpandProperty Name -First 1
 
@@ -69,7 +84,7 @@ if (-not $RUNTIME_DIR) {
     Write-Error "❌ PyArmor 런타임 폴더를 찾을 수 없습니다! 2단계(pyarmor gen)를 확인하세요."
     exit
 }
-Write-Host "[2/3] Found Runtime: $RUNTIME_DIR" -ForegroundColor Gray
+Write-Host "[3/4] Found Runtime: $RUNTIME_DIR" -ForegroundColor Gray
 
 # 기존 빌드 정리
 if (Test-Path $DIST_DIR) { Remove-Item -Recurse -Force $DIST_DIR }
@@ -77,9 +92,9 @@ if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
 
 # ---------------------------------------------------------------------
-# [3/3] PyInstaller 실행
+# [4/4] PyInstaller 실행
 # ---------------------------------------------------------------------
-Write-Host "`n[3/3] Packaging into Single EXE..." -ForegroundColor Yellow
+Write-Host "`n[4/4] Packaging into Single EXE..." -ForegroundColor Yellow
 
 pyinstaller --noconfirm --onefile --windowed --clean `
     --noupx `
@@ -101,7 +116,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --add-data "$SRC_DIR/scanner_engine/gui;scanner_engine/gui" `
     --add-data "$SRC_DIR/scanner_engine/gui;gui" `
     `
-    --add-data "rules;rules" `
+    --add-data "$RULES_STAGED_DIR;rules" `
     --add-data "app_icon.ico;." `
     `
     --collect-all "reportlab" `

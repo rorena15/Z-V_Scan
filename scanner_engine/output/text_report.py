@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.db_connector import DBConnector
 from utils.app_settings import get_report_output_dir
 from utils.logger import AppLogger
+from utils import rule_crypto
 
 # 엔진별 룰 파일과, database_inspector.py가 내부 저장 키에 붙이는 접두어
 RULE_FILES = {
@@ -86,11 +87,10 @@ class TextReportGenerator:
 
         for filename, prefix in RULE_FILES.items():
             path = os.path.join(rules_dir, filename)
-            if not os.path.exists(path):
+            if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
                 continue
             try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                data = rule_crypto.load_ruleset(path)
                 for rule in data:
                     lookup[f"{prefix}{rule['code']}"] = rule
             except Exception as e:
