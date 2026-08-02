@@ -18,6 +18,7 @@ from utils.logger import AppLogger
 from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
+from utils import rule_crypto
 
 class SSHInspector:
     def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False):
@@ -48,9 +49,9 @@ class SSHInspector:
         else:
             internal_path = external_path
 
-        if os.path.exists(external_path):
+        if rule_crypto.ruleset_exists(external_path):
             return external_path
-        elif internal_path and os.path.exists(internal_path):
+        elif internal_path and rule_crypto.ruleset_exists(internal_path):
             return internal_path
         return external_path
 
@@ -283,16 +284,16 @@ class SSHInspector:
         """
         results = {}
         rules = []
-        
-        # 룰 파일 로드
-        if os.path.exists(self.rules_path):
-            try:
-                with open(self.rules_path, 'r', encoding='utf-8') as f:
-                    rules = json.load(f)
-            except Exception as e:
-                AppLogger.log_error(f"Failed to load linux rules: {e}")
-        else:
+
+        # 룰 파일 로드 (배포판에서는 rules_path + ".enc"가 암호화돼 있고,
+        # rule_crypto.load_ruleset()이 그걸 우선 찾아 복호화한다 - 개발 환경처럼
+        # .enc가 없으면 평문 rules_path로 자동 폴백)
+        try:
+            rules = rule_crypto.load_ruleset(self.rules_path)
+        except FileNotFoundError:
             AppLogger.log_error(f"Linux rules file not found: {self.rules_path}")
+        except Exception as e:
+            AppLogger.log_error(f"Failed to load linux rules: {e}")
 
         throttle = AdaptiveThrottle(enabled=self.throttle, base_delay=0.3)
         # [Phase 3: 전문가 모드] 사용자가 이 룰셋에서 제외한 코드는 아예 실행하지 않는다

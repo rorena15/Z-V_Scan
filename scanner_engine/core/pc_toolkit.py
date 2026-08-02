@@ -26,6 +26,8 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
+from utils import rule_crypto
+
 # windows_inspector.py와 동일한 공유 secedit 캐시 경로 - 로컬 스크립트도 같은 경로를
 # 써야 C:\zvulnscan_secpol_cache.cfg를 참조하는 PC-01/02 등 criteria 서브커맨드가 동작한다.
 SECEDIT_CACHE_PATH = r"C:\zvulnscan_secpol_cache.cfg"
@@ -41,15 +43,14 @@ def _get_pc_rules_path():
     external_path = os.path.join(base_dir, 'rules', 'pc_rules.json')
     if hasattr(sys, '_MEIPASS'):
         internal_path = os.path.join(sys._MEIPASS, 'rules', 'pc_rules.json')
-        if not os.path.exists(external_path) and os.path.exists(internal_path):
+        if not rule_crypto.ruleset_exists(external_path) and rule_crypto.ruleset_exists(internal_path):
             return internal_path
     return external_path
 
 
 def load_pc_rules():
     path = _get_pc_rules_path()
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return rule_crypto.load_ruleset(path)
 
 
 def generate_pc_script():

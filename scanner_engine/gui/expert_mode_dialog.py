@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.expert_profile import load_profile, save_profile
+from utils import rule_crypto
 from gui.dashboard_widgets import COLORS
 
 RULESETS = [
@@ -193,11 +194,10 @@ class ExpertModeDialog(QDialog):
 
         for filename, ruleset_label in RULESETS:
             path = os.path.join(rules_dir, filename)
-            if not os.path.exists(path):
+            if not rule_crypto.ruleset_exists(path):
                 continue
             try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    rules = json.load(f)
+                rules = rule_crypto.load_ruleset(path)
             except Exception:
                 continue
 

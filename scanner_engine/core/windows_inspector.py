@@ -18,6 +18,7 @@ from utils.logger import AppLogger
 from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
+from utils import rule_crypto
 
 class WindowsInspector:
     # [안정성] secedit 기반 룰들이 각자 자기 임시파일에 export/삭제를 반복하면
@@ -53,9 +54,9 @@ class WindowsInspector:
         else:
             internal_path = external_path
 
-        if os.path.exists(external_path):
+        if rule_crypto.ruleset_exists(external_path):
             return external_path
-        elif internal_path and os.path.exists(internal_path):
+        elif internal_path and rule_crypto.ruleset_exists(internal_path):
             return internal_path
         return external_path
 
@@ -291,15 +292,13 @@ class WindowsInspector:
         """
         results = {}
         rules = []
-        
-        if os.path.exists(self.rules_path):
-            try:
-                with open(self.rules_path, 'r', encoding='utf-8') as f:
-                    rules = json.load(f)
-            except Exception as e:
-                AppLogger.log_error(f"Failed to load windows rules: {e}")
-        else:
+
+        try:
+            rules = rule_crypto.load_ruleset(self.rules_path)
+        except FileNotFoundError:
             AppLogger.log_error(f"Windows rules file not found: {self.rules_path}")
+        except Exception as e:
+            AppLogger.log_error(f"Failed to load windows rules: {e}")
 
         # [Phase 3: 전문가 모드] 사용자가 이 룰셋에서 제외한 코드는 아예 실행하지 않는다
         excluded_codes = get_excluded_codes(self.ruleset)

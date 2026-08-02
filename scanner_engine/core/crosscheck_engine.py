@@ -26,6 +26,7 @@ sys.path.append(parent_dir)
 from output.text_report import RULE_FILES, STATUS_TO_RESULT  # noqa: E402
 from utils.rule_judge import judge_rule  # noqa: E402
 from utils.logger import AppLogger  # noqa: E402
+from utils import rule_crypto  # noqa: E402
 
 # D-xx 코드는 mysql_rules.json/postgresql_rules.json이 공유한다(이름도 동일, command만 다름 -
 # database_inspector.py L197-199 주석 참고). 두 파일이 모두 대상이 될 수 있는 접두어 없는
@@ -60,11 +61,12 @@ def load_rulesets(rules_dir=None):
     rulesets = {}
     for filename in RULE_FILES:
         path = os.path.join(rules_dir, filename)
-        if not os.path.exists(path):
+        # 배포판에서는 path 자체가 아니라 path+".enc"만 존재한다 - 존재 확인은
+        # rule_crypto.load_ruleset()에게 맡기고 여기선 결과(없으면 예외)만 본다.
+        if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
             continue
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                rulesets[filename] = json.load(f)
+            rulesets[filename] = rule_crypto.load_ruleset(path)
         except Exception as e:
             AppLogger.log_error(f"[CrossCheck] Failed to load {filename}", e)
     return rulesets
