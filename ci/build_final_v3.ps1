@@ -134,6 +134,8 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --hidden-import "PIL.Image" `
     --hidden-import "scanner_engine.core.discovery" `
     --hidden-import "scanner_engine.core.vuln_matcher" `
+    --hidden-import "sqlite3" `
+    --hidden-import "_sqlite3" `
     --hidden-import "PySide6.QtWebEngineWidgets" `
     --hidden-import "PySide6.QtWebEngineCore" `
     --hidden-import "PySide6.QtXml" `
