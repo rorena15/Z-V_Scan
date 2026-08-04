@@ -28,10 +28,10 @@ from utils.rule_judge import judge_rule  # noqa: E402
 from utils.logger import AppLogger  # noqa: E402
 from utils import rule_crypto  # noqa: E402
 
-# D-xx 코드는 mysql_rules.json/postgresql_rules.json이 공유한다(이름도 동일, command만 다름 -
-# database_inspector.py L197-199 주석 참고). 두 파일이 모두 대상이 될 수 있는 접두어 없는
-# "bare code" 룰셋 목록.
-_SHARED_CODE_RULESETS = {"mysql_rules.json", "postgresql_rules.json"}
+# D-xx 코드는 mysql_rules.json/postgresql_rules.json/mssql_rules.json이 공유한다(이름도 동일,
+# command만 다름 - database_inspector.py L197-199 주석 참고). 이 파일들이 모두 대상이 될 수
+# 있는 접두어 없는 "bare code" 룰셋 목록.
+_SHARED_CODE_RULESETS = {"mysql_rules.json", "postgresql_rules.json", "mssql_rules.json"}
 
 MISSING_CODE_LIMITATION_NOTE = (
     "'누락 항목'은 TXT에 실제로 등장한 코드 접두어(룰셋)를 기준으로만 계산됩니다. "
@@ -74,8 +74,8 @@ def load_rulesets(rules_dir=None):
 
 def build_code_index(rulesets):
     """bare code -> [(ruleset_file, rule_dict), ...]. U-/W-/PC-/WEB-는 1개,
-    D-xx는 rulesets에 실제 로드된 DB 엔진 룰셋 수만큼(현재 RULE_FILES 기준 mysql/postgresql
-    2개; oracle_rules.json/mssql_rules.json은 아직 RULE_FILES에 등록되지 않아 로드되지 않음)."""
+    D-xx는 rulesets에 실제 로드된 DB 엔진 룰셋 수만큼(현재 RULE_FILES 기준 mysql/postgresql/mssql
+    3개; oracle_rules.json은 아직 RULE_FILES에 등록되지 않아 로드되지 않음)."""
     index = {}
     for filename, rules in rulesets.items():
         for rule in rules:
@@ -204,7 +204,7 @@ def diff_records(rejudge_results):
             detail_note = record.get("parse_warning") or "파싱 실패"
         elif r["ruleset_ambiguous"]:
             classification = "AMBIGUOUS_RULESET"
-            detail_note = "동일 코드가 여러 룰셋(MySQL/PostgreSQL)에 존재하고 (CMD)로도 구분할 수 없습니다."
+            detail_note = "동일 코드가 여러 룰셋(MySQL/PostgreSQL/MSSQL)에 존재하고 (CMD)로도 구분할 수 없습니다."
         elif not r["rule_found"]:
             classification = "MISSING_IN_RULESET"
             detail_note = "현재 룰셋 파일에 이 코드가 존재하지 않습니다."

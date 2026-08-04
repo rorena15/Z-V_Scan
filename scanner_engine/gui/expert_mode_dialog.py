@@ -37,6 +37,7 @@ RULESETS = [
     ("pc_rules.json", "PC (워크스테이션)"),
     ("mysql_rules.json", "MySQL"),
     ("postgresql_rules.json", "PostgreSQL"),
+    ("mssql_rules.json", "MSSQL"),
     ("web_rules.json", "WAS (Apache/Nginx)"),
 ]
 

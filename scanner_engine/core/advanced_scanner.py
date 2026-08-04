@@ -37,7 +37,7 @@ class AdvancedScanner:
 
     def __init__(self):
         # 기본 스캔 대상 포트
-        self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
+        self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 1433, 3306, 3389, 8080]
         
         # [Strategy 1] TCP Service Probes
         # [Update v4.4] HTTP Title 수집을 위해 HEAD -> GET 변경
