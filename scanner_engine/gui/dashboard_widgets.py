@@ -318,7 +318,7 @@ class ScanConfigCard(InfoCard):
         self.pw_input.setEchoMode(QLineEdit.Password)
         cred_col.addWidget(self.pw_input)
 
-        # [DB 전용 계정] SSH/WinRM 계정과 DB(MySQL/PostgreSQL) 계정이 다른 경우가 실무에서
+        # [DB 전용 계정] SSH/WinRM 계정과 DB(MySQL/PostgreSQL/MSSQL) 계정이 다른 경우가 실무에서
         # 흔하므로(예: SSH는 개인 계정, DB는 DBA가 관리하는 별도 감사 계정), 체크할 때만
         # 별도 입력칸을 보여준다. 비워두면 지금까지와 동일하게 위 SSH/WinRM 계정을 그대로 쓴다.
         self.db_cred_diff_check = QCheckBox("DB 계정이 SSH/WinRM 계정과 다름")
@@ -341,7 +341,7 @@ class ScanConfigCard(InfoCard):
 
         cred_wrap = QWidget()
         cred_wrap.setLayout(cred_col)
-        row1.addWidget(LabelWithHelp("Credentials", "딥 진단(SSH/WinRM)에 필요합니다. 없으면 포트·배너만 점검합니다.\nDB(MySQL/PostgreSQL) 계정이 따로 있으면 아래 체크박스로 별도 입력할 수 있습니다."), 0, 1)
+        row1.addWidget(LabelWithHelp("Credentials", "딥 진단(SSH/WinRM)에 필요합니다. 없으면 포트·배너만 점검합니다.\nDB(MySQL/PostgreSQL/MSSQL) 계정이 따로 있으면 아래 체크박스로 별도 입력할 수 있습니다."), 0, 1)
         row1.addWidget(cred_wrap, 1, 1)
 
         row1.setColumnStretch(0, 1)

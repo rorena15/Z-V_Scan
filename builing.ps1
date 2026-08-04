@@ -39,6 +39,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --collect-all "keyring" `
     --collect-all "pymysql" `
     --collect-all "psycopg2" `
+    --collect-all "pymssql" `
     --hidden-import "winrm" `
     --hidden-import "wmi" `
     --hidden-import "core.database_inspector" `

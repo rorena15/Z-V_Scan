@@ -18,11 +18,11 @@ from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
 from utils import rule_crypto
 
-DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432}
+DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432, "mssql": 1433}
 
 
 class DatabaseInspector:
-    """MySQL / PostgreSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
+    """MySQL / PostgreSQL / MSSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
 
     def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False):
         self.ip = ip
@@ -79,6 +79,12 @@ class DatabaseInspector:
                 self.conn = psycopg2.connect(
                     host=self.ip, port=self.port, user=self.username,
                     password=password, dbname="postgres", connect_timeout=10
+                )
+            elif self.engine == "mssql":
+                import pymssql
+                self.conn = pymssql.connect(
+                    server=self.ip, port=self.port, user=self.username,
+                    password=password, timeout=10, login_timeout=10
                 )
             else:
                 return False

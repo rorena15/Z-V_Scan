@@ -111,7 +111,7 @@ class CrossCheckReportGenerator:
             ("일치 (스크립트 판정 = 재판정)", s.get("match", 0)),
             ("불일치", s.get("mismatch", 0)),
             ("룰셋에 코드 없음", s.get("missing_in_ruleset", 0)),
-            ("룰셋 판별 불가 (D-xx MySQL/PostgreSQL)", s.get("ambiguous", 0)),
+            ("룰셋 판별 불가 (D-xx MySQL/PostgreSQL/MSSQL)", s.get("ambiguous", 0)),
             ("파싱 실패 (수동 확인 필요)", s.get("parse_error", 0)),
             ("근사치 재판정 항목 (세부기준형 룰)", s.get("approx_count", 0)),
             ("호스트별 누락 코드 수", s.get("missing_codes", 0)),
