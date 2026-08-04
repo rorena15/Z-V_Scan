@@ -460,6 +460,10 @@ class ScannerApp(QMainWindow):
         btn_expert.setToolTip(HELP_TEXTS["expert_mode"]["tooltip"])
         btn_expert.clicked.connect(self.open_expert_mode)
         self.assets_table_card.actions_layout.addWidget(btn_expert)
+        btn_manual_audit = QPushButton("수동 진단 입력")
+        btn_manual_audit.setToolTip("원격 접속이 불가능한 자산을 육안으로 점검한 결과를 항목별로 직접 입력합니다.")
+        btn_manual_audit.clicked.connect(self.open_manual_audit)
+        self.assets_table_card.actions_layout.addWidget(btn_manual_audit)
         btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self.refresh_dashboard)
         self.assets_table_card.actions_layout.addWidget(btn_refresh)
@@ -1245,6 +1249,14 @@ class ScannerApp(QMainWindow):
         from gui.waiver_dialog import WaiverManagerDialog
         dlg = WaiverManagerDialog(self.db, self)
         dlg.exec()
+
+    def open_manual_audit(self):
+        """[수동/육안 점검] 이 경로로 입력된 결과는 TBL_SCAN_RESULT에 자동 스캔과
+        동일하게 저장되므로, 닫힌 뒤 대시보드를 갱신한다(open_db_manager와 동일한 이유)."""
+        from gui.manual_audit_dialog import ManualAuditDialog
+        dlg = ManualAuditDialog(self.db, self)
+        dlg.exec()
+        self.refresh_dashboard()
 
     def open_cross_check(self):
         """[교차검증 모드] 스크립트 TXT 결과를 재판정 또는 DB 직접대조로 대조.
