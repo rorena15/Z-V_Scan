@@ -128,6 +128,9 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --collect-all "bcrypt" `
     --collect-all "pynacl" `
     --collect-all "cryptography" `
+    --collect-all "pymysql" `
+    --collect-all "psycopg2" `
+    --collect-all "pymssql" `
     --exclude-module "matplotlib.tests" `
     --exclude-module "matplotlib.testing" `
     --hidden-import "PIL" `
