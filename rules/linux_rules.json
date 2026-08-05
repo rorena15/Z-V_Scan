@@ -176,9 +176,10 @@
     "name": "안전한 비밀번호 암호화 알고리즘 사용",
     "category": "계정 관리",
     "importance": "중",
-    "command": "em=$(grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null | awk '{print $2}'); if [ -n \"$em\" ]; then case \"$em\" in SHA512|SHA256|sha512|sha256|yescrypt) echo OK ;; *) echo FAIL ;; esac; else if grep -qE '^[^:]+:\\$1\\$' /etc/shadow 2>/dev/null; then echo FAIL; else echo OK; fi; fi",
+    "command": "em=$(grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null | awk '{print $2}'); if [ -n \"$em\" ]; then case \"$em\" in SHA512|SHA256|sha512|sha256|yescrypt) echo OK ;; *) echo FAIL ;; esac; else if grep -qE '^[^:]+:\\$1\\$' /etc/shadow 2>&1; then echo FAIL; else echo OK; fi; fi",
     "safe_keyword": "OK",
-    "evidence_command": "grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null; grep -oE '^[^:]+:\\$[0-9a-z]+\\$' /etc/shadow 2>/dev/null | head -5",
+    "privileged": true,
+    "evidence_command": "grep -E '^[[:space:]]*ENCRYPT_METHOD[[:space:]]+' /etc/login.defs 2>/dev/null; grep -oE '^[^:]+:\\$[0-9a-z]+\\$' /etc/shadow 2>&1 | head -5",
     "description": "MD5(\\$1\\$) 등 취약한 해시로 비밀번호를 암호화하면 크래킹 공격에 취약합니다. 최신 배포판은 ENCRYPT_METHOD 미설정 시 SHA-512가 기본값이므로 실제 /etc/shadow 해시 접두어로 보조 검증합니다.",
     "remediation": "/etc/login.defs에 ENCRYPT_METHOD SHA512 설정 (또는 배포판 기본값이 SHA-512/yescrypt인지 /etc/shadow 해시로 확인)"
   },
