@@ -31,7 +31,7 @@ ORACLE_DEFAULT_SERVICE_NAME = "ORCL"
 class DatabaseInspector:
     """MySQL / PostgreSQL / MSSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
 
-    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False):
+    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False, service_name=None):
         self.ip = ip
         self.username = username
         self.engine = engine  # "mysql" or "postgresql"
@@ -39,6 +39,9 @@ class DatabaseInspector:
         self.conn = None
         self.is_simulation = False
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 쿼리 간격을 늘림
+        # [Oracle 전용] Scan Configuration의 서비스명 입력칸 값. None/빈 문자열이면
+        # connect()가 ORACLE_DEFAULT_SERVICE_NAME으로 폴백한다.
+        self.oracle_service_name = service_name
         # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
         self.demo_mode = demo_mode
         self.rules_path = self._get_rules_path()
@@ -98,7 +101,8 @@ class DatabaseInspector:
                 # Python으로 접속 - cx_Oracle/thick 모드가 요구하는 별도 클라이언트
                 # 배포 문제를 피한다(패키징 관련 기존 논의 참고).
                 import oracledb
-                dsn = f"{self.ip}:{self.port}/{ORACLE_DEFAULT_SERVICE_NAME}"
+                service_name = self.oracle_service_name or ORACLE_DEFAULT_SERVICE_NAME
+                dsn = f"{self.ip}:{self.port}/{service_name}"
                 self.conn = oracledb.connect(
                     user=self.username, password=password, dsn=dsn, tcp_connect_timeout=10
                 )

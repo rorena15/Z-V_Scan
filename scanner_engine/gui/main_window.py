@@ -457,6 +457,7 @@ class ScannerApp(QMainWindow):
         self.db_cred_diff_check = self.scan_config.db_cred_diff_check
         self.db_user_input = self.scan_config.db_user_input
         self.db_pw_input = self.scan_config.db_pw_input
+        self.oracle_service_input = self.scan_config.oracle_service_input
         self.slider_max_workers = self.scan_config.concurrency_slider
         self.spin_max_workers = self.scan_config.concurrency_slider  # 기존 코드 호환용 alias
         self.chk_ot_mode = self.scan_config.ot_mode_check
@@ -1029,8 +1030,10 @@ class ScannerApp(QMainWindow):
                     QMessageBox.critical(self, "Error", "DB 자격증명 저장 실패")
                     return
 
+        oracle_service = self.oracle_service_input.text().strip()
+
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None)
         self.connect_worker()
         self.worker.start()
 

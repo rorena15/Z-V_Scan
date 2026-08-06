@@ -337,6 +337,17 @@ class ScanConfigCard(InfoCard):
         self.db_pw_input.setVisible(False)
         cred_col.addWidget(self.db_pw_input)
 
+        # [Oracle 서비스명] host+port만으론 접속이 안 되고 서비스명(Service Name/SID)이
+        # 반드시 필요하다 - MySQL/PostgreSQL/MSSQL과 다른 지점. DB 계정 공유 여부와
+        # 무관하게 필요해서 위 체크박스 토글 대상에는 안 넣고 항상 노출한다.
+        self.oracle_service_input = QLineEdit()
+        self.oracle_service_input.setPlaceholderText("Oracle Service Name (선택, 비우면 ORCL 시도)")
+        self.oracle_service_input.setToolTip(
+            "대상에 Oracle DB가 있을 경우에만 사용됩니다.\n"
+            "비워두면 가장 흔한 기본값(ORCL)으로 접속을 시도하며, 설치 환경마다 실제 값이 다를 수 있습니다."
+        )
+        cred_col.addWidget(self.oracle_service_input)
+
         def _toggle_db_cred_inputs(checked):
             self.db_user_input.setVisible(checked)
             self.db_pw_input.setVisible(checked)

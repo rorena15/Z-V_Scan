@@ -13,7 +13,7 @@
 |---|---|:---:|---|
 | Discovery 엔진 (`advanced_scanner.py`) | 생존확인/포트스캔/배너/OUI/UDP | A | 5건의 실측 버그가 이번 정밀검수에서 발견·수정됨(소켓 미초기화, 에러코드 하드코딩 등) — 검증 이력이 있어 신뢰도 높음. hostname 역DNS는 OT망에서 구조적 한계(§4 참고) |
 | Audit 엔진 — SSH/WinRM (`ssh_inspector.py`/`windows_inspector.py`) | U-xx/W-xx/PC-xx 판정 | A | Linux 67 + Windows 64 + PC 18 = 149개 항목 라이브. **2026-08-05 `vulnerable_keyword`/`safe_keyword` 룰 117개 전수 재검토 완료** — Linux는 root 전용 파일(`/etc/shadow` 등) 접근 + `privileged` 미설정 패턴을 전 룰셋 스크립트로 교차검증(U-13만 해당, 수정 완료; U-18/U-63/U-33/WEB-07은 검토 후 실제 리스크 아님으로 판정 - 각각 `stat`만 사용/`vulnerable_keyword` 자체가 없는 MANUAL 전용 룰/world-readable 웹 docroot). Windows는 SAM/보안 하이브 등 민감 패턴 스캔 결과 0건, WinRM 관리자 계정 관행상 잔여 리스크 낮음으로 판단 |
-| Audit 엔진 — DB (`database_inspector.py`) | MySQL/PostgreSQL/MSSQL/Oracle | B (MySQL/PG는 A) | MySQL·PostgreSQL은 실전 검증됨(34개). MSSQL·Oracle은 2026-08-05 배선 완료(각 21/22개, `python-oracledb` thin 모드 사용)했으나 실서버 미검증 - Oracle은 서비스명 입력 UI가 없어 기본값(`ORCL`)으로만 시도(§3 기술부채). `vulnerable_keyword` 위험 클래스는 `execute_query()`가 예외 시 `None`을 반환해 `judge_rule()`이 MANUAL로 우선 처리하므로 구조적으로 보호됨 |
+| Audit 엔진 — DB (`database_inspector.py`) | MySQL/PostgreSQL/MSSQL/Oracle | B (MySQL/PG는 A) | MySQL·PostgreSQL은 실전 검증됨(34개). MSSQL·Oracle은 2026-08-05 배선 완료(각 21/22개, `python-oracledb` thin 모드 사용)했으나 실서버 미검증. Oracle 서비스명은 Scan Configuration에 입력칸 추가 완료(비우면 `ORCL` 기본값). `vulnerable_keyword` 위험 클래스는 `execute_query()`가 예외 시 `None`을 반환해 `judge_rule()`이 MANUAL로 우선 처리하므로 구조적으로 보호됨 |
 | 판정 엔진 (`utils/rule_judge.py`) | 6단계 판정 로직 | A | 엔진 자체는 완전히 룰/엔진 무관 범용 설계 — 유지보수성 우수. 권한부족 감지(`PERMISSION_DENIED_SIGNALS`)가 이미 잘 설계돼 있으나 룰의 stderr 처리 방식에 따라 무력화될 수 있음(U-13 사례) |
 | 교차검증(Cross-check) (`crosscheck_engine.py`) | 외부 TXT 재판정 | A | DB 미접근 설계로 라이브 스캔과 완전 분리 — 감사 안전성 우수 |
 | PC 로컬 스크립트 (`pc_toolkit.py`) | WinRM 불가 PC 대상 로컬 진단 | D | 코드는 완성됐으나 UI 진입점 비활성. OT 에이전트 킷 로드맵의 기반 자산으로 재활용 가치 있음(단, 파일반입 통제 문제는 별도) |
@@ -43,10 +43,9 @@
 | 순위 | 항목 | 유형 | 영향 |
 |---|---|---|---|
 | 1 | DB 룰셋의 "쿼리는 성공하지만 뷰 제약으로 조용히 0건" 잔여 리스크 | 신뢰성(낮은 확신도) | 실 DB 테스트베드 없이는 검증 불가 - `execute_query()` 예외 시엔 이미 MANUAL로 안전하게 처리되므로(§1 참고), 예외 없이 빈 결과가 나오는 극히 좁은 케이스만 해당 |
-| 2 | Oracle 서비스명(Service Name) 입력 UI 부재 | 기능 공백 | 커넥션 자체는 배선됐으나 host+port만으로 접속 안 됨, 기본값(`ORCL`)으로만 시도 중 |
-| 3 | `web_dashboard/` 빈 스캐폴드 | 정리 대상 | 용도 불명, 미착수 사이드 프로젝트로 추정 |
+| 2 | `web_dashboard/` 빈 스캐폴드 | 정리 대상 | 용도 불명, 미착수 사이드 프로젝트로 추정 |
 
-*(~~포트 스캔 포트 단위 병렬성 부재~~, ~~죽은 코드 정리~~, ~~`library.py` PyQt5 표기~~, ~~Oracle DB 커넥션 미배선~~, ~~`vulnerable_keyword` 단일조건 룰 전수 재검토~~, ~~`TBL_ASSETS.memo`→`description` 리네임~~, ~~수동 진단 입력 TXT 증적 표기 개선~~은 2026-08-05 완료돼 이 목록에서 제외됨 — §1 표 참고)*
+*(~~포트 스캔 포트 단위 병렬성 부재~~, ~~죽은 코드 정리~~, ~~`library.py` PyQt5 표기~~, ~~Oracle DB 커넥션 미배선~~, ~~Oracle 서비스명 입력 UI 부재~~, ~~`vulnerable_keyword` 단일조건 룰 전수 재검토~~, ~~`TBL_ASSETS.memo`→`description` 리네임~~, ~~수동 진단 입력 TXT 증적 표기 개선~~은 2026-08-05 완료돼 이 목록에서 제외됨 — §1 표 참고)*
 
 ## 4. 시장 포지셔닝 요약
 

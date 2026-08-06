@@ -44,7 +44,7 @@ class ScanWorker(QThread):
     # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
     asset_found_signal = Signal(str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -53,6 +53,8 @@ class ScanWorker(QThread):
         # [P0: 자산 매핑] 엑셀/CSV로 가져온 {ip: hostname}. 역DNS가 실패했을 때
         # vendor placeholder로 떨어지기 전 마지막 폴백으로 쓴다(discover_target 참고).
         self.imported_hostname_map = imported_hostname_map or {}
+        # [Oracle 서비스명] 비어있으면 DatabaseInspector가 자체 기본값(ORCL)으로 폴백한다.
+        self.oracle_service_name = oracle_service_name
         # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 때만 채워짐. 없으면(None)
         # DatabaseInspector가 지금까지처럼 OS 진단과 같은 계정을 그대로 재사용한다.
         self.default_db_user = db_user
@@ -480,7 +482,7 @@ class ScanWorker(QThread):
         if 1433 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode))
         if 1521 in open_ports:
-            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode, service_name=self.oracle_service_name))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
         if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
