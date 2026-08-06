@@ -479,6 +479,8 @@ class ScanWorker(QThread):
             inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
         if 1433 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+        if 1521 in open_ports:
+            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
         if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \

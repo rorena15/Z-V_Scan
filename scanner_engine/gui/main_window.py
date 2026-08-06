@@ -1148,16 +1148,15 @@ class ScannerApp(QMainWindow):
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set() # 캐시 초기화
         
-        # [주의] add_asset_to_table()은 (ip, hostname, os_type, mac_addr, vendor) 5개
-        # 위치 인자만 받고 memo_text/description_text 키워드 인자는 없다 - 이 루프는
-        # 그 시그니처와 안 맞는 상태로 남아있던 미사용 함수(load_saved_assets를
-        # 호출하는 곳이 scanner_engine 전체에 없음, 실제 자산 로드는 load_saved_data()가
-        # 담당)라 이번 memo->description 리네임에서는 변수명만 맞추고 호출부 자체는
-        # 건드리지 않는다.
+        # [버그 수정] add_asset_to_table()은 (ip, hostname, os_type, mac_addr, vendor) 5개
+        # 위치 인자만 받는데, 이 루프는 존재하지 않는 description_text 키워드 인자로
+        # 호출하고 있었다(호출하는 곳이 없어 실행된 적은 없었음). get_all_assets()가
+        # hostname/vendor를 반환하지 않는 건 refresh_dashboard()의 동일 패턴과 같아
+        # 빈 값으로 둔다 - description은 add_asset_to_table 내부에서 DB로 다시 조회한다.
         for ip, os_type, description, mac_addr in assets:
             display_os = os_type
             if mac_addr: display_os = f"{os_type} | {mac_addr}"
-            self.add_asset_to_table(ip, display_os, "Scanned History", description_text=description)
+            self.add_asset_to_table(ip, "", display_os, mac_addr, "")
 
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")

@@ -54,7 +54,7 @@ CATEGORY_PREFIXES = [
     ("WINDOWS", ("W-",)),
     ("PC", ("PC-",)),
     ("웹서비스", ("WEB-",)),
-    ("DBMS", ("MYSQL-", "POSTGRESQL-", "MSSQL-")),
+    ("DBMS", ("MYSQL-", "POSTGRESQL-", "MSSQL-", "ORACLE-")),
 ]
 
 

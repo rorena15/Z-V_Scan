@@ -26,6 +26,7 @@ RULE_FILES = {
     "mysql_rules.json": "MYSQL-",
     "postgresql_rules.json": "POSTGRESQL-",
     "mssql_rules.json": "MSSQL-",
+    "oracle_rules.json": "ORACLE-",
     "web_rules.json": "",
 }
 

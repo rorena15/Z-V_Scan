@@ -38,6 +38,7 @@ RULESETS = [
     ("mysql_rules.json", "MySQL"),
     ("postgresql_rules.json", "PostgreSQL"),
     ("mssql_rules.json", "MSSQL"),
+    ("oracle_rules.json", "Oracle"),
     ("web_rules.json", "WAS (Apache/Nginx)"),
 ]
 

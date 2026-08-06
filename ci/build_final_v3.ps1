@@ -122,8 +122,6 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     `
     --collect-all "reportlab" `
     --collect-all "openpyxl" `
-    --collect-all "networkx" `
-    --collect-all "matplotlib" `
     --collect-all "paramiko" `
     --collect-all "keyring" `
     --collect-all "bcrypt" `
@@ -132,10 +130,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --collect-all "pymysql" `
     --collect-all "psycopg2" `
     --collect-all "pymssql" `
-    --exclude-module "matplotlib.tests" `
-    --exclude-module "matplotlib.testing" `
-    --hidden-import "PIL" `
-    --hidden-import "PIL.Image" `
+    --collect-all "oracledb" `
     --hidden-import "scanner_engine.core.discovery" `
     --hidden-import "scanner_engine.core.vuln_matcher" `
     --hidden-import "sqlite3" `
@@ -146,7 +141,6 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --hidden-import "PySide6.QtNetwork" `
     --hidden-import "PySide6.QtPrintSupport" `
     --hidden-import "winrm" `
-    --hidden-import "wmi" `
     --hidden-import "re" `
     --hidden-import "PySide6.QtCore" `
     --hidden-import "PySide6.QtGui" `
