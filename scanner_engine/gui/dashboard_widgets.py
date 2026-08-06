@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QGraphicsDropShadowEffect
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QRectF, QVariantAnimation, QEasingCurve, Signal
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QPen
 
 
 # ----------------------------------------------------------------------
@@ -77,6 +77,7 @@ DARK_COLORS = {
 COLORS = dict(LIGHT_COLORS)
 STATUS_STYLE = {}
 RISK_TEXT_COLOR = {}
+HOSTNAME_SOURCE_STYLE = {}
 
 
 def _rebuild_derived_styles():
@@ -102,6 +103,17 @@ def _rebuild_derived_styles():
         "Low": COLORS["text_secondary"],
         "Info": COLORS["text_muted"],
     })
+    HOSTNAME_SOURCE_STYLE.clear()
+    HOSTNAME_SOURCE_STYLE.update({
+        # worker.py.discover_target()/_save_hostname_update_to_db()가 채우는
+        # hostname_source 값 -> (배경, 텍스트). "실측"(인증 접속 확인)이 가장 신뢰도가
+        # 높고, "추정"(vendor placeholder)이 가장 낮다는 걸 색으로도 드러낸다.
+        "역DNS": (COLORS["accent_bg"], COLORS["accent"]),
+        "매핑": (COLORS["success_bg"], COLORS["success_text"]),
+        "실측": (COLORS["success_bg"], COLORS["success_text"]),
+        "수동입력": (COLORS["muted_bg"], COLORS["text_secondary"]),
+        "추정": (COLORS["warning_bg"], COLORS["warning_text"]),
+    })
 
 
 def set_theme(theme_name):
@@ -114,6 +126,86 @@ def set_theme(theme_name):
 _rebuild_derived_styles()
 
 
+def make_line_icon(kind: str, color_hex: str, size: int = 18) -> QIcon:
+    """[UI/UX 개선 - "신뢰할 수 있는 작업대"] 목업(zvulnscan_design_directions)의
+    미니멀 라인 아이콘을 외부 이미지 파일 없이 QPainter로 그때그때 그린다 - 빌드에
+    아이콘 리소스를 추가로 번들할 필요가 없고, 팔레트/다크모드 전환 시 색만 바꾸면
+    된다(파일 기반 아이콘이었다면 테마마다 별도 에셋이 필요했을 것).
+    kind: 'grid'(대시보드) | 'search'(스캔) | 'folder'(자산) | 'doc'(리포트) |
+          'compare'(교차검증) | 'help' | 'settings' | 'asset' | 'warning' | 'info' | 'link'
+    """
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color_hex))
+    pen.setWidthF(1.6)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    m = size * 0.16  # 여백
+
+    if kind in ("grid", "asset"):
+        half = (size - 2 * m) / 2 - 2
+        painter.drawRoundedRect(QRectF(m, m, half, half), 2, 2)
+        painter.drawRoundedRect(QRectF(size - m - half, m, half, half), 2, 2)
+        painter.drawRoundedRect(QRectF(m, size - m - half, half, half), 2, 2)
+        painter.drawRoundedRect(QRectF(size - m - half, size - m - half, half, half), 2, 2)
+    elif kind == "search":
+        r = size * 0.28
+        cx, cy = size * 0.42, size * 0.42
+        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+        painter.drawLine(int(cx + r * 0.7), int(cy + r * 0.7), int(size - m), int(size - m))
+    elif kind == "folder":
+        painter.drawRoundedRect(QRectF(m, size * 0.36, size - 2 * m, size * 0.42), 2, 2)
+        painter.drawLine(int(m), int(size * 0.36), int(m + size * 0.28), int(size * 0.36))
+        painter.drawLine(int(m + size * 0.28), int(size * 0.36), int(m + size * 0.38), int(size * 0.24))
+        painter.drawLine(int(m + size * 0.38), int(size * 0.24), int(size - m), int(size * 0.24))
+        painter.drawLine(int(size - m), int(size * 0.24), int(size - m), int(size * 0.36))
+    elif kind == "doc":
+        painter.drawRoundedRect(QRectF(m + 1, m, size - 2 * m - 2, size - 2 * m), 2, 2)
+        for i in range(3):
+            y = size * 0.38 + i * size * 0.16
+            painter.drawLine(int(m + 4), int(y), int(size - m - 4), int(y))
+    elif kind == "compare":
+        painter.drawRoundedRect(QRectF(m, m, size * 0.5, size * 0.5), 2, 2)
+        painter.drawRoundedRect(QRectF(size - m - size * 0.5, size - m - size * 0.5, size * 0.5, size * 0.5), 2, 2)
+    elif kind == "help":
+        r = size / 2 - m
+        painter.drawEllipse(QRectF(m, m, r * 2, r * 2))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSizeF(size * 0.42)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "?")
+    elif kind == "settings":
+        r_out = size / 2 - m
+        r_in = r_out * 0.42
+        cx = cy = size / 2
+        painter.drawEllipse(QRectF(cx - r_out, cy - r_out, r_out * 2, r_out * 2))
+        painter.drawEllipse(QRectF(cx - r_in, cy - r_in, r_in * 2, r_in * 2))
+    elif kind == "warning":
+        top = (size / 2, m)
+        left = (m, size - m)
+        right = (size - m, size - m)
+        painter.drawLine(int(top[0]), int(top[1]), int(left[0]), int(left[1]))
+        painter.drawLine(int(left[0]), int(left[1]), int(right[0]), int(right[1]))
+        painter.drawLine(int(right[0]), int(right[1]), int(top[0]), int(top[1]))
+        painter.drawPoint(int(size / 2), int(size * 0.68))
+    elif kind == "info":
+        r = size / 2 - m
+        painter.drawEllipse(QRectF(size / 2 - r, size / 2 - r, r * 2, r * 2))
+        painter.drawLine(int(size / 2), int(size * 0.42), int(size / 2), int(size * 0.68))
+    elif kind == "link":
+        r = size / 2 - m
+        painter.drawEllipse(QRectF(size / 2 - r, size / 2 - r, r * 2, r * 2))
+        painter.drawLine(int(size * 0.36), int(size * 0.36), int(size * 0.64), int(size * 0.64))
+
+    painter.end()
+    return QIcon(pixmap)
+
+
 def _apply_card_shadow(widget, blur=22, y_offset=3, alpha=28):
     """[미니멀 인상 완화] 카드에 은은한 그림자를 줘서 배경과 구분되는 입체감을 준다."""
     effect = QGraphicsDropShadowEffect(widget)
@@ -121,6 +213,56 @@ def _apply_card_shadow(widget, blur=22, y_offset=3, alpha=28):
     effect.setOffset(0, y_offset)
     effect.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(effect)
+    return effect
+
+
+class HoverLiftFrame(QFrame):
+    """[UI/UX 개선 - 인터랙션] 마우스를 올리면 그림자가 살짝 커지면서 카드가 "떠 보이는"
+    반응을 준다(Z-VulnScan_QML_ROI분석.md의 Option A - QPropertyAnimation 저비용
+    인터랙션 중 하나). QGraphicsDropShadowEffect는 Qt 프로퍼티라 애니메이션 가능.
+
+    [버그 수정 - 실사용 중 크래시 확인] 처음엔 매 hover마다 QVariantAnimation을 새로
+    만들고 QAbstractAnimation.DeleteWhenStopped로 시작했다 - 이 플래그는 애니메이션이
+    "자연 종료"돼도 C++ 객체를 스스로 삭제하는데, 그 다음 hover에서 이전 파이썬 참조에
+    .stop()을 호출하면 "Internal C++ object already deleted" RuntimeError로 죽는 게
+    scan_debug.log에서 실측 확인됐다(빠르게 마우스를 들락거리면 재현). 인스턴스당
+    애니메이션 객체를 __init__에서 한 번만 만들어 재사용하고 절대 자기 자신을
+    지우지 않게 해서(기본 KeepWhenStopped) 이 경합을 근본적으로 없앤다."""
+    def __init__(self, base_blur=16, base_y=2, hover_blur=26, hover_y=6, alpha=24, parent=None):
+        super().__init__(parent)
+        self._base_blur = base_blur
+        self._base_y = base_y
+        self._hover_blur = hover_blur
+        self._hover_y = hover_y
+        self._shadow = _apply_card_shadow(self, blur=base_blur, y_offset=base_y, alpha=alpha)
+        self._shadow_start = (base_blur, base_y)
+        self._shadow_target = (base_blur, base_y)
+        self._hover_anim = QVariantAnimation(self)
+        self._hover_anim.setDuration(150)
+        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._hover_anim.valueChanged.connect(self._apply_shadow_progress)
+
+    def _apply_shadow_progress(self, t):
+        sb, sy = self._shadow_start
+        tb, ty = self._shadow_target
+        self._shadow.setBlurRadius(sb + (tb - sb) * t)
+        self._shadow.setOffset(0, sy + (ty - sy) * t)
+
+    def _animate_shadow(self, target_blur, target_y):
+        self._hover_anim.stop()
+        self._shadow_start = (self._shadow.blurRadius(), self._shadow.yOffset())
+        self._shadow_target = (target_blur, target_y)
+        self._hover_anim.setStartValue(0.0)
+        self._hover_anim.setEndValue(1.0)
+        self._hover_anim.start()
+
+    def enterEvent(self, event):
+        self._animate_shadow(self._hover_blur, self._hover_y)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animate_shadow(self._base_blur, self._base_y)
+        super().leaveEvent(event)
 
 
 # ----------------------------------------------------------------------
@@ -170,6 +312,31 @@ class StatusBadge(QLabel):
         self.setFixedHeight(20)
 
 
+class HostnameSourceBadge(QLabel):
+    """[UI/UX 개선 - hostname 출처 배지] hostname이 역DNS/자산목록 매핑/인증 접속 실측/
+    수동입력/추정(vendor placeholder) 중 어디서 왔는지 자산 목록에서 바로 보여준다.
+    OT망에서 DNS 없이도 hostname을 확보한다는 게 이 제품의 판매 차별점이라
+    (§세션 논의), 그 근거를 화면에서 직접 증명하는 용도."""
+    def __init__(self, source: str, parent=None):
+        super().__init__(parent)
+        source = (source or "").strip()
+        if not source:
+            self.setText("")
+            self.setStyleSheet("border:none;")
+            return
+        bg, fg = HOSTNAME_SOURCE_STYLE.get(source, (COLORS["muted_bg"], COLORS["text_secondary"]))
+        self.setText(source)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(f"""
+            background-color: {bg};
+            color: {fg};
+            border-radius: 8px;
+            padding: 1px 8px;
+            font-size: 10.5px;
+        """)
+        self.setFixedHeight(18)
+
+
 class LegendDot(QWidget):
     """범례용 색점 + 텍스트."""
     def __init__(self, color_hex: str, text: str, parent=None):
@@ -186,11 +353,11 @@ class LegendDot(QWidget):
         layout.addWidget(txt)
 
 
-class MetricCard(QFrame):
+class MetricCard(HoverLiftFrame):
     """지표 카드 (Assets scanned / Critical findings 등). tone: 'default'|'danger'|'warning'."""
     def __init__(self, label: str, value: str, tone: str = "default",
-                 tooltip_text: str = None, parent=None):
-        super().__init__(parent)
+                 tooltip_text: str = None, icon_kind: str = None, parent=None):
+        super().__init__(base_blur=16, base_y=2, alpha=22, parent=parent)
         self.tone = tone
         bg_map = {
             "default": COLORS["surface_1"],
@@ -214,10 +381,9 @@ class MetricCard(QFrame):
                 border-left: 4px solid {accent_map[tone]};
             }}
         """)
-        _apply_card_shadow(self, blur=16, y_offset=2, alpha=22)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 11, 14, 11)
+        layout.setSpacing(4)
 
         label_row = QHBoxLayout()
         label_row.setSpacing(4)
@@ -229,14 +395,224 @@ class MetricCard(QFrame):
         if tooltip_text:
             label_row.addWidget(InfoIcon(tooltip_text))
         label_row.addStretch()
+        if icon_kind:
+            # [UI/UX 개선] 목업의 카드 우상단 아이콘 배지 - 톤별 배경(연한 accent/danger/
+            # warning 배경)에 같은 톤의 아이콘을 얹는다.
+            badge_bg = {"default": COLORS["accent_bg"], "danger": "#F6D8D3", "warning": "#F2E2B4"}.get(tone, COLORS["accent_bg"])
+            badge = QLabel()
+            badge.setFixedSize(26, 26)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet(f"background-color: {badge_bg}; border-radius: 7px;")
+            badge.setPixmap(make_line_icon(icon_kind, accent_map[tone]).pixmap(15, 15))
+            label_row.addWidget(badge)
         layout.addLayout(label_row)
 
         self.value_label = QLabel(value)
         self.value_label.setStyleSheet(f"color: {text_map[tone]}; font-size: 24px; font-weight: 600; border:none;")
         layout.addWidget(self.value_label)
 
+        # [버그 수정] HoverLiftFrame과 동일한 이유로 인스턴스당 하나만 만들어 재사용한다
+        # (매번 새로 만들고 DeleteWhenStopped로 시작하면 다음 호출에서 이미 삭제된 C++
+        # 객체에 .stop()을 호출해 크래시 - scan_debug.log에서 실측 확인됨).
+        self._count_anim = QVariantAnimation(self)
+        self._count_anim.setDuration(500)
+        self._count_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._count_anim.valueChanged.connect(lambda v: self.value_label.setText(str(v)))
+
+        # [UI/UX 개선] '전 회차 대비' 추이 - 데이터가 준비되기 전까지는 숨겨둔다(빈 줄이
+        # 아니라 아예 자리 자체가 없어야 카드가 헐렁해 보이지 않는다). set_trend()가
+        # 실제 값을 받으면 그때 표시한다.
+        self.trend_label = QLabel("")
+        self.trend_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+        self.trend_label.setVisible(False)
+        layout.addWidget(self.trend_label)
+
     def set_value(self, value: str):
-        self.value_label.setText(value)
+        """[UI/UX 개선 - 인터랙션] 숫자가 바뀔 때 그냥 스냅되지 않고 이전 값에서
+        새 값으로 카운트업 애니메이션한다. value가 순수 정수 문자열이 아니면(예외
+        상황 대비) 애니메이션 없이 그대로 표시한다."""
+        try:
+            old_num = int(self.value_label.text())
+            new_num = int(value)
+        except ValueError:
+            self.value_label.setText(value)
+            return
+        if old_num == new_num:
+            self.value_label.setText(value)
+            return
+        self._count_anim.stop()
+        self._count_anim.setStartValue(old_num)
+        self._count_anim.setEndValue(new_num)
+        self._count_anim.start()
+
+    def set_trend(self, delta):
+        """delta: int|float|None. None이면 비교 대상 회차가 없다는 뜻이라 아예 숨긴다
+        (0 같은 값과 헷갈리지 않도록 - 실측 데이터가 없을 때 억지로 '변동없음'을
+        표시하지 않는다)."""
+        if delta is None:
+            self.trend_label.setVisible(False)
+            return
+        self.trend_label.setVisible(True)
+        if delta > 0:
+            self.trend_label.setText(f"▲ 전 회차 대비 +{delta}")
+            self.trend_label.setStyleSheet(f"color: {COLORS['danger_text']}; font-size: 11px; border:none;")
+        elif delta < 0:
+            self.trend_label.setText(f"▼ 전 회차 대비 {delta}")
+            self.trend_label.setStyleSheet(f"color: {COLORS['success_text']}; font-size: 11px; border:none;")
+        else:
+            self.trend_label.setText("─ 전 회차 대비 변동 없음")
+            self.trend_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+
+
+class DonutGauge(QWidget):
+    """[UI/UX 개선] 목업(zvulnscan_design_directions)의 SVG 도넛 게이지
+    (circle + stroke-dasharray)를 외부 리소스 없이 QPainter arc로 재현한다.
+    percent: 0~100 또는 None(스캔 이력이 없어 계산 불가 - 회색 빈 링으로 표시,
+    가짜 값을 채우지 않는다)."""
+    def __init__(self, percent=None, size=44, stroke=5, parent=None):
+        super().__init__(parent)
+        self._percent = percent
+        self._size = size
+        self._stroke = stroke
+        self.setFixedSize(size, size)
+        # [버그 수정] HoverLiftFrame/MetricCard와 동일 - 인스턴스당 하나만 만들어
+        # 재사용한다(DeleteWhenStopped로 매번 새로 만들면 다음 호출에서 크래시).
+        self._fill_anim = QVariantAnimation(self)
+        self._fill_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._fill_anim.valueChanged.connect(self.set_percent)
+
+    def set_percent(self, percent):
+        self._percent = percent
+        self.update()
+
+    def animate_to(self, percent, duration=600):
+        """[UI/UX 개선 - 인터랙션] 게이지가 즉시 스냅하지 않고 이전 값에서 새 값까지
+        차오르는 애니메이션. 시작/끝 어느 한쪽이 None(데이터 없음)이면 애니메이션할
+        중간값이 의미 없으므로 바로 반영한다."""
+        if self._percent is None or percent is None:
+            self._fill_anim.stop()
+            self.set_percent(percent)
+            return
+        self._fill_anim.stop()
+        self._fill_anim.setStartValue(float(self._percent))
+        self._fill_anim.setEndValue(float(percent))
+        self._fill_anim.setDuration(duration)
+        self._fill_anim.start()
+
+    def _color(self):
+        if self._percent is None:
+            return COLORS["text_muted"]
+        if self._percent >= 80:
+            return COLORS["success_text"]
+        if self._percent >= 50:
+            return COLORS["warning_text"]
+        return COLORS["danger_text"]
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        s = self._stroke
+        rect = QRectF(s / 2, s / 2, self._size - s, self._size - s)
+
+        bg_pen = QPen(QColor(COLORS["border"]))
+        bg_pen.setWidthF(s)
+        bg_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(bg_pen)
+        painter.drawArc(rect, 0, 360 * 16)
+
+        if self._percent is not None:
+            fg_pen = QPen(QColor(self._color()))
+            fg_pen.setWidthF(s)
+            fg_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(fg_pen)
+            span = int(360 * 16 * max(0, min(100, self._percent)) / 100)
+            painter.drawArc(rect, 90 * 16, -span)  # 12시 방향에서 시계방향으로 채움
+        painter.end()
+
+
+class SecurityLevelCard(HoverLiftFrame):
+    """[UI/UX 개선] KPI 4번째 칸 - '보안수준' 도넛 게이지. db_connector.get_dashboard_trend()의
+    실측 계산값을 표시한다(Excel 리포트 표지의 보안수준과 동일 산식). 스캔 이력이 없으면
+    게이지를 빈 회색으로, 값은 '-'로 둔다 - 가짜 퍼센트를 채우지 않는다."""
+    def __init__(self, parent=None):
+        super().__init__(base_blur=16, base_y=2, alpha=22, parent=parent)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS['surface_1']};
+                border-radius: 10px;
+                border-left: 4px solid {COLORS['accent']};
+            }}
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 11, 14, 11)
+        layout.setSpacing(4)
+
+        label_row = QHBoxLayout()
+        label_row.setSpacing(4)
+        label_widget = QLabel("보안수준")
+        label_widget.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px; border:none;")
+        label_row.addWidget(label_widget)
+        label_row.addWidget(InfoIcon(
+            "KISA 중요도 가중치 기준 보안수준 - (전체점수-취약점수)/전체점수.\n"
+            "Excel 리포트 표지의 보안수준과 동일한 산식으로 계산됩니다."
+        ))
+        label_row.addStretch()
+        layout.addLayout(label_row)
+
+        body_row = QHBoxLayout()
+        body_row.setSpacing(10)
+        self.value_label = QLabel("-")
+        self.value_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 24px; font-weight: 600; border:none;")
+        body_row.addWidget(self.value_label)
+        body_row.addStretch()
+        self.gauge = DonutGauge()
+        body_row.addWidget(self.gauge)
+        layout.addLayout(body_row)
+
+        self.trend_label = QLabel("")
+        self.trend_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+        self.trend_label.setVisible(False)
+        layout.addWidget(self.trend_label)
+
+        # [버그 수정] 위 위젯들과 동일 - 인스턴스당 하나만 만들어 재사용한다.
+        self._value_anim = QVariantAnimation(self)
+        self._value_anim.setDuration(600)
+        self._value_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._value_anim.valueChanged.connect(lambda v: self.value_label.setText(f"{v:.1f}%"))
+
+    def _animate_value_label(self, target):
+        """DonutGauge.animate_to()와 같은 타이밍으로 퍼센트 숫자도 함께 카운트업한다."""
+        try:
+            old_val = float(self.value_label.text().rstrip("%"))
+        except ValueError:
+            self.value_label.setText(f"{target:g}%")
+            return
+        self._value_anim.stop()
+        self._value_anim.setStartValue(old_val)
+        self._value_anim.setEndValue(float(target))
+        self._value_anim.start()
+
+    def set_security_level(self, current, previous, delta):
+        if current is None:
+            self.value_label.setText("-")
+            self.gauge.set_percent(None)
+            self.trend_label.setVisible(False)
+            return
+        self._animate_value_label(current)
+        self.gauge.animate_to(current)
+        if delta is None:
+            self.trend_label.setVisible(False)
+        else:
+            self.trend_label.setVisible(True)
+            if delta > 0:
+                self.trend_label.setText(f"▲ 전 회차 대비 +{delta:g}%p")
+                self.trend_label.setStyleSheet(f"color: {COLORS['success_text']}; font-size: 11px; border:none;")
+            elif delta < 0:
+                self.trend_label.setText(f"▼ 전 회차 대비 {delta:g}%p")
+                self.trend_label.setStyleSheet(f"color: {COLORS['danger_text']}; font-size: 11px; border:none;")
+            else:
+                self.trend_label.setText("─ 전 회차 대비 변동 없음")
+                self.trend_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
 
 
 class InfoCard(QFrame):
@@ -477,32 +853,149 @@ class MetricsRow(QWidget):
         super().__init__(parent)
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(12)
+        grid.setSpacing(10)
 
-        self.assets_card = MetricCard("Assets scanned", "0")
-        self.critical_card = MetricCard("Critical findings", "0", tone="danger")
-        self.partial_card = MetricCard("Partial compliance", "0", tone="warning")
-        self.conn_error_card = MetricCard(
-            "Connection errors", "0",
-            tooltip_text="접속 실패·인증 실패 - 실제 점검이 안 된 항목입니다. 수동으로 확인이 필요합니다."
-        )
+        # [디자인 목업 일치] zvulnscan_design_directions 방향 C의 한글 라벨을 그대로 사용.
+        self.assets_card = MetricCard("스캔된 자산", "0", icon_kind="asset")
+        self.critical_card = MetricCard("취약 항목", "0", tone="danger", icon_kind="warning")
+        self.partial_card = MetricCard("부분만족", "0", tone="warning", icon_kind="info")
+        # [UI/UX 개선] 목업의 4번째 칸은 '접속 실패' 숫자가 아니라 '보안수준' 도넛
+        # 게이지다 - db_connector.get_dashboard_trend()의 실측 계산값으로 채운다.
+        self.security_card = SecurityLevelCard()
 
+        # [버그 수정] 목업(zvulnscan_design_directions, .kpis { grid-template-columns:
+        # repeat(4, 1fr) })은 1행 4열인데 2행 2열로 잘못 배치돼 있었다.
         grid.addWidget(self.assets_card, 0, 0)
         grid.addWidget(self.critical_card, 0, 1)
-        grid.addWidget(self.partial_card, 1, 0)
-        grid.addWidget(self.conn_error_card, 1, 1)
+        grid.addWidget(self.partial_card, 0, 2)
+        grid.addWidget(self.security_card, 0, 3)
+        for col in range(4):
+            grid.setColumnStretch(col, 1)
 
-        # 대시보드 갱신 로직에서 key로 바로 찾아 쓸 수 있게
+        # 대시보드 갱신 로직에서 key로 바로 찾아 쓸 수 있게 (보안수준 게이지는 별도 위젯이라
+        # set_value()로 채울 수 없어 self.cards에는 넣지 않고 set_security_level()로 따로 갱신한다)
         self.cards = {
             "assets_scanned": self.assets_card,
             "critical_findings": self.critical_card,
             "partial_compliance": self.partial_card,
-            "connection_errors": self.conn_error_card,
         }
 
     def update_counts(self, metrics: dict):
         for key, card in self.cards.items():
             card.set_value(str(metrics.get(key, 0)))
+
+    def update_trend(self, trend: dict):
+        """trend: db_connector.get_dashboard_trend()의 반환값."""
+        self.security_card.set_security_level(**trend.get("security_level", {}))
+        self.critical_card.set_trend(trend.get("critical_findings", {}).get("delta"))
+        self.partial_card.set_trend(trend.get("partial_compliance", {}).get("delta"))
+
+
+# ----------------------------------------------------------------------
+# [UI/UX 개선] 최근 활동 카드 - 목업의 "최근 활동"을 그대로 반영. KPI 카드처럼
+# 가로 정렬된 블록이 아니라, 세션 하나당 행 하나인 개별 리스트다.
+# ----------------------------------------------------------------------
+class _ClickableRow(QFrame):
+    """[UI/UX 개선 - 드릴다운] '최근 활동' 행 하나. 클릭하면 clicked(session_id)를
+    쏘고, 호버 시 배경색으로만 가볍게 반응한다(KPI 카드처럼 그림자 애니메이션까지
+    쓰면 리스트에서는 오히려 산만해서 배경색 전환만 사용)."""
+    clicked = Signal(str)
+
+    def __init__(self, session_id: str, parent=None):
+        super().__init__(parent)
+        self._session_id = session_id
+        self.setCursor(Qt.PointingHandCursor)
+        self._base_style = ""
+        self._hover_style = f"background-color: {COLORS['surface_1']};"
+
+    def set_base_style(self, style: str):
+        self._base_style = style
+        self.setStyleSheet(self._base_style)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self._session_id)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self.setStyleSheet(self._base_style + self._hover_style)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setStyleSheet(self._base_style)
+        super().leaveEvent(event)
+
+
+class RecentActivityCard(InfoCard):
+    # [UI/UX 개선 - 드릴다운] 세션 행 클릭 시 그 세션의 진단 결과만 자산 탭에서
+    # 보여주기 위해 main_window.py가 구독하는 시그널.
+    session_clicked = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(18, 12, 18, 8)
+        title = QLabel("최근 활동")
+        title.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {COLORS['text']}; border:none;")
+        header_row.addWidget(title)
+        header_row.addStretch()
+        outer.addLayout(header_row)
+
+        self.rows_layout = QVBoxLayout()
+        self.rows_layout.setContentsMargins(0, 0, 0, 6)
+        self.rows_layout.setSpacing(0)
+        outer.addLayout(self.rows_layout)
+
+        self._empty_label = QLabel("아직 스캔 이력이 없습니다.")
+        self._empty_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; border:none; padding: 4px 18px 12px;")
+        self.rows_layout.addWidget(self._empty_label)
+
+    def set_sessions(self, sessions):
+        """sessions: [(session_id, operator, started_at, asset_count), ...] (최신순)."""
+        while self.rows_layout.count():
+            item = self.rows_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        if not sessions:
+            self._empty_label = QLabel("아직 스캔 이력이 없습니다.")
+            self._empty_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; border:none; padding: 4px 18px 12px;")
+            self.rows_layout.addWidget(self._empty_label)
+            return
+
+        for i, (session_id, operator, started_at, asset_count) in enumerate(sessions):
+            row = _ClickableRow(session_id)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(18, 8, 18, 8)
+            row_layout.setSpacing(10)
+            row.set_base_style(f"border-top: 1px solid {COLORS['border']};" if i > 0 else "")
+            row.clicked.connect(self.session_clicked.emit)
+
+            dot = QLabel()
+            dot.setFixedSize(8, 8)
+            dot.setStyleSheet(f"background-color: {COLORS['accent']}; border-radius: 4px; border:none;")
+            row_layout.addWidget(dot, 0, Qt.AlignVCenter)
+
+            main_col = QVBoxLayout()
+            main_col.setSpacing(2)
+            title_lbl = QLabel(session_id or "-")
+            title_lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 12.5px; font-weight: 600; border:none;")
+            main_col.addWidget(title_lbl)
+            sub_lbl = QLabel(operator or "담당자 미기록")
+            sub_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+            main_col.addWidget(sub_lbl)
+            row_layout.addLayout(main_col, 1)
+
+            stat_lbl = QLabel(f"{asset_count}대 · {started_at or '-'}")
+            stat_lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11.5px; border:none;")
+            stat_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row_layout.addWidget(stat_lbl)
+
+            self.rows_layout.addWidget(row)
 
 
 # ----------------------------------------------------------------------

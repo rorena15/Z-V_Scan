@@ -41,8 +41,8 @@ class ScanWorker(QThread):
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
     started_signal = Signal(int)
-    # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
-    asset_found_signal = Signal(str, str, str, str, str)
+    # [UI/UX 개선 - hostname 출처 배지] IP, Host, OS, MAC, Vendor, hostname 출처(역DNS/매핑/추정)
+    asset_found_signal = Signal(str, str, str, str, str, str)
 
     def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None):
         super().__init__()
@@ -207,10 +207,10 @@ class ScanWorker(QThread):
                 self.db_queue.task_done()
 
     def _save_asset_to_db(self, db, data):
-        # Data: (ip, hostname, os_type, ports_str, mac_addr, vendor)
+        # Data: (ip, hostname, os_type, ports_str, mac_addr, vendor, hostname_source)
         db.save_asset(
             data[0], hostname=data[1], os_type=data[2],
-            open_ports=data[3], mac_addr=data[4], vendor=data[5]
+            open_ports=data[3], mac_addr=data[4], vendor=data[5], hostname_source=data[6]
         )
 
     def _save_hostname_update_to_db(self, db, data):
@@ -218,10 +218,12 @@ class ScanWorker(QThread):
         # placeholder만 알 수 있고, Audit(SSH/WinRM 인증 접속) 단계에서 uname -a / systeminfo로
         # 실제 hostname을 확인할 수 있다. save_asset()을 다시 부르면 os_type/open_ports가
         # 기본값으로 덮어써지므로, hostname 컬럼만 안전하게 갱신하는 update_asset_field를 쓴다.
+        # 이 경로로 덮어써진 hostname은 인증 접속으로 실제 확인된 값이므로 출처를 "실측"으로 남긴다.
         ip, real_hostname = data
         asset_id = db.get_asset_id(ip)
         if asset_id:
             db.update_asset_field(asset_id, "hostname", real_hostname)
+            db.update_asset_field(asset_id, "hostname_source", "실측")
 
     @staticmethod
     def _extract_real_hostname(os_info):
@@ -345,10 +347,13 @@ class ScanWorker(QThread):
         imported_hostname = self.imported_hostname_map.get(ip)
         if resolved_hostname:
             hostname = resolved_hostname
+            hostname_source = "역DNS"
         elif imported_hostname:
             hostname = imported_hostname
+            hostname_source = "매핑"
         else:
             hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
+            hostname_source = "추정"
 
         # [Phase 1] TCP Port Scan (가짜 포트 주입)
         open_ports = []
@@ -372,8 +377,8 @@ class ScanWorker(QThread):
                 open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500], delay=scan_delay))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
-        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
-        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor)))
+        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor, hostname_source)
+        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor, hostname_source)))
 
         if not open_ports:
             if icmp_alive:

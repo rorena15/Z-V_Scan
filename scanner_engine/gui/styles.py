@@ -192,17 +192,22 @@ QComboBox QAbstractItemView {
     selection-color: #1B2430;
 }
 
+/* [주의] 이건 앱 전체 모든 QPushButton에 적용되는 전역 규칙이다(다이얼로그
+   취소/확인, DB Manager, Waiver/Expert 버튼 등 전부 포함) - 그래서 액센트
+   블루를 여기 전역으로 쓰면 화면마다 파란 버튼이 난립해 주/보조 액션 구분이
+   사라진다. 중립 톤을 기본으로 두고, 특정 버튼만 강조하고 싶으면 ScanConfigCard의
+   스캔 시작 버튼처럼 objectName으로 별도 선택자를 추가한다(#ClearBtn 패턴 참고). */
 QPushButton {
-    background-color: #2E6BE6;
-    border: 1px solid #2E6BE6;
+    background-color: #EEF1F5;
+    border: 1px solid #E3E7EE;
     border-radius: 8px;
     padding: 10px 15px;
-    color: #FFFFFF;
+    color: #1B2430;
     font-weight: 600;
 }
-QPushButton:hover { background-color: #245ACC; border-color: #245ACC; }
-QPushButton:pressed { background-color: #1D4AA8; border-color: #1D4AA8; }
-QPushButton:disabled { background-color: #EEF1F5; color: #8B94A3; border-color: #E3E7EE; }
+QPushButton:hover { background-color: #E3E7EE; border-color: #C7D0DC; }
+QPushButton:pressed { background-color: #D5DBE5; }
+QPushButton:disabled { background-color: #F5F7FA; color: #8B94A3; border-color: #E3E7EE; }
 
 QPushButton#ClearBtn {
     padding: 4px 10px;
