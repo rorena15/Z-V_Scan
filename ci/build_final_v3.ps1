@@ -117,6 +117,7 @@ pyinstaller --noconfirm --onefile --windowed --clean `
     --add-data "$SRC_DIR/scanner_engine/gui;gui" `
     `
     --add-data "$RULES_STAGED_DIR;rules" `
+    --add-data "config;config" `
     --add-data "app_icon.ico;." `
     `
     --collect-all "reportlab" `

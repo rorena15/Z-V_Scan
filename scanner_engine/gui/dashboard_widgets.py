@@ -35,40 +35,43 @@ from PySide6.QtGui import QColor
 # 이미 `from ... import COLORS`로 참조를 가져간 다른 모듈에는 반영되지 않으므로
 # 반드시 .clear()+.update()로 내용만 바꾼다).
 # ----------------------------------------------------------------------
+# [UI/UX 개선 - "신뢰할 수 있는 작업대" 방향] 국산 보안 콘솔(VADA/엑소스피어/
+# 솔리드스텝)·Qualys 계열이 공유하는 문법(쿨톤 배경, 파랑 액센트, 부드러운 카드,
+# 둥근 배지형 심각도 표시)으로 재설계됨. 토큰 이름/구조는 그대로 두고 값만 교체.
 LIGHT_COLORS = {
-    "surface_1": "#F7F7F5",   # 지표카드 기본 배경, 사이드바
-    "surface_2": "#FFFFFF",   # 카드 배경 (Scan configuration, Assets 테이블)
-    "border": "#D8D8D2",      # 카드 윤곽이 또렷하게 보이도록 살짝 진하게
-    "text": "#1A1A1A",
-    "text_secondary": "#6B6B6B",
-    "text_muted": "#9A9A9A",
-    "accent": "#1F5FE0",      # 좀 더 또렷한 파랑
-    "accent_bg": "#E3ECFE",
-    "danger_bg": "#F8C6C6",   # 좀 더 또렷한 빨강 배경
-    "danger_text": "#A3170E",
-    "warning_bg": "#F3D27E",  # 좀 더 또렷한 노랑 배경
-    "warning_text": "#7A4B00",
-    "success_bg": "#C9E9D1",
-    "success_text": "#166B2C",
-    "muted_bg": "#E7E7E4",
+    "surface_1": "#F5F7FA",   # 지표카드 기본 배경, 사이드바 (쿨톤 캔버스)
+    "surface_2": "#FFFFFF",   # 카드 배경 (Scan configuration, Assets 테이블) - 캔버스 위에 뜬 흰 카드
+    "border": "#E3E7EE",
+    "text": "#1B2430",
+    "text_secondary": "#5B6675",
+    "text_muted": "#8B94A3",
+    "accent": "#2E6BE6",
+    "accent_bg": "#E8EFFE",
+    "danger_bg": "#FDE7E7",
+    "danger_text": "#C0271F",
+    "warning_bg": "#FFF6D6",
+    "warning_text": "#8A6A00",
+    "success_bg": "#E2F5E7",
+    "success_text": "#1B8A46",
+    "muted_bg": "#EEF1F5",
 }
 
 DARK_COLORS = {
-    "surface_1": "#1A1A1A",   # 지표카드 기본 배경, 사이드바 (다른 크롬과 동일한 어두운 배경)
-    "surface_2": "#252526",   # 카드 배경 - surface_1보다 살짝 밝게 해서 입체감을 준다
-    "border": "#3A3A3A",
-    "text": "#E8E8E8",
-    "text_secondary": "#A8A8A8",
-    "text_muted": "#787878",
-    "accent": "#4EC9B0",      # 기존 다크 스타일시트/사이드바 강조색과 동일하게 통일
-    "accent_bg": "#1F3733",
-    "danger_bg": "#4A1F1F",
-    "danger_text": "#FF6B6B",
-    "warning_bg": "#4A3A18",
-    "warning_text": "#F0AD4E",
-    "success_bg": "#1C3A24",
-    "success_text": "#4CAF50",
-    "muted_bg": "#2C2C2C",
+    "surface_1": "#12161C",   # 지표카드 기본 배경, 사이드바 (라이트와 같은 쿨톤 계열의 어두운 버전)
+    "surface_2": "#1A2029",   # 카드 배경 - surface_1보다 살짝 밝게 해서 입체감을 준다
+    "border": "#2A3240",
+    "text": "#E4E8EF",
+    "text_secondary": "#9BA5B4",
+    "text_muted": "#6B7688",
+    "accent": "#5B8DEF",      # 어두운 배경에서도 또렷하도록 라이트 액센트보다 밝게 보정
+    "accent_bg": "#1B2A4A",
+    "danger_bg": "#3A1B1B",
+    "danger_text": "#FF6B5C",
+    "warning_bg": "#3A2E10",
+    "warning_text": "#F0C24D",
+    "success_bg": "#123322",
+    "success_text": "#3ECB7A",
+    "muted_bg": "#232A35",
 }
 
 COLORS = dict(LIGHT_COLORS)

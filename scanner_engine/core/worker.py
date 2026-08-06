@@ -44,12 +44,15 @@ class ScanWorker(QThread):
     # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
     asset_found_signal = Signal(str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
         self.user_info = {}
         self.default_user = None
+        # [P0: 자산 매핑] 엑셀/CSV로 가져온 {ip: hostname}. 역DNS가 실패했을 때
+        # vendor placeholder로 떨어지기 전 마지막 폴백으로 쓴다(discover_target 참고).
+        self.imported_hostname_map = imported_hostname_map or {}
         # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 때만 채워짐. 없으면(None)
         # DatabaseInspector가 지금까지처럼 OS 진단과 같은 계정을 그대로 재사용한다.
         self.default_db_user = db_user
@@ -333,11 +336,15 @@ class ScanWorker(QThread):
             icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
 
         # [역DNS] 인증 정보 없이도 hostname을 채울 수 있으면 vendor 기반 placeholder 대신 사용.
-        # 실패(PTR 레코드 없음 등)하면 기존처럼 "(Vendor) Device" placeholder로 폴백하고,
+        # 실패(PTR 레코드 없음 등)하면 [P0: 자산 매핑] 사용자가 가져온 자산목록에 이 IP의
+        # 이름이 있는지 확인하고, 그것도 없을 때만 "(Vendor) Device" placeholder로 폴백한다.
         # 이후 인증 딥 인스펙션이 성공하면 _extract_real_hostname()이 다시 덮어쓴다.
         resolved_hostname = None if is_sim else scanner.resolve_hostname(ip)
+        imported_hostname = self.imported_hostname_map.get(ip)
         if resolved_hostname:
             hostname = resolved_hostname
+        elif imported_hostname:
+            hostname = imported_hostname
         else:
             hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
 

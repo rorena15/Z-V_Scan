@@ -12,17 +12,19 @@
 | 모듈 | 핵심 기능 | 성숙도 | 분석 |
 |---|---|:---:|---|
 | Discovery 엔진 (`advanced_scanner.py`) | 생존확인/포트스캔/배너/OUI/UDP | A | 5건의 실측 버그가 이번 정밀검수에서 발견·수정됨(소켓 미초기화, 에러코드 하드코딩 등) — 검증 이력이 있어 신뢰도 높음. hostname 역DNS는 OT망에서 구조적 한계(§4 참고) |
-| Audit 엔진 — SSH/WinRM (`ssh_inspector.py`/`windows_inspector.py`) | U-xx/W-xx/PC-xx 판정 | A | Linux 67 + Windows 64 + PC 18 = 149개 항목 라이브. `vulnerable_keyword` 단일조건 룰의 이론적 오판정 리스크가 72개+ 규모로 남아있음(U-13은 이번에 확인·수정) — **전수 재검토가 이 모듈의 유일한 신뢰성 갭** |
-| Audit 엔진 — DB (`database_inspector.py`) | MySQL/PostgreSQL/MSSQL/Oracle | B (MySQL/PG는 A) | MySQL·PostgreSQL은 실전 검증됨(34개). MSSQL은 이번 세션에 배선 완료(21개)했으나 실서버 미검증. Oracle은 룰만 있고 미배선(22개, 로드맵) |
+| Audit 엔진 — SSH/WinRM (`ssh_inspector.py`/`windows_inspector.py`) | U-xx/W-xx/PC-xx 판정 | A | Linux 67 + Windows 64 + PC 18 = 149개 항목 라이브. **2026-08-05 `vulnerable_keyword`/`safe_keyword` 룰 117개 전수 재검토 완료** — Linux는 root 전용 파일(`/etc/shadow` 등) 접근 + `privileged` 미설정 패턴을 전 룰셋 스크립트로 교차검증(U-13만 해당, 수정 완료; U-18/U-63/U-33/WEB-07은 검토 후 실제 리스크 아님으로 판정 - 각각 `stat`만 사용/`vulnerable_keyword` 자체가 없는 MANUAL 전용 룰/world-readable 웹 docroot). Windows는 SAM/보안 하이브 등 민감 패턴 스캔 결과 0건, WinRM 관리자 계정 관행상 잔여 리스크 낮음으로 판단 |
+| Audit 엔진 — DB (`database_inspector.py`) | MySQL/PostgreSQL/MSSQL/Oracle | B (MySQL/PG는 A) | MySQL·PostgreSQL은 실전 검증됨(34개). MSSQL은 이번 세션에 배선 완료(21개)했으나 실서버 미검증. Oracle은 룰만 있고 미배선(22개, 로드맵). `vulnerable_keyword` 위험 클래스는 `execute_query()`가 예외 시 `None`을 반환해 `judge_rule()`이 MANUAL로 우선 처리하므로 구조적으로 보호됨 - 예외 없이 조용히 빈 결과가 나오는 극히 좁은 잔여 케이스만 남음(§3 기술부채 참고, 실측 불가) |
 | 판정 엔진 (`utils/rule_judge.py`) | 6단계 판정 로직 | A | 엔진 자체는 완전히 룰/엔진 무관 범용 설계 — 유지보수성 우수. 권한부족 감지(`PERMISSION_DENIED_SIGNALS`)가 이미 잘 설계돼 있으나 룰의 stderr 처리 방식에 따라 무력화될 수 있음(U-13 사례) |
 | 교차검증(Cross-check) (`crosscheck_engine.py`) | 외부 TXT 재판정 | A | DB 미접근 설계로 라이브 스캔과 완전 분리 — 감사 안전성 우수 |
 | PC 로컬 스크립트 (`pc_toolkit.py`) | WinRM 불가 PC 대상 로컬 진단 | D | 코드는 완성됐으나 UI 진입점 비활성. OT 에이전트 킷 로드맵의 기반 자산으로 재활용 가치 있음(단, 파일반입 통제 문제는 별도) |
-| 수동 진단 입력 (`manual_audit_dialog.py`) | 육안 점검 결과 직접 입력 | A → **UX 개선 우선순위 상향 결정** | 통제 수준 무관하게 항상 동작하는 유일한 계층으로 재평가됨. 현재 TXT 증적에 자동진단용 명령어가 그대로 찍혀 오해 소지 있음 — 개선 대상으로 확정 |
+| 수동 진단 입력 (`manual_audit_dialog.py`) | 육안 점검 결과 직접 입력 | A | 통제 수준 무관하게 항상 동작하는 유일한 계층. TXT 증적에 자동진단용 명령어가 그대로 찍혀 오해를 부르던 문제(`operator="수동입력"` 건은 "(CMD) 명령어" 대신 "육안 점검으로 인한 별첨 증적 처리" 문구로 대체)를 2026-08-05 해결함(`text_report.py`) |
+| **룰셋 증분 업데이트 (`utils/rule_update.py`, `ci/sign_rules_update.py`)** | Ed25519 서명 기반 룰셋 OTA | B | 서명/검증 왕복 테스트 통과, Settings 옵트인 UI 연결 완료. 실제 GitHub Release 배포·현장 검증은 아직. 공개키는 `config/rule_update_config.json`으로 외부화(GS 인증 대비 하드코딩 배제) |
+| **UI/UX "신뢰할 수 있는 작업대"** | 디자인 리스킨 + 탭 역할 분리 | A | `dashboard_widgets.py` COLORS/`styles.py` 전역 QSS 양쪽에 반영, 라이트+다크 모두 적용(다크는 이번에 신규 설계). 대시보드=현황판 전용, 진단결과/Waiver/Expert/수동입력=자산 탭으로 이동 완료 |
 | 리포트 (Excel/PDF/TXT) | 3종 출력 + Diff 리포트 | A | hostname 실제값 반영, 등급별 차등 노출까지 구현됨. TXT는 고객사 매크로 호환 포맷 유지가 제약조건 |
 | 보안 강화 (SSH TOFU, WinRM HTTPS 우선, 크리덴셜 저장) | 접속 보안 | A | 실전 수준. Command Injection 방지(`is_safe_host`)까지 갖춤 |
 | 데이터 보호 (DB Fernet 암호화, 룰셋 암호화) | at-rest 보호 | A | 2026-07-30 룰셋 암호화 신설 — 핵심 IP(KISA 판정 로직) 평문 노출 문제를 뒤늦게 발견해 해결한 사례. PyArmor 신뢰 모델에 기대는 수준이라 완벽한 DRM은 아님을 인지하고 있어야 함 |
 | 라이선스 시스템 | 3등급, 위변조 방지 | B | 키 취소가 로컬 목록 기반(실시간 원격 회수 아님) — 상용화 확대 시 재검토 필요 |
-| hostname 4단 폴백 + 커버리지 추적 | OT망 자산 식별 | E (로드맵) | `표준제안서.md` §4 참고. 현재 가장 우선순위 높은 신규 개발 항목 |
+| hostname 3단 폴백(역DNS/실측/엑셀매핑) + 커버리지 추적 | OT망 자산 식별 + 감사 완결성 | A | `표준제안서.md` §4 참고. 2026-08-05 구현·테스트 완료(엑셀 hostname 매핑+diff, DB 미해결자산 조회, 대시보드 경고, Excel 리포트 반영). 로컬 스크립트 킷(4단)은 여전히 로드맵 |
 
 ## 2. 라이선스 등급별 기능 매트릭스 (기 구현)
 
@@ -40,13 +42,15 @@
 
 | 순위 | 항목 | 유형 | 영향 |
 |---|---|---|---|
-| 1 | `vulnerable_keyword` 단일조건 룰 전수 재검토 | 신뢰성 | 판정 오류가 감사 결과 자체의 신뢰성을 훼손할 수 있음 — 최우선 |
-| 2 | 수동 진단 입력 TXT 증적 표기 개선 (CMD 문구 → 육안점검 코멘트) | 정확성/UX | 이미 결정됨, 구현 대기 |
-| 3 | `TBL_ASSETS.memo` → `description` 컬럼 리네임 | 일관성 | 3개 파일 15개 지점 + 기존 배포 DB 마이그레이션 필요 (신규 RENAME COLUMN 패턴 최초 도입) |
-| 4 | 포트 스캔 포트 단위 병렬성 부재 | 성능 | 실측 후 재평가 (`성능기록지.md` §4) |
-| 5 | 죽은 코드 정리 (`network_visualizer.py`, `network_topology.html`, `vis-9.1.2`, `tom-select`) | 유지보수성 | 기능 영향 없음, 정리 시점만 결정 |
-| 6 | `library.py`의 PyQt5 표기 (실제는 PySide6) | 문서 정합성 | 낮음 |
-| 7 | Oracle DB 커넥션 미배선 | 기능 공백 | 고객 수요 확인 후 착수 여부 결정 |
+| 1 | 포트 스캔 포트 단위 병렬성 부재 | 성능 | 실측 후 재평가 (`성능기록지.md` §4) |
+| 2 | 죽은 코드 정리 (`network_visualizer.py`, `network_topology.html`, `vis-9.1.2`, `tom-select`) | 유지보수성 | 기능 영향 없음, 정리 시점만 결정 |
+| 3 | `library.py`의 PyQt5 표기 (실제는 PySide6) | 문서 정합성 | 낮음 |
+| 4 | Oracle DB 커넥션 미배선 | 기능 공백 | 고객 수요 확인 후 착수 여부 결정 |
+| 5 | DB 룰셋의 "쿼리는 성공하지만 뷰 제약으로 조용히 0건" 잔여 리스크 | 신뢰성(낮은 확신도) | 실 DB 테스트베드 없이는 검증 불가 - `execute_query()` 예외 시엔 이미 MANUAL로 안전하게 처리되므로(§1 참고), 예외 없이 빈 결과가 나오는 극히 좁은 케이스만 해당 |
+
+*(~~`vulnerable_keyword` 단일조건 룰 전수 재검토~~, ~~`TBL_ASSETS.memo`→`description` 리네임~~은 2026-08-05 완료돼 이 목록에서 제외됨 — §1 표 참고)*
+
+*(~~수동 진단 입력 TXT 증적 표기 개선~~은 2026-08-05 완료돼 이 목록에서 제외됨 — §1 표 참고)*
 
 ## 4. 시장 포지셔닝 요약
 

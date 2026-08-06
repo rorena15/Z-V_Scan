@@ -144,7 +144,7 @@ class TextReportGenerator:
             for asset_id, ip, hostname, os_type in assets:
                 cursor.execute(f"""
                     SELECT vuln_code, kisa_code, vuln_name, status, detected_value,
-                           raw_output, remediation, waiver_status
+                           raw_output, remediation, waiver_status, operator
                     FROM TBL_SCAN_RESULT R
                     WHERE asset_id = ?
                     AND {DBConnector.latest_round_condition('R')}
@@ -177,13 +177,13 @@ class TextReportGenerator:
         audit_rows = []
         sys_detail = {}
 
-        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived in rows:
+        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator in rows:
             if self._is_system_detail_code(vuln_code):
                 sys_detail[vuln_code] = raw_output
             elif self._is_discovery_code(vuln_code):
                 discovery_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived))
             else:
-                audit_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived))
+                audit_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator))
 
         buf = []
         fallback_host = hostname if hostname and hostname != "-" else ip
@@ -230,7 +230,7 @@ class TextReportGenerator:
 
         grouped = {}
         order = []
-        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived in audit_rows:
+        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator in audit_rows:
             rule = self.rule_lookup.get(vuln_code, {})
             category = rule.get('category', '기타')
             if category not in grouped:
@@ -243,7 +243,11 @@ class TextReportGenerator:
                 "detail": detail,
                 "raw_output": raw_output,
                 "remediation": remediation,
+                # [수동/육안 점검] manual_audit_dialog.py가 operator="수동입력"으로 저장한 건은
+                # 실제로 이 명령이 실행된 적이 없다 - 룰의 자동진단용 command를 그대로 보여주면
+                # 마치 그 명령을 돌려서 나온 결과처럼 오인될 수 있어 별도 표기로 구분한다.
                 "command": rule.get('command', ''),
+                "is_manual": (operator == "수동입력"),
                 "waived": waived,
             })
 
@@ -278,7 +282,9 @@ class TextReportGenerator:
                 status_val = re.sub(r'\s+', ' ', (item['detail'] or "")).strip()
                 buf.append(f": {status_val}{waived_note} ")
                 buf.append("---------- ")
-                if item['command']:
+                if item['is_manual']:
+                    buf.append("(육안 점검으로 인한 별첨 증적 처리) ")
+                elif item['command']:
                     buf.append(f"(CMD) {item['command']} ")
                 buf.append(f"{item['raw_output'] if item['raw_output'] else '-'} ")
                 buf.append("[END] ")

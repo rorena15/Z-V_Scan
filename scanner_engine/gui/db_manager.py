@@ -73,7 +73,7 @@ class DatabaseManagerDialog(QDialog):
         # 2. 데이터 테이블
         self.table = QTableWidget()
         self.table.setColumnCount(9)
-        self.table.setHorizontalHeaderLabels(["ID", "IP Address", "Hostname", "OS Type", "MAC Addr", "Port", "Last Seen", "Memo", "Zone Tag"])
+        self.table.setHorizontalHeaderLabels(["ID", "IP Address", "Hostname", "OS Type", "MAC Addr", "Port", "Last Seen", "Description", "Zone Tag"])
 
         # 헤더 설정
         header = self.table.horizontalHeader()
@@ -134,7 +134,7 @@ class DatabaseManagerDialog(QDialog):
         self.table.setRowCount(0)
         for row_idx, row_data in enumerate(assets):
             self.table.insertRow(row_idx)
-            # row_data: (id, ip, host, os, mac, ports, last, memo, zone_tag)
+            # row_data: (id, ip, host, os, mac, ports, last, description, zone_tag)
 
             for col_idx, value in enumerate(row_data):
                 val_str = str(value) if value is not None else ""
@@ -172,7 +172,7 @@ class DatabaseManagerDialog(QDialog):
             3: "os_type",   # OS
             4: "mac_addr",  # MAC Addr
             # 5: Port (수정 불가이므로 매핑 없음)
-            7: "memo",      # Memo
+            7: "description",  # Description
             8: "zone_tag",  # Zone Tag
         }
 

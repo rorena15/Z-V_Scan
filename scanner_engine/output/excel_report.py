@@ -419,6 +419,30 @@ class ExcelGenerator:
             ws.column_dimensions[get_column_letter(2 + i)].width = 16
         ws.row_dimensions[header_row].height = 20
 
+        # [커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산을 감사 완결성
+        # 근거자료로 명시한다 - "몇 %를 봤는가"가 아니라 "빠진 게 있는가"를 정직하게
+        # 남기는 게 목적이라, 0건이어도 "완전 일치" 문구를 남겨 침묵하지 않는다.
+        row += 2
+        ws[f'B{row}'] = "■ 커버리지 (감사 완결성)"
+        ws[f'B{row}'].font = self.FONT_SECTION
+        row += 1
+        try:
+            unresolved = self.db.get_unresolved_assets()
+        except Exception:
+            unresolved = []
+        if not unresolved:
+            ws[f'B{row}'] = "등록된 전체 자산에 대해 KISA 판정이 모두 존재합니다 (미해결 자산 없음)."
+            row += 1
+        else:
+            ws[f'B{row}'] = f"미해결 자산 {len(unresolved)}건 - 발견됐으나 KISA 판정 코드가 하나도 없습니다."
+            row += 1
+            for ip, hostname in unresolved:
+                ws[f'C{row}'] = ip
+                ws[f'D{row}'] = hostname or "-"
+                self._style_range(ws, f'C{row}:D{row}', border=self.BORDER_ALL,
+                                   alignment=Alignment(horizontal='left', indent=1))
+                row += 1
+
     # ------------------------------------------------------------------
     # 시트: 2.점검대상
     # ------------------------------------------------------------------

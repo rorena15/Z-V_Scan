@@ -52,7 +52,7 @@ class DBConnector:
                     mac_addr TEXT,
                     vendor TEXT,
                     last_seen DATETIME,
-                    memo TEXT DEFAULT ''
+                    description TEXT DEFAULT ''
                 )
             ''')
 
@@ -153,6 +153,15 @@ class DBConnector:
                 cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN avail_score INTEGER")
             except sqlite3.OperationalError: pass
 
+            # [Phase 3: memo -> description 리네임] 기존 배포 DB는 이미 memo 컬럼으로
+            # 생성돼 있으므로, RENAME COLUMN으로 데이터를 유실 없이 옮긴다. 이 저장소
+            # 최초의 RENAME COLUMN 마이그레이션 - 지금까지는 전부 ADD COLUMN(추가)만
+            # 있었다. 신규 DB는 위 CREATE TABLE에서 이미 description으로 만들어지므로
+            # memo 컬럼이 없어 매번 예외로 조용히 스킵된다(멱등).
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS RENAME COLUMN memo TO description")
+            except sqlite3.OperationalError: pass
+
             conn.commit()
             conn.close()
 
@@ -186,7 +195,7 @@ class DBConnector:
                         cursor.execute("UPDATE TBL_ASSETS SET vendor=? WHERE asset_id=?", (vendor, asset_id))
                 else:
                     cursor.execute("""
-                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, vendor, last_seen, memo)
+                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, vendor, last_seen, description)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (ip, hostname, os_type, open_ports, mac_addr, vendor, now, ""))
                     asset_id = cursor.lastrowid
@@ -410,7 +419,7 @@ class DBConnector:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT ip_addr, os_type, memo, mac_addr FROM TBL_ASSETS ORDER BY last_seen DESC")
+                cursor.execute("SELECT ip_addr, os_type, description, mac_addr FROM TBL_ASSETS ORDER BY last_seen DESC")
                 return cursor.fetchall()
             except: return []
             finally: conn.close()
@@ -458,6 +467,35 @@ class DBConnector:
             finally:
                 conn.close()
             return metrics
+
+    def get_unresolved_assets(self):
+        """[커버리지 추적] 자산은 등록돼 있지만(TBL_ASSETS) 최신 회차에 실제 KISA 판정
+        코드(U-/W-/D-/WEB-/PC- 등)가 단 하나도 없는 자산을 반환한다. Discovery 메타
+        항목(SYS-/TCP-/UDP-/INFO-/CONN-)만 있는 경우도 "판정이 없다"로 취급한다 -
+        포트가 열려있었다는 사실만으로는 KISA 감사 완결성을 충족하지 못한다.
+        반환: [(ip_addr, hostname), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT A.ip_addr, A.hostname FROM TBL_ASSETS A
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM TBL_SCAN_RESULT R
+                        WHERE R.asset_id = A.asset_id
+                        AND {self.latest_round_condition('R')}
+                        AND R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'TCP-%'
+                        AND R.vuln_code NOT LIKE 'UDP-%' AND R.vuln_code NOT LIKE 'INFO-%'
+                        AND R.vuln_code NOT LIKE 'CONN-%'
+                    )
+                    ORDER BY A.ip_addr ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Unresolved Assets Failed", e)
+                return []
+            finally:
+                conn.close()
 
     def get_all_latest_findings(self):
         """
@@ -549,23 +587,23 @@ class DBConnector:
                 return False
             finally: conn.close()
 
-    def get_memo(self, ip):
+    def get_description(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT memo FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+                cursor.execute("SELECT description FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
                 row = cursor.fetchone()
                 return row[0] if row else ""
             except: return ""
             finally: conn.close()
 
-    def update_memo(self, ip, memo_text):
+    def update_description(self, ip, description_text):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("UPDATE TBL_ASSETS SET memo = ? WHERE ip_addr = ?", (memo_text, ip))
+                cursor.execute("UPDATE TBL_ASSETS SET description = ? WHERE ip_addr = ?", (description_text, ip))
                 conn.commit()
                 return True
             except: return False
@@ -609,7 +647,7 @@ class DBConnector:
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, open_ports, last_seen, memo, zone_tag
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, open_ports, last_seen, description, zone_tag
                     FROM TBL_ASSETS
                     ORDER BY last_seen DESC
                 """)
@@ -621,7 +659,7 @@ class DBConnector:
                 conn.close()
 
     def update_asset_field(self, asset_id, field_name, new_value):
-        allowed_fields = ["hostname", "os_type", "mac_addr", "memo", "zone_tag"]
+        allowed_fields = ["hostname", "os_type", "mac_addr", "description", "zone_tag"]
         if field_name not in allowed_fields: return False
 
         with self._db_lock:

@@ -153,7 +153,7 @@ class PDFGenerator:
 
         try:
             # 자산 조회
-            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, memo FROM TBL_ASSETS ORDER BY ip_addr ASC")
+            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, description FROM TBL_ASSETS ORDER BY ip_addr ASC")
             all_assets = cursor.fetchall()
             
             if not all_assets:

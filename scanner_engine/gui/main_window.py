@@ -143,6 +143,10 @@ class ScannerApp(QMainWindow):
         # 스캔 결과 임시 저장소 (UI 렉 방지용 버퍼)
         self.scan_result_buffer = []
 
+        # [P0: 자산 매핑] import_asset_list()로 가져온 {ip: hostname} 맵. hostname 폴백과
+        # 스캔 종료 후 선언/실제 자산 diff에 쓰인다. 가져오기 전엔 빈 dict.
+        self.imported_asset_map = {}
+
         # [Phase 2] 이번 스캔 결과를 Excel/PDF/TXT 중 하나로 한 번이라도 출력했는지 여부.
         # False인 상태에서 DB를 초기화하려 하면 경고를 띄운다 (출력 전 데이터 유실 방지).
         self.report_exported = True
@@ -165,6 +169,7 @@ class ScannerApp(QMainWindow):
         self.update_ui_by_license()
         self.load_saved_data()
         self._check_for_updates()
+        self._check_ruleset_update()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -363,8 +368,45 @@ class ScannerApp(QMainWindow):
     # [Phase 3: UI 재구성] 대시보드 페이지 (요약 지표 + 결과 테이블 - 모니터링/조회 전용)
     # ------------------------------------------------------------------
     def _build_dashboard_page(self):
+        # [UI/UX 개선 - 탭 역할 분리] 대시보드는 한눈에 보는 현황(지표 카드)만
+        # 담당한다. 조치가 필요한 진단 결과표(Waiver/Expert/수동입력 버튼 포함)는
+        # "무엇을 조치할지 결정하는" 화면이라 자산 탭이 더 자연스러운 위치라
+        # _build_assets_page()로 옮겼다 - 여기선 더 이상 만들지 않는다.
         header = self._build_page_header("Dashboard")
-        return self._wrap_scrollable_page([header, self._build_metrics_row(), (self._build_results_card(), 1)])
+        return self._wrap_scrollable_page([header, self._build_metrics_row(), self._build_unresolved_warning()])
+
+    def _build_unresolved_warning(self):
+        """[커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산이 있으면 보여주고
+        경고한다(감사 완결성 - "이 자산은 아무도 안 봤다"가 리포트 출력 시점까지
+        조용히 묻히는 걸 막기 위함). 미해결 자산이 0건이면 숨긴다."""
+        self.lbl_unresolved_warning = QLabel("")
+        self.lbl_unresolved_warning.setWordWrap(True)
+        self.lbl_unresolved_warning.setStyleSheet(
+            f"background: {COLORS['danger_bg']}; color: {COLORS['danger_text']}; "
+            f"border: 1px solid {COLORS['danger_text']}; border-radius: 8px; padding: 10px 14px;"
+        )
+        self.lbl_unresolved_warning.setVisible(False)
+        return self.lbl_unresolved_warning
+
+    def refresh_unresolved_warning(self):
+        if not hasattr(self, 'lbl_unresolved_warning'):
+            return
+        try:
+            unresolved = self.db.get_unresolved_assets()
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Unresolved Warning Failed", e)
+            return
+
+        if not unresolved:
+            self.lbl_unresolved_warning.setVisible(False)
+            return
+
+        shown = ", ".join((h or ip) for ip, h in unresolved[:10])
+        more = f" 외 {len(unresolved) - 10}건" if len(unresolved) > 10 else ""
+        self.lbl_unresolved_warning.setText(
+            f"⚠ 미해결 자산 {len(unresolved)}건 — 발견됐지만 KISA 판정이 아직 하나도 없습니다: {shown}{more}"
+        )
+        self.lbl_unresolved_warning.setVisible(True)
 
     # ------------------------------------------------------------------
     # [Phase 3: UI 재구성] 스캔 페이지 (Scan configuration - 입력/실행 전용)
@@ -512,7 +554,7 @@ class ScannerApp(QMainWindow):
 
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(6)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Memo", "Vender"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Description", "Vender"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
@@ -532,6 +574,15 @@ class ScannerApp(QMainWindow):
         self.asset_table.customContextMenuRequested.connect(self.show_context_menu)
 
         left_layout.addWidget(self.asset_table)
+
+        # [UI/UX 개선 - 탭 역할 분리] 진단 결과 열람 + 조치(Waiver/Expert/수동입력)는
+        # 원래 대시보드에 있었으나, "이 자산에 대해 뭔가 조치한다"는 동선이 자산
+        # 목록 바로 아래 있는 게 더 자연스러워 이 페이지로 옮겼다.
+        results_header = QLabel("진단 결과")
+        results_header.setStyleSheet(f"font-weight: bold; color: {COLORS['text']}; font-size: 12pt; margin-top: 18px;")
+        left_layout.addWidget(results_header)
+        left_layout.addWidget(self._build_results_card())
+
         return page
 
     def _build_log_panel(self):
@@ -581,6 +632,7 @@ class ScannerApp(QMainWindow):
             self.metrics_row.update_counts(metrics)
         except Exception as e:
             AppLogger.log_error("[UI] Refresh Dashboard Metrics Failed", e)
+        self.refresh_unresolved_warning()
 
     def refresh_findings_table(self):
         if not hasattr(self, 'assets_table_card'):
@@ -612,11 +664,11 @@ class ScannerApp(QMainWindow):
             self.asset_table.insertRow(row)
             self.scanned_ip_cache.add(ip)
 
-        # 2. 메모 가져오기
-        memo_text = ""
+        # 2. 설명 가져오기
+        description_text = ""
         try:
             db = DBConnector()
-            memo_text = db.get_memo(ip)
+            description_text = db.get_description(ip)
         except: pass
 
         # --- [핵심 수정] 강제 빈칸 처리 로직 ---
@@ -638,15 +690,15 @@ class ScannerApp(QMainWindow):
         item_host = QTableWidgetItem(hostname)
         item_os = QTableWidgetItem(os_type)
         item_mac = QTableWidgetItem(mac_addr)
-        item_memo = QTableWidgetItem(memo_text if memo_text else "")
+        item_description = QTableWidgetItem(description_text if description_text else "")
         item_vendor = QTableWidgetItem(vendor)
-        
+
         # 4. 스타일링 (색상 설정) - 라이트 테마 배경(흰색) 위에서도 읽히는 색상 사용
         item_ip.setForeground(QBrush(QColor(COLORS["text"])))
         item_host.setForeground(QBrush(QColor(COLORS["text_secondary"])))
         item_mac.setForeground(QBrush(QColor(COLORS["text_muted"])))
         item_vendor.setForeground(QBrush(QColor(COLORS["text_muted"])))
-        item_memo.setForeground(QBrush(QColor(COLORS["success_text"])))
+        item_description.setForeground(QBrush(QColor(COLORS["success_text"])))
 
         if "Linux" in os_type or "Ubuntu" in os_type:
             item_os.setForeground(QBrush(QColor("#B36B00")))
@@ -656,15 +708,15 @@ class ScannerApp(QMainWindow):
             item_os.setForeground(QBrush(QColor(COLORS["text_muted"])))
 
         # 가운데 정렬
-        for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
+        for item in [item_ip, item_host, item_os, item_mac, item_description, item_vendor]:
             item.setTextAlignment(Qt.AlignCenter)
 
         # 5. 테이블 배치
-        self.asset_table.setItem(row, 0, item_ip)     
-        self.asset_table.setItem(row, 1, item_host)   
-        self.asset_table.setItem(row, 2, item_os)     
-        self.asset_table.setItem(row, 3, item_mac)    
-        self.asset_table.setItem(row, 4, item_memo)   
+        self.asset_table.setItem(row, 0, item_ip)
+        self.asset_table.setItem(row, 1, item_host)
+        self.asset_table.setItem(row, 2, item_os)
+        self.asset_table.setItem(row, 3, item_mac)
+        self.asset_table.setItem(row, 4, item_description)
         self.asset_table.setItem(row, 5, item_vendor)
 
     def clear_asset_table(self):
@@ -796,6 +848,32 @@ class ScannerApp(QMainWindow):
         # 로그는 이미 실시간으로 뜨므로, 테이블 데이터는 모아둡니다.
         self.scan_result_buffer.append((ip, hostname, os_type, mac_addr, vendor))
 
+    def _asset_declaration_diff_note(self):
+        """[P0: 자산 매핑] 가져온 자산목록(선언)과 이번 스캔에서 실제 발견된 자산을
+        비교해 누락(선언됐지만 응답 없음)/미문서화(발견됐지만 목록에 없음) 자산을
+        알려준다. 감사 완결성 확인용 - 목록에 없는 미문서화 자산은 그 자체로
+        KISA 감사에서 지적 대상이 될 수 있다. imported_asset_map이 비어있으면(이번
+        세션에 목록을 안 가져왔으면) 비교 대상이 없으므로 건너뛴다."""
+        if not self.imported_asset_map:
+            return ""
+
+        declared = set(self.imported_asset_map.keys())
+        discovered = set(ip for ip, *_ in self.scan_result_buffer)
+        missing = sorted(declared - discovered)
+        undocumented = sorted(discovered - declared)
+
+        if not missing and not undocumented:
+            return "\n\n[자산목록 대조] 선언된 자산과 실제 발견 결과가 정확히 일치합니다."
+
+        lines = ["\n\n[자산목록 대조]"]
+        if missing:
+            shown = ", ".join(missing[:10]) + (" ..." if len(missing) > 10 else "")
+            lines.append(f"- 목록엔 있지만 응답 없음 ({len(missing)}건): {shown}")
+        if undocumented:
+            shown = ", ".join(undocumented[:10]) + (" ..." if len(undocumented) > 10 else "")
+            lines.append(f"- 목록엔 없지만 발견됨 ({len(undocumented)}건, 미문서화 자산 가능성): {shown}")
+        return "\n".join(lines)
+
     def scan_finished(self, msg):
         self.timer.stop()
         self.pbar.setValue(100)
@@ -823,8 +901,11 @@ class ScannerApp(QMainWindow):
             self.asset_table.setSortingEnabled(True) 
             self.log_message("[System] Table update completed.")
         
-        QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)})")
-        
+        diff_note = self._asset_declaration_diff_note()
+        if diff_note:
+            self.log_message("[System]" + diff_note.replace("\n\n", " ").replace("\n", " "))
+        QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)}){diff_note}")
+
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
         
@@ -905,7 +986,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map)
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -949,7 +1030,7 @@ class ScannerApp(QMainWindow):
                     return
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map)
         self.connect_worker()
         self.worker.start()
 
@@ -1067,30 +1148,19 @@ class ScannerApp(QMainWindow):
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set() # 캐시 초기화
         
-        for ip, os_type, memo, mac_addr in assets:
+        # [주의] add_asset_to_table()은 (ip, hostname, os_type, mac_addr, vendor) 5개
+        # 위치 인자만 받고 memo_text/description_text 키워드 인자는 없다 - 이 루프는
+        # 그 시그니처와 안 맞는 상태로 남아있던 미사용 함수(load_saved_assets를
+        # 호출하는 곳이 scanner_engine 전체에 없음, 실제 자산 로드는 load_saved_data()가
+        # 담당)라 이번 memo->description 리네임에서는 변수명만 맞추고 호출부 자체는
+        # 건드리지 않는다.
+        for ip, os_type, description, mac_addr in assets:
             display_os = os_type
             if mac_addr: display_os = f"{os_type} | {mac_addr}"
-            self.add_asset_to_table(ip, display_os, "Scanned History", memo_text=memo)
-            
+            self.add_asset_to_table(ip, display_os, "Scanned History", description_text=description)
+
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")
-
-    """
-    현재 미사용 함수
-    def edit_asset_memo(self):
-        row = self.asset_table.currentRow()
-        if row < 0: return
-        
-        ip = self.asset_table.item(row, 0).text()
-        current_memo = self.asset_table.item(row, 3).text()
-        
-        text, ok = QInputDialog.getText(self, "Asset Memo", f"Edit Memo for {ip}:", QLineEdit.Normal, current_memo)
-        if ok:
-            db = DBConnector()
-            if db.update_memo(ip, text):
-                self.asset_table.item(row, 3).setText(text)
-                self.log_message(f"[Asset] Memo updated for {ip}")
-    """
 
     def show_context_menu(self, pos):
         if not self.asset_table.selectionModel().selection().indexes(): return
@@ -1098,12 +1168,7 @@ class ScannerApp(QMainWindow):
         row = self.asset_table.currentRow()
         ip = self.asset_table.item(row, 0).text()
         os_type = self.asset_table.item(row, 1).text()
-        
-        """
-        미사용 메모
-        menu.addAction("📝 Edit Memo / Tag", self.edit_asset_memo)
-        menu.addSeparator()
-        """
+
         menu = QMenu()
         menu.addAction(f"Ping Check ({ip})", lambda: OSUtils.open_ping_test(ip))
         menu.addSeparator()
@@ -1154,15 +1219,23 @@ class ScannerApp(QMainWindow):
                 return None
             return cell
 
-        # 1) 헤더에서 "IP"가 들어간 컬럼을 우선 탐색
+        # 1) 헤더에서 "IP"가 들어간 컬럼, 그리고 자산명/호스트명 컬럼을 탐색
+        # [P0: 자산 매핑] hostname 컬럼도 같이 읽으면 DNS/SNMP가 없는 OT 구간에서도
+        # 고객이 이미 문서로 갖고 있는 이름을 hostname 폴백 체인의 한 단계로 쓸 수 있고,
+        # 스캔 후 "선언된 자산 vs 실제 발견된 자산" diff(누락/유령 자산 탐지)도 가능해진다.
         header = rows[0]
         ip_col = None
+        host_col = None
+        HOST_HEADER_RE = re.compile(r'host|이름|명칭|자산명|장비명|호스트', re.IGNORECASE)
         for idx, col in enumerate(header):
-            if col and re.search(r'ip', str(col), re.IGNORECASE):
+            col_str = str(col) if col else ""
+            if ip_col is None and re.search(r'ip', col_str, re.IGNORECASE):
                 ip_col = idx
-                break
+            elif host_col is None and HOST_HEADER_RE.search(col_str):
+                host_col = idx
 
         found_ips = []
+        asset_map = {}
         data_rows = rows[1:] if ip_col is not None else rows
         if ip_col is not None:
             for r in data_rows:
@@ -1170,8 +1243,13 @@ class ScannerApp(QMainWindow):
                     ip = _looks_like_ip(r[ip_col])
                     if ip:
                         found_ips.append(ip)
+                        if host_col is not None and host_col < len(r):
+                            hostname = str(r[host_col]).strip()
+                            if hostname:
+                                asset_map[ip] = hostname
         else:
             # 헤더에서 IP 컬럼을 못 찾으면 모든 셀을 훑어 IP처럼 보이는 값을 수집 (수동 검토 필요)
+            # - 이 경로는 hostname 컬럼 위치를 알 수 없어 asset_map을 채우지 않는다.
             for r in rows:
                 for cell in r:
                     ip = _looks_like_ip(cell)
@@ -1186,8 +1264,15 @@ class ScannerApp(QMainWindow):
             return
 
         self.ip_input.setText(",".join(safe_ips))
-        self.log_message(f"[System] 자산목록 가져오기 완료: {len(safe_ips)}개 IP ({os.path.basename(filepath)})")
-        QMessageBox.information(self, "가져오기 완료", f"{len(safe_ips)}개의 IP를 스캔 대상으로 불러왔습니다.\n(목록에 없는 IP는 스캔 후보에서 제외됩니다)")
+        # [P0] 이번에 가져온 목록을 세션 전체에서 참조할 수 있게 보관 - hostname 폴백과
+        # 스캔 종료 후 diff 둘 다 이 값을 쓴다. 새로 가져오기를 하면 이전 목록은 대체된다.
+        self.imported_asset_map = {ip: name for ip, name in asset_map.items() if ip in safe_ips}
+
+        host_note = f", 호스트명 {len(self.imported_asset_map)}건" if self.imported_asset_map else ""
+        self.log_message(f"[System] 자산목록 가져오기 완료: {len(safe_ips)}개 IP{host_note} ({os.path.basename(filepath)})")
+        QMessageBox.information(self, "가져오기 완료",
+            f"{len(safe_ips)}개의 IP를 스캔 대상으로 불러왔습니다.\n(목록에 없는 IP는 스캔 후보에서 제외됩니다)"
+            + (f"\n\n호스트명 {len(self.imported_asset_map)}건도 함께 인식했습니다 - DNS로 이름을 못 얻는 자산의 폴백으로 쓰입니다." if self.imported_asset_map else ""))
 
     @staticmethod
     def _read_asset_rows_csv(filepath):
@@ -1300,9 +1385,9 @@ class ScannerApp(QMainWindow):
         self.scanned_ip_cache = set()
         
         # 3. 데이터 가져오기 (DBConnector.get_all_assets()는 항상
-        #    (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+        #    (ip_addr, os_type, description, mac_addr) 4개 컬럼을 반환한다.
         #    Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
-        #    (memo는 add_asset_to_table 내부에서 DB로부터 다시 조회하므로 여기서는 사용하지 않음)
+        #    (description은 add_asset_to_table 내부에서 DB로부터 다시 조회하므로 여기서는 사용하지 않음)
         assets = self.db.get_all_assets()
 
         # 화면 깜빡임 방지
@@ -1311,7 +1396,7 @@ class ScannerApp(QMainWindow):
 
         for data in assets:
             try:
-                ip, os_type, _memo, mac_addr = data
+                ip, os_type, _description, mac_addr = data
 
                 # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
                 # (실제 데이터가 있으면 그대로 유지됨)
@@ -1382,6 +1467,24 @@ class ScannerApp(QMainWindow):
             if download_url:
                 QDesktopServices.openUrl(QUrl(download_url))
 
+    def _check_ruleset_update(self):
+        # [룰셋 증분 업데이트] 기본 OFF(app_settings.ruleset_auto_update) - 이 함수
+        # 자체는 항상 호출하지만, rule_update.check_and_apply_update()가 설정을
+        # 직접 확인해서 꺼져 있으면 네트워크 요청 없이 즉시 "DISABLED"로 반환한다
+        # (버전 업데이트 확인과 동일하게 시작 흐름에 조용히 얹힌다).
+        from utils import rule_update
+        status, detail = rule_update.check_and_apply_update()
+        if status == "UPDATED":
+            self.log_message(f"[RuleUpdate] {detail}")
+            QMessageBox.information(self, "룰셋 업데이트 완료", detail)
+        elif status == "VERIFY_FAILED":
+            # [보안] 서명 검증 실패는 조용히 넘기지 않는다 - 배포 채널이 뭔가
+            # 잘못됐다는 신호일 수 있어 사용자가 반드시 인지해야 한다.
+            self.log_message(f"[RuleUpdate] 서명 검증 실패: {detail}")
+            QMessageBox.warning(self, "룰셋 업데이트 서명 검증 실패", detail)
+        # DISABLED/UP_TO_DATE/NO_RELEASE_ASSET/ERROR는 조용히 넘어간다
+        # (버전 업데이트 확인과 동일하게 시작 속도/사용자 경험에 영향 안 주도록)
+
     def sync_to_cloud(self):
         # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도
         QMessageBox.information(self, "Enterprise Feature", 
@@ -1408,9 +1511,9 @@ class ScannerApp(QMainWindow):
         for asset in assets:
             try:
                 # DBConnector.get_all_assets()는 항상
-                # (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
+                # (ip_addr, os_type, description, mac_addr) 4개 컬럼을 반환한다.
                 # Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
-                ip, os_type, _memo, mac = asset
+                ip, os_type, _description, mac = asset
                 self.add_asset_to_table(ip, "", os_type, mac, "")
                 count += 1
             except Exception as e:

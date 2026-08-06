@@ -23,6 +23,11 @@ DEFAULTS = {
     "report_output_dir": "",      # 비어있으면 기존 기본값(<base_dir>/reports) 사용
     "default_username": "",
     "show_log_panel": False,      # 메인 창에 임베드된 System Log 패널 표시 여부 (기본 숨김)
+    # [룰셋 증분 업데이트] 기본 OFF - OT/에어갭 환경에서 프로그램이 시작하자마자
+    # 인터넷에 나가려 하면 그 자체로 현장 보안팀에 의심스러워 보일 수 있어,
+    # 명시적으로 켜야만 업데이트 확인을 시도한다 (update_checker.py의 URL 미설정 시
+    # 완전 비활성 철학과 동일).
+    "ruleset_auto_update": False,
 }
 
 
