@@ -654,16 +654,14 @@ class ScanConfigCard(InfoCard):
         outer.addSpacing(10)
 
         # --- 1행: Target range (전체 폭) ---
-        outer.addWidget(LabelWithHelp("Target range", "IP, 범위(10.0.0.1-50), 또는 CIDR(10.0.0.0/24). 'Import'로 CSV/Excel 자산목록에서 채울 수 있습니다."))
+        # [UI/UX 개선 - 2026-08-06] 자산목록 Import 버튼은 여기 있었는데, import가
+        # 이제 스캔 대상만 채우는 게 아니라 구역태그/부서/담당자/설명까지 DB에 바로
+        # 반영하는 자산 등록 작업이라 자산 탭이 더 맞는 자리라는 피드백으로 옮겼다
+        # (main_window.py._build_assets_page() 참고). Target range 입력창만 남긴다.
+        outer.addWidget(LabelWithHelp("Target range", "IP, 범위(10.0.0.1-50), 또는 CIDR(10.0.0.0/24). 자산 탭의 '가져오기'로 CSV/Excel 자산목록에서 채울 수 있습니다."))
         self.target_input = QLineEdit()
         self.target_input.setPlaceholderText("e.g. 192.168.1.1 or 192.168.1.0/24")
-        target_row = QHBoxLayout()
-        target_row.setContentsMargins(0, 0, 0, 0)
-        target_row.addWidget(self.target_input)
-        self.import_btn = QPushButton("Import")
-        self.import_btn.setFixedWidth(72)
-        target_row.addWidget(self.import_btn)
-        outer.addLayout(target_row)
+        outer.addWidget(self.target_input)
         outer.addSpacing(8)
 
         # --- 2행: Scan mode / Credentials (좁은 창에서도 겹치지 않게 2열로만 구성) ---
@@ -677,10 +675,23 @@ class ScanConfigCard(InfoCard):
         mode_col = QVBoxLayout()
         mode_col.setContentsMargins(0, 0, 0, 0)
         mode_col.addWidget(self.scan_mode_combo)
+
+        # [UI/UX 개선 - 2026-08-06] Custom 포트를 텍스트로 직접 타이핑하는 것 외에,
+        # 체크박스로 고를 수 있는 보기 편한 화면(PortSelectorDialog)도 열 수 있게
+        # 버튼을 하나 더 둔다. 다이얼로그는 gui.dialogs에 있는데 그쪽이 이미 이 모듈의
+        # COLORS를 import하고 있어(순환 참조 방지), 열기 동작 자체는 main_window.py가
+        # 연결한다(discovery_btn/audit_btn 등 이 카드의 다른 버튼들과 같은 패턴).
+        port_row = QHBoxLayout()
+        port_row.setContentsMargins(0, 0, 0, 0)
         self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("Custom ports (80,443,8000-8100)")
         self.port_input.setEnabled(False)
-        mode_col.addWidget(self.port_input)
+        port_row.addWidget(self.port_input)
+        self.port_select_btn = QPushButton("선택...")
+        self.port_select_btn.setFixedWidth(60)
+        self.port_select_btn.setEnabled(False)
+        port_row.addWidget(self.port_select_btn)
+        mode_col.addLayout(port_row)
         mode_wrap = QWidget()
         mode_wrap.setLayout(mode_col)
         row1.addWidget(LabelWithHelp("Scan mode", "Fast: 주요 포트만 빠르게 확인 / Custom: 직접 지정한 포트만 확인 / Full: 1~65535 전체 확인(느림)"), 0, 0)
@@ -714,15 +725,21 @@ class ScanConfigCard(InfoCard):
         cred_col.addWidget(self.db_pw_input)
 
         # [Oracle 서비스명] host+port만으론 접속이 안 되고 서비스명(Service Name/SID)이
-        # 반드시 필요하다 - MySQL/PostgreSQL/MSSQL과 다른 지점. DB 계정 공유 여부와
-        # 무관하게 필요해서 위 체크박스 토글 대상에는 안 넣고 항상 노출한다.
+        # 반드시 필요하다 - MySQL/PostgreSQL/MSSQL과 다른 지점. 대상에 Oracle이 없는
+        # 스캔이 대부분이라 기본은 숨겨두고, 체크박스로 켤 때만 입력칸을 보여준다
+        # (db_cred_diff_check/db_user_input/db_pw_input과 동일한 토글 패턴).
+        self.oracle_target_check = QCheckBox("대상에 Oracle DB 포함 (서비스명 입력)")
+        cred_col.addWidget(self.oracle_target_check)
+
         self.oracle_service_input = QLineEdit()
         self.oracle_service_input.setPlaceholderText("Oracle Service Name (선택, 비우면 ORCL 시도)")
         self.oracle_service_input.setToolTip(
             "대상에 Oracle DB가 있을 경우에만 사용됩니다.\n"
             "비워두면 가장 흔한 기본값(ORCL)으로 접속을 시도하며, 설치 환경마다 실제 값이 다를 수 있습니다."
         )
+        self.oracle_service_input.setVisible(False)
         cred_col.addWidget(self.oracle_service_input)
+        self.oracle_target_check.toggled.connect(self.oracle_service_input.setVisible)
 
         def _toggle_db_cred_inputs(checked):
             self.db_user_input.setVisible(checked)
@@ -926,9 +943,16 @@ class _ClickableRow(QFrame):
 
 
 class RecentActivityCard(InfoCard):
+    """[UI/UX 개선 - 2026-08-06 개편] 기간 필터(기본 1일) + 10개씩 페이지네이션.
+    Discovery 세션은 "몇 개의 IP를 어떤 대역으로 스캔했는지"가 바로 보이게
+    target_input/모드를 제목에 표시한다(db_connector.get_recent_sessions() 참고)."""
     # [UI/UX 개선 - 드릴다운] 세션 행 클릭 시 그 세션의 진단 결과만 자산 탭에서
     # 보여주기 위해 main_window.py가 구독하는 시그널.
     session_clicked = Signal(str)
+    # 기간 콤보가 바뀌면 main_window.py가 이 값(일수, "전체"는 None)으로 다시 조회한다.
+    period_changed = Signal(object)
+
+    PAGE_SIZE = 10
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -942,32 +966,68 @@ class RecentActivityCard(InfoCard):
         title.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {COLORS['text']}; border:none;")
         header_row.addWidget(title)
         header_row.addStretch()
+
+        self.period_combo = QComboBox()
+        self.period_combo.addItem("최근 1일", 1)
+        self.period_combo.addItem("최근 7일", 7)
+        self.period_combo.addItem("최근 30일", 30)
+        self.period_combo.addItem("전체", None)
+        self.period_combo.setFixedWidth(96)
+        self.period_combo.currentIndexChanged.connect(
+            lambda _: self.period_changed.emit(self.period_combo.currentData())
+        )
+        header_row.addWidget(self.period_combo)
         outer.addLayout(header_row)
 
         self.rows_layout = QVBoxLayout()
-        self.rows_layout.setContentsMargins(0, 0, 0, 6)
+        self.rows_layout.setContentsMargins(0, 0, 0, 4)
         self.rows_layout.setSpacing(0)
         outer.addLayout(self.rows_layout)
+
+        self.pagination_row = QHBoxLayout()
+        self.pagination_row.setContentsMargins(18, 2, 18, 12)
+        self.pagination_row.setSpacing(4)
+        outer.addLayout(self.pagination_row)
+
+        self._all_sessions = []
+        self._current_page = 0
 
         self._empty_label = QLabel("아직 스캔 이력이 없습니다.")
         self._empty_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; border:none; padding: 4px 18px 12px;")
         self.rows_layout.addWidget(self._empty_label)
 
+    def current_days(self):
+        return self.period_combo.currentData()
+
     def set_sessions(self, sessions):
-        """sessions: [(session_id, operator, started_at, asset_count), ...] (최신순)."""
-        while self.rows_layout.count():
-            item = self.rows_layout.takeAt(0)
+        """sessions: db_connector.get_recent_sessions()의 반환값 - [(session_id,
+        operator, started_at, asset_count, target_input, mode, is_discovery_only), ...]
+        (최신순, 기간 필터는 이미 DB 조회 시점에 적용됨). 새로 들어오면 항상 1페이지로."""
+        self._all_sessions = sessions or []
+        self._current_page = 0
+        self._render()
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
 
-        if not sessions:
-            self._empty_label = QLabel("아직 스캔 이력이 없습니다.")
-            self._empty_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; border:none; padding: 4px 18px 12px;")
-            self.rows_layout.addWidget(self._empty_label)
+    def _render(self):
+        self._clear_layout(self.rows_layout)
+
+        if not self._all_sessions:
+            empty = QLabel("아직 스캔 이력이 없습니다.")
+            empty.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; border:none; padding: 4px 18px 12px;")
+            self.rows_layout.addWidget(empty)
+            self._render_pagination()
             return
 
-        for i, (session_id, operator, started_at, asset_count) in enumerate(sessions):
+        start = self._current_page * self.PAGE_SIZE
+        page_sessions = self._all_sessions[start:start + self.PAGE_SIZE]
+
+        for i, (session_id, operator, started_at, asset_count, target_input, mode, is_discovery_only) in enumerate(page_sessions):
             row = _ClickableRow(session_id)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(18, 8, 18, 8)
@@ -977,12 +1037,15 @@ class RecentActivityCard(InfoCard):
 
             dot = QLabel()
             dot.setFixedSize(8, 8)
-            dot.setStyleSheet(f"background-color: {COLORS['accent']}; border-radius: 4px; border:none;")
+            dot_color = COLORS["text_muted"] if is_discovery_only else COLORS["accent"]
+            dot.setStyleSheet(f"background-color: {dot_color}; border-radius: 4px; border:none;")
             row_layout.addWidget(dot, 0, Qt.AlignVCenter)
 
             main_col = QVBoxLayout()
             main_col.setSpacing(2)
-            title_lbl = QLabel(session_id or "-")
+            mode_label = "Discovery" if is_discovery_only else "정밀 진단"
+            title_text = target_input.strip() if target_input else (session_id or "-")
+            title_lbl = QLabel(f"[{mode_label}] {title_text}")
             title_lbl.setStyleSheet(f"color: {COLORS['text']}; font-size: 12.5px; font-weight: 600; border:none;")
             main_col.addWidget(title_lbl)
             sub_lbl = QLabel(operator or "담당자 미기록")
@@ -990,12 +1053,47 @@ class RecentActivityCard(InfoCard):
             main_col.addWidget(sub_lbl)
             row_layout.addLayout(main_col, 1)
 
-            stat_lbl = QLabel(f"{asset_count}대 · {started_at or '-'}")
+            stat_lbl = QLabel(f"{asset_count}개 IP · {started_at or '-'}")
             stat_lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11.5px; border:none;")
             stat_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             row_layout.addWidget(stat_lbl)
 
             self.rows_layout.addWidget(row)
+
+        self._render_pagination()
+
+    def _render_pagination(self):
+        self._clear_layout(self.pagination_row)
+
+        total_pages = max(1, (len(self._all_sessions) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if total_pages <= 1:
+            return
+
+        self.pagination_row.addStretch()
+        for p in range(total_pages):
+            btn = QPushButton(str(p + 1))
+            btn.setFixedSize(26, 26)
+            btn.setCursor(Qt.PointingHandCursor)
+            is_current = (p == self._current_page)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['accent'] if is_current else 'transparent'};
+                    color: {'white' if is_current else COLORS['text_secondary']};
+                    border: 1px solid {COLORS['accent'] if is_current else COLORS['border']};
+                    border-radius: 13px;
+                    font-size: 11px; font-weight: 600; padding: 0;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['accent'] if is_current else COLORS['accent_bg']};
+                }}
+            """)
+            btn.clicked.connect(lambda checked=False, page=p: self._go_to_page(page))
+            self.pagination_row.addWidget(btn)
+        self.pagination_row.addStretch()
+
+    def _go_to_page(self, page):
+        self._current_page = page
+        self._render()
 
 
 # ----------------------------------------------------------------------

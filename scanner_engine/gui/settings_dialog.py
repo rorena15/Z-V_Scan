@@ -192,11 +192,18 @@ class SettingsDialog(QDialog):
         box_layout = QVBoxLayout(box)
         box_layout.addWidget(QLabel(
             "룰 카테고리/개별 코드 단위 include-exclude 설정은 '전문가 모드' 창에서 관리합니다.\n"
-            "(점검 명령어·중요도는 KISA 신뢰성을 위해 어디서도 수정할 수 없습니다)"
+            "(점검 명령어·중요도는 KISA 신뢰성을 위해 어디서도 수정할 수 없습니다)\n"
+            "둘 다 Enterprise 등급 전용이며, 자산 탭이 아니라 여기서만 열 수 있습니다."
         ))
         btn_open_expert = QPushButton("전문가 모드 열기")
         btn_open_expert.clicked.connect(self._open_expert_mode)
         box_layout.addWidget(btn_open_expert)
+
+        # [UI/UX 개선 - 2026-08-06] Waiver도 Expert Mode와 같은 "전문가용" 기능으로
+        # 묶어 여기로 옮겼다(예전엔 자산 탭에만 있었고 등급 제한도 없었음).
+        btn_open_waiver = QPushButton("예외처리(Waiver) 관리 열기")
+        btn_open_waiver.clicked.connect(self._open_waiver_manager)
+        box_layout.addWidget(btn_open_waiver)
         v.addWidget(box)
 
         version_box = QGroupBox("룰셋 버전 (KISA 가이드 개정 대응)")
@@ -277,6 +284,17 @@ class SettingsDialog(QDialog):
             return
         from gui.expert_mode_dialog import ExpertModeDialog
         dlg = ExpertModeDialog(self)
+        dlg.exec()
+
+    def _open_waiver_manager(self):
+        main_win = self.parent()
+        if main_win is not None and hasattr(main_win, 'license_mgr') and not main_win.license_mgr.can_use_waiver():
+            QMessageBox.warning(self, "License Restricted",
+                "예외처리(Waiver) 관리는 Enterprise 등급 전용 기능입니다.\n"
+                f"(현재 등급: {main_win.license_mgr.effective_tier()})")
+            return
+        from gui.waiver_dialog import WaiverManagerDialog
+        dlg = WaiverManagerDialog(self.db, self)
         dlg.exec()
 
     # ------------------------------------------------------------------

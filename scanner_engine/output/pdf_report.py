@@ -7,6 +7,7 @@
 # --------------------------------------------------------------------------
 
 import os
+import re
 import sys
 import sqlite3
 import html
@@ -50,12 +51,16 @@ class PDFGenerator:
         "Low": "🟢", "Info": "⚪", "Safe": "✅"
     }
 
-    def __init__(self, remediation_level="full"):
+    def __init__(self, remediation_level="full", report_title=None, company_name=None, custom_filename=None):
         self.db = DBConnector() # DB 커넥터 재사용
         # [라이선스 등급별 리포트 차등] "full"(전체) | "partial"(중요도 상/중만) | "none"(미제공)
         # 기본값은 항상 "full"이라, 호출부에서 값을 넘기지 않으면 지금까지와 동일하게 동작한다.
         # (PDF는 원래 공간 제약상 raw_output 전체를 싣지 않으므로 evidence_level 구분은 없음)
         self.remediation_level = remediation_level
+        # [리포트 탭 - 커스터마이징] 표지 제목/브랜딩 문구/저장 파일명을 비워두면
+        # 지금까지와 동일한 기본값을 그대로 쓴다(하위 호환).
+        self.report_title = (report_title or "").strip() or "주요정보통신기반시설 취약점 분석 요약"
+        self.company_name = (company_name or "").strip()
         # [Phase 3: 설정 페이지] 사용자가 지정한 리포트 출력 경로가 있으면 그것을 사용
         self.output_dir = get_report_output_dir()
 
@@ -64,9 +69,11 @@ class PDFGenerator:
                 os.makedirs(self.output_dir, exist_ok=True)
             except OSError:
                 pass
-                
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.filename = os.path.join(self.output_dir, f"ZVulnScan_Report_{timestamp}.pdf")
+        safe_custom = self._sanitize_filename((custom_filename or "").strip())
+        base_name = f"{safe_custom}_{timestamp}" if safe_custom else f"ZVulnScan_Report_{timestamp}"
+        self.filename = os.path.join(self.output_dir, f"{base_name}.pdf")
         
         # 폰트 설정 (한글 깨짐 방지)
         self.font_path = OSUtils.get_font_path("NanumGothic.ttf")
@@ -84,6 +91,14 @@ class PDFGenerator:
                 self.bold_font = "MalgunGothic"
         except: 
             pass
+
+    @staticmethod
+    def _sanitize_filename(name):
+        """저장 파일명으로 위험한 문자(경로 구분자 등)를 제거. 빈 문자열이면 빈 문자열
+        그대로 반환(호출부가 기본 파일명으로 폴백하는 신호로 씀)."""
+        if not name:
+            return ""
+        return re.sub(r'[\\/*?:"<>|]', '_', name)[:80]
 
     def _truncate(self, text, limit):
         if not text: return "-"
@@ -178,9 +193,15 @@ class PDFGenerator:
 
             # === 1. Executive Summary ===
             elements.append(Spacer(1, 1*cm))
-            elements.append(Paragraph("<b>주요정보통신기반시설 취약점 분석 요약</b>",
+            elements.append(Paragraph(f"<b>{html.escape(self.report_title)}</b>",
                                    ParagraphStyle(name='cover', fontName=self.bold_font, fontSize=24,
                                                 textColor=self.DARK_BLUE, alignment=1)))
+            # [리포트 탭 - 커스터마이징] 회사명/브랜딩 문구 - 지정 안 하면 아예 표시 안 함
+            if self.company_name:
+                elements.append(Spacer(1, 0.3*cm))
+                elements.append(Paragraph(html.escape(self.company_name),
+                                       ParagraphStyle(name='cover_company', fontName=self.font_name, fontSize=13,
+                                                    textColor=colors.HexColor('#555555'), alignment=1)))
             elements.append(Spacer(1, 1.5*cm))
 
             # KPI

@@ -92,6 +92,11 @@ class ScanWorker(QThread):
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
 
+        # [대시보드 - 최근 활동 개편] 이 세션이 어떤 대상 문자열을 어떤 모드로
+        # 스캔했는지 시작 시점에 한 번 기록한다 - 대상이 하나도 안 살아있어서
+        # 이후 아무 결과도 안 남더라도 "시도했다"는 사실 자체는 대시보드에 남아야 함.
+        self.db_queue.put(("SESSION_META", (self.session_id, self.target_input, self.mode)))
+
         try:
             target_ips = self.parse_targets()
             if not target_ips:
@@ -201,6 +206,9 @@ class ScanWorker(QThread):
                     self._save_result_to_db(db, data)
                 elif msg_type == "HOSTNAME_UPDATE":
                     self._save_hostname_update_to_db(db, data)
+                elif msg_type == "SESSION_META":
+                    session_id, target_input, mode = data
+                    db.save_scan_session(session_id, target_input, mode)
             except Exception as e:
                 AppLogger.log_error("DB Writer Error", e)
             finally:

@@ -136,9 +136,13 @@ class HelpDialog(QDialog):
         )
         right.addWidget(self.detail_view)
 
+        # [버그 수정] 닫기 버튼이 왼쪽에 붙어있던 걸 대화상자 흔한 관례(우측 정렬)로 수정
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
         btn_close = QPushButton("닫기")
         btn_close.setFixedWidth(100)
-        right.addWidget(btn_close, 0)
+        btn_row.addWidget(btn_close)
+        right.addLayout(btn_row)
         btn_close.clicked.connect(self.accept)
 
         layout.addLayout(right, 1)

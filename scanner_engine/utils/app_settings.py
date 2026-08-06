@@ -28,6 +28,11 @@ DEFAULTS = {
     # 명시적으로 켜야만 업데이트 확인을 시도한다 (update_checker.py의 URL 미설정 시
     # 완전 비활성 철학과 동일).
     "ruleset_auto_update": False,
+    # [리포트 탭 - 커스터마이징] PDF/Excel에만 적용(TXT는 고객사 매크로 호환 형식이라
+    # 파일명 패턴이 고정돼야 해서 제외 - output/text_report.py 참고).
+    "report_company_name": "",
+    "report_title": "",
+    "report_filename": "",
 }
 
 

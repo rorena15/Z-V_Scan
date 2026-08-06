@@ -16,6 +16,15 @@ from core.config import AppConfig
 class LicenseValidator:
     LICENSE_FILE = "license.dat"
 
+    # [접두어 난독화] "ZV3-..."처럼 접두어가 제품명 이니셜+버전으로 읽혀서, 등급/만료일을
+    # 감춰도 이 문자열이 "Z-VulnScan 라이선스 키"라는 것 자체는 누구나 바로 알 수 있었다.
+    # salt로 만든 고정 3자리 hex 태그로 바꿔서 키의 5개 구간 중 어디에도 사람이 읽어서
+    # 뜻을 알 수 있는 조각이 남지 않게 한다(대시로 나뉜 형태 자체는 가독성을 위해 유지 -
+    # 윈도우/오피스 키처럼 구간 구분은 정보 노출이 아니라 단순 서식임).
+    @staticmethod
+    def key_prefix():
+        return hashlib.sha256((AppConfig.LICENSE_SALT + "MAGIC").encode()).hexdigest()[:3].upper()
+
     # [만료일 난독화] 키에 만료일을 "20270717" 같은 평문으로 그대로 넣으면 키만 봐도
     # 발급/만료 패턴이 바로 드러난다. salt로 만든 마스크로 XOR해서 4자리 hex 토큰으로
     # 바꿔 넣고, 검증할 때만 같은 salt로 역산해서 실제 날짜를 복원한다(서버 조회 없이
@@ -41,6 +50,37 @@ class LicenseValidator:
         days_u16 = token_val ^ LicenseValidator._expiry_mask()
         days = days_u16 if days_u16 < 0x8000 else days_u16 - 0x10000
         return LicenseValidator._EXPIRY_EPOCH + timedelta(days=days)
+
+    # [등급 난독화] 예전엔 키 안에 등급이 "ZV3-ENT-...."처럼 평문(STD/PRO/ENT)으로 그대로
+    # 들어가 있어서 키 문자열만 봐도 무슨 등급인지 바로 유추됐다. 만료일 토큰과 같은
+    # 방식(salt로 XOR한 hex 토큰)으로 등급도 감춘다 - 체크섬이 이미 위변조를 막고
+    # 있으므로 이건 보안 강도가 아니라 "봐도 못 알아보게"하는 눈가림 목적.
+    _TIER_CODES = ["STD", "PRO", "ENT"]
+
+    @staticmethod
+    def _tier_mask():
+        return int(hashlib.sha256((AppConfig.LICENSE_SALT + "TIER").encode()).hexdigest()[:2], 16)
+
+    @staticmethod
+    def encode_tier_token(tier_code):
+        """등급 코드(STD/PRO/ENT) -> 난독화된 2자리 hex 토큰 (keygen.py에서 사용)"""
+        idx = LicenseValidator._TIER_CODES.index(tier_code)
+        token_val = idx ^ LicenseValidator._tier_mask()
+        return format(token_val, '02X')
+
+    @staticmethod
+    def _decode_tier_token(token):
+        """난독화된 2자리 hex 토큰 -> 등급 코드. 형식이 잘못되면 None(예외를 던지지
+        않음 - 예전 평문 형식(STD 등)이 들어오면 hex 파싱에 실패하는데, 그 경우
+        validate_key()가 하위 호환 경로로 넘어가야 하므로 여기서 죽으면 안 된다)."""
+        try:
+            token_val = int(token, 16)
+        except ValueError:
+            return None
+        idx = token_val ^ LicenseValidator._tier_mask()
+        if 0 <= idx < len(LicenseValidator._TIER_CODES):
+            return LicenseValidator._TIER_CODES[idx]
+        return None
 
     # ------------------------------------------------------------------
     # [라이선스 발급 체계: 로컬 취소(revoke) 목록]
@@ -114,10 +154,10 @@ class LicenseValidator:
             if len(parts) != 5:
                 return False, None, None
 
-            prefix, tier_code, expiry_token, random_val, checksum = parts
+            prefix, tier_field, expiry_token, random_val, checksum = parts
 
-            # 1. 접두어 확인
-            if prefix != "ZV3":
+            # 1. 접두어 확인 - 새 형식(난독화된 태그) 또는 예전 평문 "ZV3"(하위 호환) 허용
+            if prefix != LicenseValidator.key_prefix() and prefix != "ZV3":
                 return False, None, None
 
             # 2. 등급 코드 매핑
@@ -126,16 +166,30 @@ class LicenseValidator:
                 "PRO": "PROFESSIONAL",
                 "ENT": "ENTERPRISE"
             }
-            if tier_code not in tier_map:
+
+            # [등급 난독화 - 하위 호환] keygen.py는 이제 평문 STD/PRO/ENT 대신 난독화된
+            # hex 토큰을 tier_field 자리에 넣는다(_decode_tier_token). 예전 형식으로
+            # 이미 발급된 키(평문 tier)도 계속 동작해야 하므로, 새 형식으로 먼저
+            # 시도하고 실패하면 예전 평문 형식으로 재시도한다.
+            tier_code = None
+            raw_str = None
+
+            decoded_tier = LicenseValidator._decode_tier_token(tier_field)
+            if decoded_tier is not None:
+                candidate_raw = f"{tier_field}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
+                if hashlib.md5(candidate_raw.encode()).hexdigest()[:4].upper() == checksum:
+                    tier_code = decoded_tier
+                    raw_str = candidate_raw
+
+            if tier_code is None and tier_field in tier_map:
+                candidate_raw = f"{tier_field}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
+                if hashlib.md5(candidate_raw.encode()).hexdigest()[:4].upper() == checksum:
+                    tier_code = tier_field
+                    raw_str = candidate_raw
+
+            # 3. 해시(Checksum) 무결성 검증 - 위 두 시도 중 하나도 통과 못 했으면 위변조/알 수 없는 형식
+            if tier_code is None:
                 return False, None, None
-
-            # 3. 해시(Checksum) 무결성 검증
-            # 키 생성기와 동일한 로직으로 해시를 다시 계산해서 비교
-            raw_str = f"{tier_code}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
-            calculated_hash = hashlib.md5(raw_str.encode()).hexdigest()[:4].upper()
-
-            if checksum != calculated_hash:
-                return False, None, None # 위변조된 키
 
             # 3.5 취소(revoke) 목록 확인 - 발급자가 이 키를 무효화해뒀는지
             if random_val in LicenseValidator._load_revoked_set():
