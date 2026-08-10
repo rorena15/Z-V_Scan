@@ -8,67 +8,71 @@
 from PySide6.QtWidgets import (
                                 QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                                 QTableWidget, QTableWidgetItem, QHeaderView,
-                                QMessageBox, QLabel, QAbstractItemView, QComboBox
+                                QMessageBox, QLabel, QAbstractItemView, QComboBox,
+                                QSizePolicy
                                 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+from gui.styles import STYLESHEET, LIGHT_STYLESHEET
+from utils.app_settings import load_settings
 
 class DatabaseManagerDialog(QDialog):
     def __init__(self, db_connector, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Database Manager - Asset Control")
         self.resize(900, 600)
+        self.setMinimumSize(760, 480)
         self.db = db_connector
-        
-        # 다크 테마 적용
-        self.setStyleSheet("""
-            QDialog { background-color: #2b2b2b; color: white; }
-            QTableWidget { 
-                background-color: #333; 
-                color: #ddd; 
-                gridline-color: #555; 
-                selection-background-color: #2e7d32; 
-            }
-            QHeaderView::section { background-color: #444; color: white; padding: 5px; border: 1px solid #555; }
-            QPushButton {
-                background-color: #444; color: white; border: 1px solid #666;
-                padding: 6px 12px; border-radius: 4px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #666; }
-            QPushButton:pressed { background-color: #222; }
-            QLabel { color: #aaa; }
-        """)
+
+        # [테마 통일] 예전엔 이 다이얼로그만 따로 하드코딩된 다크 팔레트를 썼다 -
+        # main_window.py가 라이트 테마를 켜도 DB Manager를 열면 항상 어두운
+        # 화면이 튀어나오던 원인. main_window.py와 완전히 같은 방식(app_settings의
+        # theme 값 -> STYLESHEET/LIGHT_STYLESHEET)으로 맞춘다.
+        theme = load_settings().get("theme", "light")
+        self.setStyleSheet(LIGHT_STYLESHEET if theme == "light" else STYLESHEET)
 
         self.layout = QVBoxLayout(self)
         self.initUI()
         self.load_data()
 
     def initUI(self):
-        # 1. 상단 안내 및 버튼
-        top_layout = QHBoxLayout()
-        
+        # 1. 상단 안내 (자체 줄) + 2. 필터/버튼 행 (자체 줄)
+        # [레이아웃 수정] 예전엔 안내 문구 + 구역 필터 + 버튼 2개가 한 줄에 전부
+        # 들어가 있어서, 안내 문구가 길거나 구역 태그 이름이 길면 한 줄 전체
+        # 너비가 다이얼로그 폭을 넘어 오른쪽 "선택 삭제" 버튼이 잘려서 보이는
+        # 문제가 있었다 - 안내 문구를 줄바꿈 가능한 별도 줄로 분리해 버튼 행과
+        # 공간을 다투지 않게 한다.
         info_lbl = QLabel("팁: 셀을 더블 클릭하면 내용을 수정할 수 있습니다. (IP/Port는 수정 불가)")
+        info_lbl.setWordWrap(True)
+        self.layout.addWidget(info_lbl)
+
+        filter_layout = QHBoxLayout()
 
         # [자산 태그/그룹 관리] 구역별(DMZ, 제어망 A 등) 필터 - load_data()가 채워준다
         self.zone_filter_combo = QComboBox()
         self.zone_filter_combo.addItem("전체 구역")
         self.zone_filter_combo.currentIndexChanged.connect(self._apply_zone_filter)
+        # 구역 태그 이름이 길어도 콤보가 무한정 넓어져 버튼을 밀어내지 않도록 상한을 둔다.
+        self.zone_filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.zone_filter_combo.setMinimumContentsLength(12)
+        self.zone_filter_combo.setMaximumWidth(220)
 
         btn_refresh = QPushButton("새로고침 (Refresh)")
         btn_refresh.clicked.connect(self.load_data)
+        btn_refresh.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         btn_delete = QPushButton("선택 삭제 (Delete)")
-        btn_delete.setStyleSheet("background-color: #c62828; border-color: #8e0000;") # 빨간색
+        btn_delete.setStyleSheet("background-color: #c62828; border-color: #8e0000; color: white;") # 빨간색
         btn_delete.clicked.connect(self.delete_selected_row)
+        btn_delete.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
-        top_layout.addWidget(info_lbl)
-        top_layout.addStretch()
-        top_layout.addWidget(QLabel("구역 필터:"))
-        top_layout.addWidget(self.zone_filter_combo)
-        top_layout.addWidget(btn_refresh)
-        top_layout.addWidget(btn_delete)
+        filter_layout.addWidget(QLabel("구역 필터:"))
+        filter_layout.addWidget(self.zone_filter_combo)
+        filter_layout.addStretch()
+        filter_layout.addWidget(btn_refresh)
+        filter_layout.addWidget(btn_delete)
 
-        self.layout.addLayout(top_layout)
+        self.layout.addLayout(filter_layout)
 
         # 2. 데이터 테이블
         self.table = QTableWidget()
