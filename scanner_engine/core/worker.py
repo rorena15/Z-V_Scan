@@ -41,15 +41,20 @@ class ScanWorker(QThread):
     finish_signal = Signal(str)
     progress_signal = Signal(int, int)
     started_signal = Signal(int)
-    # [수정] 문자열 5개를 보내겠다고 선언 (IP, Host, OS, MAC, Vendor)
-    asset_found_signal = Signal(str, str, str, str, str)
+    # [UI/UX 개선 - hostname 출처 배지] IP, Host, OS, MAC, Vendor, hostname 출처(역DNS/매핑/추정)
+    asset_found_signal = Signal(str, str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
         self.user_info = {}
         self.default_user = None
+        # [P0: 자산 매핑] 엑셀/CSV로 가져온 {ip: hostname}. 역DNS가 실패했을 때
+        # vendor placeholder로 떨어지기 전 마지막 폴백으로 쓴다(discover_target 참고).
+        self.imported_hostname_map = imported_hostname_map or {}
+        # [Oracle 서비스명] 비어있으면 DatabaseInspector가 자체 기본값(ORCL)으로 폴백한다.
+        self.oracle_service_name = oracle_service_name
         # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 때만 채워짐. 없으면(None)
         # DatabaseInspector가 지금까지처럼 OS 진단과 같은 계정을 그대로 재사용한다.
         self.default_db_user = db_user
@@ -86,6 +91,11 @@ class ScanWorker(QThread):
         
         self.writer_thread = threading.Thread(target=self.db_writer, daemon=True)
         self.writer_thread.start()
+
+        # [대시보드 - 최근 활동 개편] 이 세션이 어떤 대상 문자열을 어떤 모드로
+        # 스캔했는지 시작 시점에 한 번 기록한다 - 대상이 하나도 안 살아있어서
+        # 이후 아무 결과도 안 남더라도 "시도했다"는 사실 자체는 대시보드에 남아야 함.
+        self.db_queue.put(("SESSION_META", (self.session_id, self.target_input, self.mode)))
 
         try:
             target_ips = self.parse_targets()
@@ -196,16 +206,19 @@ class ScanWorker(QThread):
                     self._save_result_to_db(db, data)
                 elif msg_type == "HOSTNAME_UPDATE":
                     self._save_hostname_update_to_db(db, data)
+                elif msg_type == "SESSION_META":
+                    session_id, target_input, mode = data
+                    db.save_scan_session(session_id, target_input, mode)
             except Exception as e:
                 AppLogger.log_error("DB Writer Error", e)
             finally:
                 self.db_queue.task_done()
 
     def _save_asset_to_db(self, db, data):
-        # Data: (ip, hostname, os_type, ports_str, mac_addr, vendor)
+        # Data: (ip, hostname, os_type, ports_str, mac_addr, vendor, hostname_source)
         db.save_asset(
             data[0], hostname=data[1], os_type=data[2],
-            open_ports=data[3], mac_addr=data[4], vendor=data[5]
+            open_ports=data[3], mac_addr=data[4], vendor=data[5], hostname_source=data[6]
         )
 
     def _save_hostname_update_to_db(self, db, data):
@@ -213,10 +226,12 @@ class ScanWorker(QThread):
         # placeholder만 알 수 있고, Audit(SSH/WinRM 인증 접속) 단계에서 uname -a / systeminfo로
         # 실제 hostname을 확인할 수 있다. save_asset()을 다시 부르면 os_type/open_ports가
         # 기본값으로 덮어써지므로, hostname 컬럼만 안전하게 갱신하는 update_asset_field를 쓴다.
+        # 이 경로로 덮어써진 hostname은 인증 접속으로 실제 확인된 값이므로 출처를 "실측"으로 남긴다.
         ip, real_hostname = data
         asset_id = db.get_asset_id(ip)
         if asset_id:
             db.update_asset_field(asset_id, "hostname", real_hostname)
+            db.update_asset_field(asset_id, "hostname_source", "실측")
 
     @staticmethod
     def _extract_real_hostname(os_info):
@@ -333,13 +348,20 @@ class ScanWorker(QThread):
             icmp_alive, os_type, mac_addr, vendor = scanner.host_discovery(ip)
 
         # [역DNS] 인증 정보 없이도 hostname을 채울 수 있으면 vendor 기반 placeholder 대신 사용.
-        # 실패(PTR 레코드 없음 등)하면 기존처럼 "(Vendor) Device" placeholder로 폴백하고,
+        # 실패(PTR 레코드 없음 등)하면 [P0: 자산 매핑] 사용자가 가져온 자산목록에 이 IP의
+        # 이름이 있는지 확인하고, 그것도 없을 때만 "(Vendor) Device" placeholder로 폴백한다.
         # 이후 인증 딥 인스펙션이 성공하면 _extract_real_hostname()이 다시 덮어쓴다.
         resolved_hostname = None if is_sim else scanner.resolve_hostname(ip)
+        imported_hostname = self.imported_hostname_map.get(ip)
         if resolved_hostname:
             hostname = resolved_hostname
+            hostname_source = "역DNS"
+        elif imported_hostname:
+            hostname = imported_hostname
+            hostname_source = "매핑"
         else:
             hostname = f"({vendor}) Device" if vendor != "Unknown" else "Unknown Device"
+            hostname_source = "추정"
 
         # [Phase 1] TCP Port Scan (가짜 포트 주입)
         open_ports = []
@@ -363,8 +385,8 @@ class ScanWorker(QThread):
                 open_ports.extend(scanner.tcp_scan(ip, ports=target_ports[i:i+500], delay=scan_delay))
 
         ports_str = ", ".join(map(str, open_ports)) if open_ports else ""
-        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor)
-        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor)))
+        self.asset_found_signal.emit(ip, hostname, os_type, mac_addr, vendor, hostname_source)
+        self.db_queue.put(("ASSET", (ip, hostname, os_type, ports_str, mac_addr, vendor, hostname_source)))
 
         if not open_ports:
             if icmp_alive:
@@ -472,6 +494,8 @@ class ScanWorker(QThread):
             inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
         if 1433 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+        if 1521 in open_ports:
+            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode, service_name=self.oracle_service_name))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
         if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \

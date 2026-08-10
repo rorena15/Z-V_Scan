@@ -54,7 +54,7 @@ CATEGORY_PREFIXES = [
     ("WINDOWS", ("W-",)),
     ("PC", ("PC-",)),
     ("웹서비스", ("WEB-",)),
-    ("DBMS", ("MYSQL-", "POSTGRESQL-", "MSSQL-")),
+    ("DBMS", ("MYSQL-", "POSTGRESQL-", "MSSQL-", "ORACLE-")),
 ]
 
 
@@ -101,12 +101,18 @@ class ExcelGenerator:
         "점검불가": COLOR_NA,
     }
 
-    def __init__(self, evidence_level="full", remediation_level="full"):
+    def __init__(self, evidence_level="full", remediation_level="full",
+                 report_title=None, company_name=None, custom_filename=None):
         self.db = DBConnector()
         # [라이선스 등급별 리포트 차등] evidence_level: "full"|"vuln_only"
         # remediation_level: "full"|"partial"|"none" - 기존과 동일하게 유지
         self.evidence_level = evidence_level
         self.remediation_level = remediation_level
+        # [리포트 탭 - 커스터마이징] 표지 제목/브랜딩 문구/저장 파일명 - 비워두면
+        # 지금까지와 동일한 기본값(PDFGenerator와 동일한 정책).
+        self.report_title = (report_title or "").strip() or "주요정보통신기반시설 기술적 취약점 분석 평가 결과"
+        self.company_name = (company_name or "").strip()
+        self.custom_filename = re.sub(r'[\\/*?:"<>|\[\]]', '_', (custom_filename or "").strip())[:80]
         self.output_dir = get_report_output_dir()
         if not os.path.exists(self.output_dir):
             try:
@@ -216,12 +222,18 @@ class ExcelGenerator:
             self._create_cover_sheet(wb, asset_data, by_category)
             self._create_scope_sheet(wb, asset_data)
 
-            for cat_name, _ in CATEGORY_PREFIXES:
-                rows = by_category[cat_name]
-                if not rows:
-                    continue
+            # [2026-08-06 - "요약시트를 나란히" 피드백 반영] 예전엔 카테고리마다
+            # 요약→보안수준→호스트상세를 이어서 만들어서 시트 순서가 "UNIX 요약,
+            # UNIX 보안수준, UNIX 상세, WINDOWS 요약, ..."처럼 요약류와 상세가
+            # 뒤섞였다. 이제는 3단계로 나눠 요약 시트끼리, 보안수준 시트끼리,
+            # 상세 시트끼리 각각 모아서 배치한다(감사보고서 관례 - 요약을 앞으로).
+            active_categories = [(cat, by_category[cat]) for cat, _ in CATEGORY_PREFIXES if by_category[cat]]
+
+            for cat_name, rows in active_categories:
                 self._create_category_summary_sheet(wb, cat_name, rows)
+            for cat_name, rows in active_categories:
                 self._create_category_security_sheet(wb, cat_name, rows)
+            for cat_name, rows in active_categories:
                 self._create_host_sheets(wb, cat_name, rows)
 
             round_comparison = self.db.get_round_comparison()
@@ -232,7 +244,8 @@ class ExcelGenerator:
                 wb.remove(wb["Sheet"])
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"주요정보통신기반시설_취약점진단결과_{timestamp}.xlsx"
+            base_name = f"{self.custom_filename}_{timestamp}" if self.custom_filename else f"주요정보통신기반시설_취약점진단결과_{timestamp}"
+            filename = f"{base_name}.xlsx"
             filepath = os.path.join(self.output_dir, filename)
             wb.save(filepath)
             return filepath
@@ -334,9 +347,17 @@ class ExcelGenerator:
         ws.title = "1.종합요약"
 
         ws.merge_cells('B2:I3')
-        ws['B2'] = "주요정보통신기반시설 기술적 취약점 분석 평가 결과"
+        ws['B2'] = self.report_title
         self._style_range(ws, 'B2:I3', border=self.BORDER_ALL, font=self.FONT_TITLE,
                            alignment=Alignment(horizontal='center', vertical='center'))
+
+        # [리포트 탭 - 커스터마이징] 회사명/브랜딩 문구 - 지정 안 하면 표시 안 함.
+        # 결재란(K~N열, 2~5행)과 겹치지 않는 4행에 넣는다(제목박스는 2~3행만 씀).
+        if self.company_name:
+            ws.merge_cells('B4:I4')
+            ws['B4'] = self.company_name
+            self._style_range(ws, 'B4:I4', font=self.FONT_SECTION,
+                               alignment=Alignment(horizontal='center', vertical='center'))
 
         start_col = 11
         col_letter = get_column_letter(start_col)
@@ -418,6 +439,30 @@ class ExcelGenerator:
         for i in range(len(headers)):
             ws.column_dimensions[get_column_letter(2 + i)].width = 16
         ws.row_dimensions[header_row].height = 20
+
+        # [커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산을 감사 완결성
+        # 근거자료로 명시한다 - "몇 %를 봤는가"가 아니라 "빠진 게 있는가"를 정직하게
+        # 남기는 게 목적이라, 0건이어도 "완전 일치" 문구를 남겨 침묵하지 않는다.
+        row += 2
+        ws[f'B{row}'] = "■ 커버리지 (감사 완결성)"
+        ws[f'B{row}'].font = self.FONT_SECTION
+        row += 1
+        try:
+            unresolved = self.db.get_unresolved_assets()
+        except Exception:
+            unresolved = []
+        if not unresolved:
+            ws[f'B{row}'] = "등록된 전체 자산에 대해 KISA 판정이 모두 존재합니다 (미해결 자산 없음)."
+            row += 1
+        else:
+            ws[f'B{row}'] = f"미해결 자산 {len(unresolved)}건 - 발견됐으나 KISA 판정 코드가 하나도 없습니다."
+            row += 1
+            for ip, hostname in unresolved:
+                ws[f'C{row}'] = ip
+                ws[f'D{row}'] = hostname or "-"
+                self._style_range(ws, f'C{row}:D{row}', border=self.BORDER_ALL,
+                                   alignment=Alignment(horizontal='left', indent=1))
+                row += 1
 
     # ------------------------------------------------------------------
     # 시트: 2.점검대상
@@ -573,6 +618,11 @@ class ExcelGenerator:
     # 시트: {카테고리}.{호스트} (호스트 1대당 상세 시트)
     # ------------------------------------------------------------------
     def _create_host_sheets(self, wb, cat_name, rows):
+        """[2026-08-06 - 시트 통합] 예전엔 호스트 1대당 시트 1개(카테고리 x 호스트
+        조합만큼 시트가 늘어나서 호스트가 많으면 시트가 수십~수백 개가 됐다) - 이제는
+        카테고리당 시트 1개에 호스트별 블록을 이어붙인다("합칠 수 있는 시트는 합쳐서"
+        피드백 반영). 카테고리 구분(1개 카테고리=1시트)은 그대로 유지 - 완전히 하나로
+        합치면 서로 다른 성격의 점검(UNIX vs DBMS)이 뒤섞여 오히려 찾아보기 어려워진다."""
         by_asset = {}
         order = []
         for r in rows:
@@ -582,16 +632,11 @@ class ExcelGenerator:
                 order.append(aid)
             by_asset[aid].append(r)
 
-        for aid in order:
-            host_rows = by_asset[aid]
-            head = host_rows[0]
-            host_label = head["hostname"] or head["ip_addr"]
-            sheet_name = self._unique_sheet_name(f"{cat_name}.{host_label}")
-            ws = wb.create_sheet(sheet_name)
-            self._fill_host_sheet(ws, head, host_rows)
+        if not order:
+            return
 
-    def _fill_host_sheet(self, ws, head, host_rows):
-        r = 1
+        sheet_name = self._unique_sheet_name(f"{cat_name}.상세")
+        ws = wb.create_sheet(sheet_name)
         ws.column_dimensions['A'].width = 14
         ws.column_dimensions['B'].width = 12
         ws.column_dimensions['C'].width = 40
@@ -602,6 +647,23 @@ class ExcelGenerator:
         ws.column_dimensions['H'].width = 45
         ws.column_dimensions['I'].width = 45
 
+        row = 1
+        for idx, aid in enumerate(order):
+            host_rows = by_asset[aid]
+            head = host_rows[0]
+            if idx > 0:
+                # 호스트 블록 사이 구분 - 다음 호스트명을 진하게 미리 보여주는 굵은 구분줄
+                row += 1
+                host_label = head["hostname"] or head["ip_addr"]
+                sep_cell = ws.cell(row=row, column=1)
+                sep_cell.value = f"▶ {host_label}"
+                sep_cell.font = self.FONT_TITLE
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
+                row += 2
+            row = self._fill_host_block(ws, row, head, host_rows)
+
+    def _fill_host_block(self, ws, r, head, host_rows):
+        """호스트 1대분 상세 블록을 ws의 r행부터 그려 넣고, 다음 블록이 시작할 행 번호를 반환한다."""
         ws[f'A{r}'] = "▣ 자산 정보"
         ws[f'A{r}'].font = self.FONT_SECTION
         r += 2
@@ -742,6 +804,8 @@ class ExcelGenerator:
                     if fill:
                         cell.fill = PatternFill(start_color=fill, end_color=fill, fill_type='solid')
             r += 1
+
+        return r
 
     # ------------------------------------------------------------------
     # 시트: 4.회차비교 (기존 로직 그대로 유지 - 카테고리 재구성과 무관)

@@ -1,0 +1,6 @@
+{
+  "_설명": "룰셋 증분 업데이트 검증용 설정. public_key_b64는 비밀이 아니다(서명 검증 전용, 위조 불가) - GS 인증 대비 하드코딩 배제 원칙에 따라 소스가 아닌 이 파일에 둔다. 개인키는 이 저장소 어디에도 없다(개발자 하드웨어 보안키 전용, ci/sign_rules_update.py로 로컬 서명).",
+  "public_key_b64": "Ldjds2Jd6aQSVcEoz5dTmcwBUehZOIIAOOob4vVKNRE=",
+  "asset_zip_name": "rules_update.zip",
+  "asset_sig_name": "rules_update.zip.sig"
+}

@@ -12,6 +12,15 @@ NA_SIGNALS = [
     "command not found", "not found", "No such file or directory",
     "찾을 수 없습니다", "존재하지 않음", "not recognized as",
     "레지스트리 키 또는 값이 존재하지 않음", "Cannot find",
+    # [영문 로케일] "reg query"가 키/값을 못 찾을 때의 실제 영문 메시지는
+    # "ERROR: The system was unable to find the specified registry key or
+    # value."이다 - "not found"/"Cannot find"와 문구가 달라 기존 목록(한국어 로케일
+    # 문구만 있음)에 안 걸렸었다. reg query 기반 룰 다수(W-05/07/12/26/48/50,
+    # PC-18 등)는 값이 없는 게 곧 안전한 기본값이라 최종 판정(SAFE) 자체는 이 신호가
+    # 없어도 우연히 맞았지만, "점검했는데 문제없음"과 "애초에 해당 레지스트리 키가
+    # 없어서 확인 자체가 안 됨"을 구분 못 하고 전자로 표시되는 라벨 부정확성이 있었다.
+    # 이 신호를 추가하면 그런 경우 정직하게 NA(해당없음)로 분류된다.
+    "unable to find the specified registry key or value",
 ]
 
 # [권한 부족 감지] 계정에 su/sudo 권한이 없어 root 전용 파일(/etc/shadow 등) 접근이

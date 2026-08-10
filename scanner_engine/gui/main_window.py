@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QToolButton,
 )
 # [PySide6 핵심 기능]
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, QSize
 # [PySide6 그래픽 및 액션]
 from PySide6.QtGui import QIcon, QColor, QBrush, QAction, QTextCursor, QKeySequence, QDesktopServices
 
@@ -60,8 +60,8 @@ from utils.logger import AppLogger
 from utils.update_checker import check_for_updates
 from gui.styles import STYLESHEET, LIGHT_STYLESHEET
 from gui.help_texts import HELP_TEXTS
-from gui.dialogs import LicenseDialog
-from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, COLORS, set_theme as set_dashboard_theme
+from gui.dialogs import LicenseDialog, PortSelectorDialog
+from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, RecentActivityCard, COLORS, set_theme as set_dashboard_theme, make_line_icon, HostnameSourceBadge, InfoCard, LabelWithHelp
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -116,6 +116,11 @@ class LicenseManager:
         #"""전문가 모드는 Enterprise 등급 전용"""
         return self.effective_tier() == self.TIER_ENTERPRISE
 
+    def can_use_waiver(self):
+        #"""[2026-08-06] 예외처리(Waiver)도 전문가 모드와 같은 Enterprise 등급 전용으로
+        #통일 - 둘 다 "전문가용" 기능으로 묶어 설정 화면 한 곳에서만 접근하게 한다."""
+        return self.effective_tier() == self.TIER_ENTERPRISE
+
     def evidence_level(self):
         """리포트에 상세 증적(raw_output)을 얼마나 보여줄지.
         'vuln_only': 취약/부분만족 항목만 / 'full': 전체 항목"""
@@ -143,6 +148,10 @@ class ScannerApp(QMainWindow):
         # 스캔 결과 임시 저장소 (UI 렉 방지용 버퍼)
         self.scan_result_buffer = []
 
+        # [P0: 자산 매핑] import_asset_list()로 가져온 {ip: hostname} 맵. hostname 폴백과
+        # 스캔 종료 후 선언/실제 자산 diff에 쓰인다. 가져오기 전엔 빈 dict.
+        self.imported_asset_map = {}
+
         # [Phase 2] 이번 스캔 결과를 Excel/PDF/TXT 중 하나로 한 번이라도 출력했는지 여부.
         # False인 상태에서 DB를 초기화하려 하면 경고를 띄운다 (출력 전 데이터 유실 방지).
         self.report_exported = True
@@ -165,6 +174,7 @@ class ScannerApp(QMainWindow):
         self.update_ui_by_license()
         self.load_saved_data()
         self._check_for_updates()
+        self._check_ruleset_update()
 
     # -- UI 세팅 --
     def initUI(self):
@@ -187,6 +197,8 @@ class ScannerApp(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
+        root_layout.addWidget(self._build_topbar())
+
         body = QWidget()
         outer_layout = QHBoxLayout(body)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -198,6 +210,7 @@ class ScannerApp(QMainWindow):
         self.content_stack.addWidget(self._build_dashboard_page())  # index 0: Dashboard
         self.content_stack.addWidget(self._build_scan_page())       # index 1: Scan
         self.content_stack.addWidget(self._build_assets_page())     # index 2: Assets
+        self.content_stack.addWidget(self._build_reports_page())    # index 3: Reports
         outer_layout.addWidget(self.content_stack, 1)
 
         root_layout.addWidget(body, 1)
@@ -245,88 +258,151 @@ class ScannerApp(QMainWindow):
     # [Phase 3: UI 재구성] 좌측 아이콘 사이드바
     # ------------------------------------------------------------------
     def _build_sidebar(self):
+        # [UI/UX 개선 - "신뢰할 수 있는 작업대"] 아이콘만 있던 80px 좁은 사이드바를
+        # 라벨이 살아있는 208px 리스트형으로 교체 - 국산 보안 콘솔/Qualys 계열이
+        # 공유하는 사이드바 문법(아이콘+텍스트, 전체 폭 행, 좌측 액센트 스트라이프로
+        # 활성 탭 표시)에 맞춘다. 목업(zvulnscan_design_directions) "방향 C" 기준.
         sidebar = QWidget()
-        sidebar.setFixedWidth(80)
-        sidebar.setStyleSheet(f"background-color: {COLORS['surface_1']}; border-right: 1px solid {COLORS['border']};")
+        sidebar.setFixedWidth(208)
+        sidebar.setStyleSheet(f"background-color: {COLORS['surface_2']}; border-right: 1px solid {COLORS['border']};")
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(0, 12, 0, 12)
-        layout.setSpacing(3)
+        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setSpacing(2)
 
-        brand = QLabel("Z-VS")
-        brand.setAlignment(Qt.AlignCenter)
-        brand.setStyleSheet(f"font-size: 12pt; font-weight: bold; color: {COLORS['accent']}; margin-bottom: 8px;")
+        brand = QLabel("Z-VulnScan")
+        brand.setStyleSheet(f"font-size: 13pt; font-weight: 800; color: {COLORS['text']}; margin: 2px 6px 14px;")
         layout.addWidget(brand)
 
-        def make_nav_button(label_text, tooltip, checkable=True):
+        def make_nav_group_label(text):
+            lbl = QLabel(text.upper())
+            lbl.setStyleSheet(
+                f"font-size: 8pt; font-weight: 700; letter-spacing: 1px; "
+                f"color: {COLORS['text_muted']}; margin: 10px 6px 4px;"
+            )
+            layout.addWidget(lbl)
+
+        def make_nav_button(label_text, tooltip, icon_kind, checkable=True):
             btn = QToolButton()
-            btn.setText(label_text)
+            btn.setText(f" {label_text}")
             btn.setToolTip(tooltip)
             btn.setCheckable(checkable)
-            btn.setFixedSize(66, 42)
+            btn.setFixedHeight(38)
+            btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            btn.setIconSize(QSize(17, 17))
+            btn.setIcon(make_line_icon(icon_kind, COLORS['text_secondary']))
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(f"""
-                QToolButton {{ font-size: 9pt; font-weight: bold; border-radius: 8px; color: {COLORS['text_secondary']}; background: transparent; }}
+                QToolButton {{
+                    font-size: 10pt; font-weight: 600; text-align: left;
+                    border-radius: 8px; border-left: 3px solid transparent;
+                    color: {COLORS['text_secondary']}; background: transparent;
+                    padding-left: 8px;
+                }}
                 QToolButton:hover {{ background: {COLORS['accent_bg']}; color: {COLORS['text']}; }}
-                QToolButton:checked {{ background: {COLORS['accent_bg']}; color: {COLORS['accent']}; border: 1px solid {COLORS['accent']}; }}
+                QToolButton:checked {{
+                    background: {COLORS['accent_bg']}; color: {COLORS['accent']};
+                    border-left: 3px solid {COLORS['accent']};
+                }}
             """)
-            layout.addWidget(btn, 0, Qt.AlignCenter)
+            layout.addWidget(btn)
+            # [활성 탭] 체크될 때 아이콘도 액센트 색으로 다시 그린다 - QSS는 QIcon
+            # 픽셀 자체의 색은 못 바꾸므로 코드에서 직접 교체한다.
+            if checkable:
+                def _restyle_icon(checked):
+                    btn.setIcon(make_line_icon(icon_kind, COLORS['accent'] if checked else COLORS['text_secondary']))
+                btn.toggled.connect(_restyle_icon)
             return btn
 
-        self.nav_dashboard = make_nav_button("대시보드", "Dashboard")
+        make_nav_group_label("진단")
+
+        self.nav_dashboard = make_nav_button("대시보드", "Dashboard", "grid")
         self.nav_dashboard.setChecked(True)
         self.nav_dashboard.clicked.connect(lambda: self._on_nav_clicked("dashboard"))
 
-        self.nav_scan = make_nav_button("스캔", HELP_TEXTS["discovery"]["title"] + " / " + HELP_TEXTS["audit"]["title"])
+        self.nav_scan = make_nav_button("스캔", HELP_TEXTS["discovery"]["title"] + " / " + HELP_TEXTS["audit"]["title"], "search")
         self.nav_scan.clicked.connect(lambda: self._on_nav_clicked("scan"))
 
-        self.nav_assets = make_nav_button("자산", "Assets")
+        self.nav_assets = make_nav_button("자산", "Assets", "folder")
         self.nav_assets.clicked.connect(lambda: self._on_nav_clicked("assets"))
 
-        self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], checkable=False)
-        self.nav_reports.clicked.connect(self._show_reports_menu)
+        self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], "doc")
+        self.nav_reports.clicked.connect(lambda: self._on_nav_clicked("reports"))
 
-        self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", checkable=False)
+        self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", "compare", checkable=False)
         self.nav_crosscheck.clicked.connect(self.open_cross_check)
 
         # [기능 비활성화] PC 진단 도구: 컨설턴트 스크립트 로직/방식을 아무리 따라가도 컨설턴트가
         # 제공하는 엑셀 결과물과 호환성을 맞출 수 없다는 사용자 판단으로 비활성화(코드는 보존,
         # 삭제하지 않음 - pc_toolkit.py/pc_toolkit_dialog.py/import_pc_results()는 그대로 둠).
         # 기존 WinRM 기반 PC 점검 경로(worker.py)는 이 결정과 무관하게 그대로 유지된다.
-        self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", checkable=False)
+        self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", "folder", checkable=False)
         self.nav_pc_toolkit.clicked.connect(self.open_pc_toolkit)
         self.nav_pc_toolkit.setVisible(False)
 
         layout.addStretch()
 
-        self.nav_help = make_nav_button("도움말", HELP_TEXTS["settings"]["tooltip"], checkable=False)
+        make_nav_group_label("지원")
+
+        self.nav_help = make_nav_button("도움말", HELP_TEXTS["settings"]["tooltip"], "help", checkable=False)
         self.nav_help.clicked.connect(self.open_help)
 
-        self.nav_settings = make_nav_button("설정", HELP_TEXTS["settings"]["tooltip"], checkable=False)
+        self.nav_settings = make_nav_button("설정", HELP_TEXTS["settings"]["tooltip"], "settings", checkable=False)
         self.nav_settings.clicked.connect(self.open_settings)
 
-        self._nav_buttons = {"dashboard": self.nav_dashboard, "scan": self.nav_scan, "assets": self.nav_assets}
+        self._nav_buttons = {"dashboard": self.nav_dashboard, "scan": self.nav_scan,
+                              "assets": self.nav_assets, "reports": self.nav_reports}
         return sidebar
 
     def _on_nav_clicked(self, key):
         for name, btn in self._nav_buttons.items():
             btn.setChecked(name == key)
 
-        index_map = {"dashboard": 0, "scan": 1, "assets": 2}
+        index_map = {"dashboard": 0, "scan": 1, "assets": 2, "reports": 3}
         self.content_stack.setCurrentIndex(index_map[key])
 
-        if key == "dashboard":
-            self.refresh_dashboard_metrics()
-            self.refresh_findings_table()
-        elif key == "scan":
-            self.scan_config.setFocus()
-        elif key == "assets":
-            self.refresh_dashboard()
+        crumb_labels = {"dashboard": "대시보드", "scan": "스캔", "assets": "자산", "reports": "리포트"}
+        if hasattr(self, 'lbl_breadcrumb'):
+            self.lbl_breadcrumb.setText(crumb_labels.get(key, ""))
 
-    def _show_reports_menu(self):
-        menu = QMenu(self)
-        menu.addAction("PDF", self.generate_pdf)
-        menu.addAction("Excel", self.generate_excel)
-        menu.addAction("TXT", self.generate_text_report)
-        menu.exec(self.nav_reports.mapToGlobal(self.nav_reports.rect().bottomLeft()))
+    # ------------------------------------------------------------------
+    # [UI/UX 개선 - "신뢰할 수 있는 작업대"] 상단바 - 목업의 breadcrumb 영역만 반영.
+    # 브랜드는 이미 사이드바에 있어 중복 노출하지 않는다.
+    # ------------------------------------------------------------------
+    def _build_topbar(self):
+        bar = QWidget()
+        bar.setFixedHeight(46)
+        bar.setStyleSheet(f"background-color: {COLORS['surface_2']}; border-bottom: 1px solid {COLORS['border']};")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(24, 0, 24, 0)
+
+        self.lbl_breadcrumb = QLabel("대시보드")
+        self.lbl_breadcrumb.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 10pt; font-weight: 600;")
+        layout.addWidget(self.lbl_breadcrumb)
+        layout.addStretch()
+
+        # [디자인 목업 일치] 목업의 op-chip(우측 알약형 칩) - 담당자 이름(스캔 페이지
+        # Operator 입력)과 라이선스 등급을 보여준다. 상단바 생성 시점(initUI() 초반)엔
+        # license_mgr도 operator_input도 아직 없으므로 일단 제품명으로 채워두고,
+        # 실제 값은 refresh_topbar_chip()이 둘 다 준비된 뒤 채운다.
+        self.topbar_chip = QLabel("Z-VulnScan Professional Edition")
+        self.topbar_chip.setStyleSheet(f"""
+            color: {COLORS['text_secondary']}; font-size: 9pt; font-weight: 600;
+            background: {COLORS['muted_bg']}; border-radius: 10px; padding: 4px 12px;
+        """)
+        layout.addWidget(self.topbar_chip)
+
+        return bar
+
+    def refresh_topbar_chip(self):
+        """[UI/UX 개선] 상단바 칩을 '{담당자} · {라이선스 등급}'으로 채운다. 담당자를
+        아직 안 적었으면 등급만, license_mgr가 아직 없으면(초기화 극초반) 건드리지
+        않고 제품명 기본값을 그대로 둔다."""
+        if not hasattr(self, 'topbar_chip') or not hasattr(self, 'license_mgr'):
+            return
+        tier_label = self.license_mgr.effective_tier().capitalize()
+        operator = self.operator_input.text().strip() if hasattr(self, 'operator_input') else ""
+        self.topbar_chip.setText(f"{operator} · {tier_label}" if operator else tier_label)
 
     def _wrap_scrollable_page(self, widgets, trailing_stretch=False):
         """대시보드/스캔 페이지 공통 - 세로 스크롤만 허용하는 카드 컨테이너.
@@ -343,8 +419,8 @@ class ScannerApp(QMainWindow):
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(16)
+        layout.setContentsMargins(18, 14, 18, 16)
+        layout.setSpacing(12)
         scroll.setWidget(content)
 
         for w in widgets:
@@ -363,8 +439,58 @@ class ScannerApp(QMainWindow):
     # [Phase 3: UI 재구성] 대시보드 페이지 (요약 지표 + 결과 테이블 - 모니터링/조회 전용)
     # ------------------------------------------------------------------
     def _build_dashboard_page(self):
+        # [UI/UX 개선 - 탭 역할 분리] 대시보드는 한눈에 보는 현황(지표 카드)만
+        # 담당한다. 조치가 필요한 진단 결과표(Waiver/Expert/수동입력 버튼 포함)는
+        # "무엇을 조치할지 결정하는" 화면이라 자산 탭이 더 자연스러운 위치라
+        # _build_assets_page()로 옮겼다 - 여기선 더 이상 만들지 않는다.
         header = self._build_page_header("Dashboard")
-        return self._wrap_scrollable_page([header, self._build_metrics_row(), (self._build_results_card(), 1)])
+        self.recent_activity_card = RecentActivityCard()
+        self.recent_activity_card.session_clicked.connect(self.drill_down_session)
+        self.recent_activity_card.period_changed.connect(lambda _days: self.refresh_recent_activity())
+        # [버그 수정] trailing_stretch 없이는 스크롤 영역의 남는 세로 공간이 마지막
+        # 위젯에 몰려서 내용이 비정상적으로 커지는 문제가 있었다 - 남는 공간을
+        # 흡수할 stretch를 맨 끝에 명시적으로 둔다.
+        return self._wrap_scrollable_page(
+            [header, self._build_metrics_row(), self._build_unresolved_warning(), self.recent_activity_card],
+            trailing_stretch=True,
+        )
+
+    def _build_unresolved_warning(self):
+        """[커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산이 있으면 보여주고
+        경고한다(감사 완결성 - "이 자산은 아무도 안 봤다"가 리포트 출력 시점까지
+        조용히 묻히는 걸 막기 위함). 미해결 자산이 0건이면 숨긴다."""
+        self.lbl_unresolved_warning = QLabel("")
+        self.lbl_unresolved_warning.setWordWrap(True)
+        # [버그 수정] QLabel 기본 수직 정책(Preferred)이 남는 레이아웃 공간을 그대로
+        # 흡수해버려 한 줄짜리 텍스트가 화면 절반 높이로 늘어나는 문제가 있었다 -
+        # 내용 높이(sizeHint)까지만 차지하도록 명시적으로 고정한다.
+        self.lbl_unresolved_warning.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.lbl_unresolved_warning.setStyleSheet(
+            f"background: {COLORS['danger_bg']}; color: {COLORS['danger_text']}; "
+            f"border: 1px solid {COLORS['danger_text']}; border-radius: 8px; padding: 10px 14px;"
+        )
+        self.lbl_unresolved_warning.setVisible(False)
+        return self.lbl_unresolved_warning
+
+    def refresh_unresolved_warning(self):
+        if not hasattr(self, 'lbl_unresolved_warning'):
+            return
+        try:
+            unresolved = self.db.get_unresolved_assets()
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Unresolved Warning Failed", e)
+            return
+
+        if not unresolved:
+            self.lbl_unresolved_warning.setVisible(False)
+            return
+
+        shown = ", ".join((h or ip) for ip, h in unresolved[:10])
+        more = f" 외 {len(unresolved) - 10}건" if len(unresolved) > 10 else ""
+        self.lbl_unresolved_warning.setText(
+            f"⚠ 미해결 자산 {len(unresolved)}건 — 발견됐지만 KISA 판정이 아직 하나도 없습니다: {shown}{more}"
+        )
+        self.lbl_unresolved_warning.setVisible(True)
 
     # ------------------------------------------------------------------
     # [Phase 3: UI 재구성] 스캔 페이지 (Scan configuration - 입력/실행 전용)
@@ -396,6 +522,7 @@ class ScannerApp(QMainWindow):
             self.operator_input.setPlaceholderText("담당자")
             self.operator_input.setToolTip("이 스캔을 수행하는 담당자 이름입니다. 진단 결과에 함께 기록되어 감사 추적에 사용됩니다.")
             self.operator_input.setFixedWidth(160)
+            self.operator_input.textChanged.connect(self.refresh_topbar_chip)
             header_layout.addWidget(self.operator_input)
 
         return header
@@ -407,14 +534,15 @@ class ScannerApp(QMainWindow):
 
         # 위젯 alias - main_window.py 나머지 코드는 예전 이름으로 그대로 접근
         self.ip_input = self.scan_config.target_input
-        self.btn_import_assets = self.scan_config.import_btn
         self.port_mode_combo = self.scan_config.scan_mode_combo
         self.port_input = self.scan_config.port_input
+        self.port_select_btn = self.scan_config.port_select_btn
         self.user_input = self.scan_config.user_input
         self.pw_input = self.scan_config.pw_input
         self.db_cred_diff_check = self.scan_config.db_cred_diff_check
         self.db_user_input = self.scan_config.db_user_input
         self.db_pw_input = self.scan_config.db_pw_input
+        self.oracle_service_input = self.scan_config.oracle_service_input
         self.slider_max_workers = self.scan_config.concurrency_slider
         self.spin_max_workers = self.scan_config.concurrency_slider  # 기존 코드 호환용 alias
         self.chk_ot_mode = self.scan_config.ot_mode_check
@@ -428,14 +556,13 @@ class ScannerApp(QMainWindow):
             self.user_input.setText(default_user)
 
         self.ip_input.setToolTip(HELP_TEXTS["discovery"]["tooltip"])
-        self.btn_import_assets.setToolTip(HELP_TEXTS["import_assets"]["tooltip"])
         self.chk_ot_mode.setToolTip(HELP_TEXTS["ot_demo_mode"]["ot_tooltip"])
         self.chk_demo_mode.setToolTip(HELP_TEXTS["ot_demo_mode"]["demo_tooltip"])
         self.btn_scan.setToolTip(HELP_TEXTS["discovery"]["tooltip"])
         self.btn_audit.setToolTip(HELP_TEXTS["audit"]["tooltip"])
 
-        self.btn_import_assets.clicked.connect(self.import_asset_list)
         self.port_mode_combo.currentIndexChanged.connect(self.toggle_port_input)
+        self.port_select_btn.clicked.connect(self.open_port_selector)
         self.chk_ot_mode.toggled.connect(self._on_ot_mode_toggled)
         self.btn_scan.clicked.connect(self.start_network_scan)
         self.btn_audit.clicked.connect(self.start_audit)
@@ -452,14 +579,22 @@ class ScannerApp(QMainWindow):
     def _build_results_card(self):
         self.assets_table_card = AssetsTableCard()
 
-        btn_waiver = QPushButton("Waiver")
-        btn_waiver.setToolTip(HELP_TEXTS["waiver"]["tooltip"])
-        btn_waiver.clicked.connect(self.open_waiver_manager)
-        self.assets_table_card.actions_layout.addWidget(btn_waiver)
-        btn_expert = QPushButton("Expert")
-        btn_expert.setToolTip(HELP_TEXTS["expert_mode"]["tooltip"])
-        btn_expert.clicked.connect(self.open_expert_mode)
-        self.assets_table_card.actions_layout.addWidget(btn_expert)
+        # [UI/UX 개선 - 2026-08-06] Waiver/Expert는 "전문가용" 기능이라 Settings >
+        # 룰셋/전문가 탭에도 같은 기능이 있지만(중복은 의도적으로 유지), 실제 조치
+        # 워크플로우와 붙어있는 자산 탭이 더 접근성이 좋아 여기 버튼도 유지한다.
+        # 예전엔 라이선스가 부족해도 버튼이 항상 보이고 클릭하면 차단 메시지만
+        # 떴는데, 이제는 Enterprise가 아니면 버튼 자체를 숨긴다(update_ui_by_license()
+        # 가 갱신 - initUI() 시점엔 license_mgr가 아직 없어 일단 숨김으로 시작).
+        self.btn_waiver = QPushButton("Waiver")
+        self.btn_waiver.setToolTip(HELP_TEXTS["waiver"]["tooltip"])
+        self.btn_waiver.clicked.connect(self.open_waiver_manager)
+        self.btn_waiver.setVisible(False)
+        self.assets_table_card.actions_layout.addWidget(self.btn_waiver)
+        self.btn_expert = QPushButton("Expert")
+        self.btn_expert.setToolTip(HELP_TEXTS["expert_mode"]["tooltip"])
+        self.btn_expert.clicked.connect(self.open_expert_mode)
+        self.btn_expert.setVisible(False)
+        self.assets_table_card.actions_layout.addWidget(self.btn_expert)
         btn_manual_audit = QPushButton("수동 진단 입력")
         btn_manual_audit.setToolTip("원격 접속이 불가능한 자산을 육안으로 점검한 결과를 항목별로 직접 입력합니다.")
         btn_manual_audit.clicked.connect(self.open_manual_audit)
@@ -503,22 +638,39 @@ class ScannerApp(QMainWindow):
         self.btn_open_asset_assessment.setToolTip("Excel 리포트에 들어갈 자산 용도/부서/담당자/C·I·A 등급을 입력합니다.")
         self.btn_open_asset_assessment.clicked.connect(self.open_asset_assessment)
 
+        # [자산 export - 2026-08-06 신규] 자산 목록 전체를 CSV/Excel로 내보낸다 -
+        # 고객사 자산대장 갱신/백업용. import(정보자산목록 불러오기)의 반대 방향.
+        self.btn_export_assets = QPushButton("내보내기")
+        self.btn_export_assets.setToolTip("현재 등록된 자산 목록 전체(IP/hostname/구역태그/부서/담당자/설명 등)를 CSV 또는 Excel 파일로 저장합니다.")
+        self.btn_export_assets.clicked.connect(self.export_asset_list)
+
+        # [UI/UX 개선 - 2026-08-06] import 버튼을 스캔 탭에서 여기로 옮겼다 - 이제
+        # import가 스캔 대상만 채우는 게 아니라 구역태그/부서/담당자/설명까지 DB에
+        # 바로 반영하는 자산 등록 작업이라(import_asset_list() 참고) 자산 탭 쪽이
+        # 더 맞는 자리라는 피드백 반영. export와 나란히 둬서 대칭도 맞춘다.
+        self.btn_import_assets = QPushButton("가져오기")
+        self.btn_import_assets.setToolTip(HELP_TEXTS["import_assets"]["tooltip"])
+        self.btn_import_assets.clicked.connect(self.import_asset_list)
+
         list_header.addWidget(lbl_list)
         list_header.addStretch()
         list_header.addWidget(self.btn_open_db_manager)
         list_header.addWidget(self.btn_open_asset_assessment)
+        list_header.addWidget(self.btn_import_assets)
+        list_header.addWidget(self.btn_export_assets)
         list_header.addWidget(self.btn_clear_assets)
         left_layout.addLayout(list_header)
 
         self.asset_table = QTableWidget()
-        self.asset_table.setColumnCount(6)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "OS / Type","MAC Addr", "Memo", "Vender"])
+        self.asset_table.setColumnCount(7)
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "출처", "OS / Type","MAC Addr", "Description", "Vender"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.asset_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.asset_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.asset_table.setAlternatingRowColors(False)
         self.asset_table.setStyleSheet(f"""
             QTableWidget {{ background-color: {COLORS['surface_2']}; gridline-color: {COLORS['border']}; border: 1px solid {COLORS['border']}; border-radius: 4px; }}
@@ -532,7 +684,138 @@ class ScannerApp(QMainWindow):
         self.asset_table.customContextMenuRequested.connect(self.show_context_menu)
 
         left_layout.addWidget(self.asset_table)
+
+        # [UI/UX 개선 - 탭 역할 분리] 진단 결과 열람 + 조치(Waiver/Expert/수동입력)는
+        # 원래 대시보드에 있었으나, "이 자산에 대해 뭔가 조치한다"는 동선이 자산
+        # 목록 바로 아래 있는 게 더 자연스러워 이 페이지로 옮겼다.
+        results_header_row = QHBoxLayout()
+        results_header = QLabel("진단 결과")
+        results_header.setStyleSheet(f"font-weight: bold; color: {COLORS['text']}; font-size: 12pt; margin-top: 18px;")
+        results_header_row.addWidget(results_header)
+        results_header_row.addStretch()
+
+        # [UI/UX 개선 - 최근 활동 드릴다운] 대시보드에서 특정 세션 행을 클릭하면
+        # 여기가 그 세션 결과만으로 필터링되고, 이 배너로 알려준다. 기본은 숨김.
+        self.lbl_session_filter = QLabel("")
+        self.lbl_session_filter.setStyleSheet(
+            f"color: {COLORS['accent']}; background: {COLORS['accent_bg']}; "
+            f"border-radius: 8px; padding: 3px 10px; font-size: 10.5pt; margin-top: 18px;"
+        )
+        self.lbl_session_filter.setVisible(False)
+        results_header_row.addWidget(self.lbl_session_filter)
+
+        self.btn_clear_session_filter = QPushButton("전체 보기")
+        self.btn_clear_session_filter.setFixedHeight(24)
+        self.btn_clear_session_filter.setVisible(False)
+        self.btn_clear_session_filter.clicked.connect(self._clear_session_filter)
+        results_header_row.addWidget(self.btn_clear_session_filter)
+
+        left_layout.addLayout(results_header_row)
+        left_layout.addWidget(self._build_results_card())
+
         return page
+
+    # ------------------------------------------------------------------
+    # [UI/UX 개선 - 2026-08-06 신설] 리포트 탭 - 예전엔 사이드바 "리포트" 버튼이
+    # 드롭다운 메뉴(PDF/Excel/TXT)만 여는 checkable=False 버튼이라 별도 화면이
+    # 없었다. 커스터마이징(표지 제목/회사명/파일명) 입력이 생기면서 그 값을 둘 곳이
+    # 필요해져 다른 탭들처럼 독립된 화면으로 분리했다("각 탭별로 완벽하게 분업"
+    # 피드백 반영 - 대시보드=현황판, 스캔=설정, 자산=조치, 리포트=산출물 커스터마이징).
+    # ------------------------------------------------------------------
+    def _build_reports_page(self):
+        header = self._build_page_header("Reports")
+
+        card = InfoCard()
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(22, 18, 22, 18)
+        outer.setSpacing(4)
+
+        title = QLabel(f"<span style='color:{COLORS['accent']};'>&#9679;</span> 리포트 커스터마이징")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text']}; border:none;")
+        outer.addWidget(title)
+        subtitle = QLabel("PDF/Excel 리포트에만 반영됩니다. TXT는 고객사 매크로 호환 형식이라 파일명/제목이 고정돼 있어 적용되지 않습니다.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+        outer.addWidget(subtitle)
+        outer.addSpacing(14)
+
+        from utils.app_settings import load_settings as _load_app_settings
+        saved = _load_app_settings()
+
+        outer.addWidget(LabelWithHelp("회사명 / 브랜딩 문구", "표지에 제목 아래 작은 글씨로 들어갑니다. 비워두면 아예 표시하지 않습니다."))
+        self.report_company_input = QLineEdit()
+        self.report_company_input.setPlaceholderText("예: (주)OO공사 정보보안팀 (선택)")
+        self.report_company_input.setText(saved.get("report_company_name", ""))
+        outer.addWidget(self.report_company_input)
+        outer.addSpacing(10)
+
+        outer.addWidget(LabelWithHelp("문서 제목", "표지 맨 위 큰 제목입니다. 비워두면 기본 제목(주요정보통신기반시설 기술적 취약점 분석 평가 결과)을 씁니다."))
+        self.report_title_input = QLineEdit()
+        self.report_title_input.setPlaceholderText("주요정보통신기반시설 기술적 취약점 분석 평가 결과 (기본값)")
+        self.report_title_input.setText(saved.get("report_title", ""))
+        outer.addWidget(self.report_title_input)
+        outer.addSpacing(10)
+
+        outer.addWidget(LabelWithHelp("저장 파일명", "확장자·타임스탬프는 자동으로 붙습니다. 비워두면 기존처럼 자동 생성됩니다."))
+        self.report_filename_input = QLineEdit()
+        self.report_filename_input.setPlaceholderText("비워두면 자동 생성 (예: ZVulnScan_Report_날짜시간)")
+        self.report_filename_input.setText(saved.get("report_filename", ""))
+        outer.addWidget(self.report_filename_input)
+        outer.addSpacing(16)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet(f"color: {COLORS['border']}; background-color: {COLORS['border']}; max-height: 1px;")
+        outer.addWidget(divider)
+        outer.addSpacing(14)
+
+        format_label = QLabel("형식 선택")
+        format_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px; font-weight: 600; border:none;")
+        outer.addWidget(format_label)
+        outer.addSpacing(6)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self.btn_report_pdf = QPushButton("PDF 생성")
+        self.btn_report_pdf.setToolTip(HELP_TEXTS["report"]["tooltip"])
+        self.btn_report_pdf.clicked.connect(self.generate_pdf)
+        self.btn_report_excel = QPushButton("Excel 생성")
+        self.btn_report_excel.setToolTip(HELP_TEXTS["report"]["tooltip"])
+        self.btn_report_excel.clicked.connect(self.generate_excel)
+        self.btn_report_txt = QPushButton("TXT 생성")
+        self.btn_report_txt.setToolTip("호스트별 개별 파일, 고객사 매크로 호환 포맷입니다.")
+        self.btn_report_txt.clicked.connect(self.generate_text_report)
+        btn_row.addWidget(self.btn_report_pdf)
+        btn_row.addWidget(self.btn_report_excel)
+        btn_row.addWidget(self.btn_report_txt)
+        btn_row.addStretch()
+        outer.addLayout(btn_row)
+
+        return self._wrap_scrollable_page([header, card], trailing_stretch=True)
+
+    def drill_down_session(self, session_id):
+        """[UI/UX 개선 - 드릴다운] 대시보드 '최근 활동'에서 세션 행을 클릭했을 때 호출.
+        자산 탭으로 이동해 그 세션이 남긴 결과만 진단 결과표에 채운다."""
+        self._on_nav_clicked("assets")
+        try:
+            findings = self.db.get_findings_by_session(session_id)
+        except Exception as e:
+            AppLogger.log_error("[UI] Drill Down Session Failed", e)
+            findings = []
+
+        self.assets_table_card.clear_rows()
+        for ip, hostname, os_type, kisa_code, name, status, risk, waived in findings:
+            host = hostname if hostname and hostname != "-" else ip
+            self.assets_table_card.add_row(host, os_type or "", kisa_code or "", status or "", risk or "")
+
+        self.lbl_session_filter.setText(f"세션 필터: {session_id} ({len(findings)}건)")
+        self.lbl_session_filter.setVisible(True)
+        self.btn_clear_session_filter.setVisible(True)
+
+    def _clear_session_filter(self):
+        self.lbl_session_filter.setVisible(False)
+        self.btn_clear_session_filter.setVisible(False)
+        self.refresh_findings_table()
 
     def _build_log_panel(self):
         """[Phase 3] 도킹/플로팅 창이 아니라 메인 창에 고정 임베드되는 로그 패널.
@@ -581,6 +864,23 @@ class ScannerApp(QMainWindow):
             self.metrics_row.update_counts(metrics)
         except Exception as e:
             AppLogger.log_error("[UI] Refresh Dashboard Metrics Failed", e)
+        try:
+            trend = self.db.get_dashboard_trend()
+            self.metrics_row.update_trend(trend)
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Dashboard Trend Failed", e)
+        self.refresh_unresolved_warning()
+        self.refresh_recent_activity()
+
+    def refresh_recent_activity(self):
+        if not hasattr(self, 'recent_activity_card'):
+            return
+        try:
+            sessions = self.db.get_recent_sessions(days=self.recent_activity_card.current_days())
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Recent Activity Failed", e)
+            sessions = []
+        self.recent_activity_card.set_sessions(sessions)
 
     def refresh_findings_table(self):
         if not hasattr(self, 'assets_table_card'):
@@ -597,7 +897,7 @@ class ScannerApp(QMainWindow):
 
     # --- 기능 메서드 ---
     # [Unified] 자산 추가 함수 통합 (중복 제거 및 기능 합침)
-    def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor):
+    def add_asset_to_table(self, ip, hostname, os_type, mac_addr, vendor, hostname_source=""):
         # 1. 중복 검사 (Cache 확인 -> 빠름)
         if not hasattr(self, 'scanned_ip_cache'):
             self.scanned_ip_cache = set()
@@ -612,11 +912,11 @@ class ScannerApp(QMainWindow):
             self.asset_table.insertRow(row)
             self.scanned_ip_cache.add(ip)
 
-        # 2. 메모 가져오기
-        memo_text = ""
+        # 2. 설명 가져오기
+        description_text = ""
         try:
             db = DBConnector()
-            memo_text = db.get_memo(ip)
+            description_text = db.get_description(ip)
         except: pass
 
         # --- [핵심 수정] 강제 빈칸 처리 로직 ---
@@ -638,15 +938,15 @@ class ScannerApp(QMainWindow):
         item_host = QTableWidgetItem(hostname)
         item_os = QTableWidgetItem(os_type)
         item_mac = QTableWidgetItem(mac_addr)
-        item_memo = QTableWidgetItem(memo_text if memo_text else "")
+        item_description = QTableWidgetItem(description_text if description_text else "")
         item_vendor = QTableWidgetItem(vendor)
-        
+
         # 4. 스타일링 (색상 설정) - 라이트 테마 배경(흰색) 위에서도 읽히는 색상 사용
         item_ip.setForeground(QBrush(QColor(COLORS["text"])))
         item_host.setForeground(QBrush(QColor(COLORS["text_secondary"])))
         item_mac.setForeground(QBrush(QColor(COLORS["text_muted"])))
         item_vendor.setForeground(QBrush(QColor(COLORS["text_muted"])))
-        item_memo.setForeground(QBrush(QColor(COLORS["success_text"])))
+        item_description.setForeground(QBrush(QColor(COLORS["success_text"])))
 
         if "Linux" in os_type or "Ubuntu" in os_type:
             item_os.setForeground(QBrush(QColor("#B36B00")))
@@ -656,16 +956,19 @@ class ScannerApp(QMainWindow):
             item_os.setForeground(QBrush(QColor(COLORS["text_muted"])))
 
         # 가운데 정렬
-        for item in [item_ip, item_host, item_os, item_mac, item_memo, item_vendor]:
+        for item in [item_ip, item_host, item_os, item_mac, item_description, item_vendor]:
             item.setTextAlignment(Qt.AlignCenter)
 
         # 5. 테이블 배치
-        self.asset_table.setItem(row, 0, item_ip)     
-        self.asset_table.setItem(row, 1, item_host)   
-        self.asset_table.setItem(row, 2, item_os)     
-        self.asset_table.setItem(row, 3, item_mac)    
-        self.asset_table.setItem(row, 4, item_memo)   
-        self.asset_table.setItem(row, 5, item_vendor)
+        self.asset_table.setItem(row, 0, item_ip)
+        self.asset_table.setItem(row, 1, item_host)
+        # [UI/UX 개선 - hostname 출처 배지] 역DNS/매핑/실측/추정 중 어디서 hostname을
+        # 얻었는지 - OT망 hostname 확보가 이 제품의 차별점이라 근거를 화면에서 직접 보여준다.
+        self.asset_table.setCellWidget(row, 2, HostnameSourceBadge(hostname_source))
+        self.asset_table.setItem(row, 3, item_os)
+        self.asset_table.setItem(row, 4, item_mac)
+        self.asset_table.setItem(row, 5, item_description)
+        self.asset_table.setItem(row, 6, item_vendor)
 
     def clear_asset_table(self):
         if self.asset_table.rowCount() == 0:
@@ -791,10 +1094,36 @@ class ScannerApp(QMainWindow):
             self.timer.stop()
             self.pbar.setValue(100)
 
-    def update_asset_table(self, ip, hostname, os_type, mac_addr, vendor):
+    def update_asset_table(self, ip, hostname, os_type, mac_addr, vendor, hostname_source=""):
         """[Optimized] 실시간 테이블 렌더링 대신 버퍼에 저장"""
         # 로그는 이미 실시간으로 뜨므로, 테이블 데이터는 모아둡니다.
-        self.scan_result_buffer.append((ip, hostname, os_type, mac_addr, vendor))
+        self.scan_result_buffer.append((ip, hostname, os_type, mac_addr, vendor, hostname_source))
+
+    def _asset_declaration_diff_note(self):
+        """[P0: 자산 매핑] 가져온 자산목록(선언)과 이번 스캔에서 실제 발견된 자산을
+        비교해 누락(선언됐지만 응답 없음)/미문서화(발견됐지만 목록에 없음) 자산을
+        알려준다. 감사 완결성 확인용 - 목록에 없는 미문서화 자산은 그 자체로
+        KISA 감사에서 지적 대상이 될 수 있다. imported_asset_map이 비어있으면(이번
+        세션에 목록을 안 가져왔으면) 비교 대상이 없으므로 건너뛴다."""
+        if not self.imported_asset_map:
+            return ""
+
+        declared = set(self.imported_asset_map.keys())
+        discovered = set(ip for ip, *_ in self.scan_result_buffer)
+        missing = sorted(declared - discovered)
+        undocumented = sorted(discovered - declared)
+
+        if not missing and not undocumented:
+            return "\n\n[자산목록 대조] 선언된 자산과 실제 발견 결과가 정확히 일치합니다."
+
+        lines = ["\n\n[자산목록 대조]"]
+        if missing:
+            shown = ", ".join(missing[:10]) + (" ..." if len(missing) > 10 else "")
+            lines.append(f"- 목록엔 있지만 응답 없음 ({len(missing)}건): {shown}")
+        if undocumented:
+            shown = ", ".join(undocumented[:10]) + (" ..." if len(undocumented) > 10 else "")
+            lines.append(f"- 목록엔 없지만 발견됨 ({len(undocumented)}건, 미문서화 자산 가능성): {shown}")
+        return "\n".join(lines)
 
     def scan_finished(self, msg):
         self.timer.stop()
@@ -816,15 +1145,18 @@ class ScannerApp(QMainWindow):
             self.asset_table.setUpdatesEnabled(False) 
             
             for data in self.scan_result_buffer:
-                ip, hostname, os_type, mac_addr, vendor = data
-                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor)
+                ip, hostname, os_type, mac_addr, vendor, hostname_source = data
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor, hostname_source)
                 
             self.asset_table.setUpdatesEnabled(True) 
             self.asset_table.setSortingEnabled(True) 
             self.log_message("[System] Table update completed.")
         
-        QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)})")
-        
+        diff_note = self._asset_declaration_diff_note()
+        if diff_note:
+            self.log_message("[System]" + diff_note.replace("\n\n", " ").replace("\n", " "))
+        QMessageBox.information(self, "Finished", f"{msg}\n(Total Found: {len(self.scan_result_buffer)}){diff_note}")
+
         self.btn_scan.setEnabled(True)
         self.btn_audit.setEnabled(True)
         
@@ -905,7 +1237,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map)
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -948,15 +1280,37 @@ class ScannerApp(QMainWindow):
                     QMessageBox.critical(self, "Error", "DB 자격증명 저장 실패")
                     return
 
+        oracle_service = self.oracle_service_input.text().strip()
+
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value())
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None)
         self.connect_worker()
         self.worker.start()
+
+    def _current_report_customization(self):
+        """[리포트 탭] 표지 제목/회사명/저장 파일명 입력값을 읽고, 다음 실행에서도
+        이어쓸 수 있게 설정 파일에 저장한다. TXT는 고객사 매크로 호환 형식이라
+        파일명 패턴이 고정돼야 해서 이 커스터마이징을 적용하지 않는다(PDF/Excel만)."""
+        title = self.report_title_input.text().strip() if hasattr(self, 'report_title_input') else ""
+        company = self.report_company_input.text().strip() if hasattr(self, 'report_company_input') else ""
+        filename = self.report_filename_input.text().strip() if hasattr(self, 'report_filename_input') else ""
+        try:
+            from utils.app_settings import load_settings as _load_app_settings, save_settings as _save_app_settings
+            settings = _load_app_settings()
+            settings["report_title"] = title
+            settings["report_company_name"] = company
+            settings["report_filename"] = filename
+            _save_app_settings(settings)
+        except Exception as e:
+            AppLogger.log_error("[UI] Save Report Customization Failed", e)
+        return title, company, filename
 
     def generate_pdf(self):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            generator = PDFGenerator(remediation_level=self.license_mgr.remediation_level())
+            title, company, filename = self._current_report_customization()
+            generator = PDFGenerator(remediation_level=self.license_mgr.remediation_level(),
+                                      report_title=title, company_name=company, custom_filename=filename)
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
             self.report_exported = True
@@ -989,9 +1343,11 @@ class ScannerApp(QMainWindow):
             return
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
+            title, company, filename = self._current_report_customization()
             generator = ExcelGenerator(
                 evidence_level=self.license_mgr.evidence_level(),
-                remediation_level=self.license_mgr.remediation_level()
+                remediation_level=self.license_mgr.remediation_level(),
+                report_title=title, company_name=company, custom_filename=filename
             )
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
@@ -1052,12 +1408,19 @@ class ScannerApp(QMainWindow):
         # 1. 인덱스가 1(Custom Range)일 때만 입력창 활성화
         is_custom = (index == 1)
         self.port_input.setEnabled(is_custom)
+        self.port_select_btn.setEnabled(is_custom)
 
         # 2. 편의성: Custom 모드면 포트 입력창에 바로 포커스, 아니면 내용 지우기
         if is_custom:
             self.port_input.setFocus()
         else:
             self.port_input.clear()
+
+    def open_port_selector(self):
+        """[UI/UX 개선 - 2026-08-06] Custom 포트를 체크박스로 고를 수 있는 화면."""
+        dlg = PortSelectorDialog(self.port_input.text(), self)
+        if dlg.exec() == QDialog.Accepted:
+            self.port_input.setText(dlg.get_ports_string())
 
     def load_saved_assets(self):
         # History 로드 시에는 Buffer가 아닌 즉시 등록 사용 (DB 내용이니까)
@@ -1067,43 +1430,27 @@ class ScannerApp(QMainWindow):
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set() # 캐시 초기화
         
-        for ip, os_type, memo, mac_addr in assets:
+        # [버그 수정] get_all_assets()가 원래 hostname을 반환하지 않아 재시작/이력 로드
+        # 때마다 Host 칸이 항상 빈칸이던 문제가 있었다 - 이제 hostname/hostname_source도
+        # 함께 조회해 채운다(vendor는 여전히 이 쿼리로 조회되지 않아 빈 값).
+        for ip, os_type, description, mac_addr, hostname, hostname_source in assets:
             display_os = os_type
             if mac_addr: display_os = f"{os_type} | {mac_addr}"
-            self.add_asset_to_table(ip, display_os, "Scanned History", memo_text=memo)
-            
+            self.add_asset_to_table(ip, hostname, display_os, mac_addr, "", hostname_source)
+
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")
-
-    """
-    현재 미사용 함수
-    def edit_asset_memo(self):
-        row = self.asset_table.currentRow()
-        if row < 0: return
-        
-        ip = self.asset_table.item(row, 0).text()
-        current_memo = self.asset_table.item(row, 3).text()
-        
-        text, ok = QInputDialog.getText(self, "Asset Memo", f"Edit Memo for {ip}:", QLineEdit.Normal, current_memo)
-        if ok:
-            db = DBConnector()
-            if db.update_memo(ip, text):
-                self.asset_table.item(row, 3).setText(text)
-                self.log_message(f"[Asset] Memo updated for {ip}")
-    """
 
     def show_context_menu(self, pos):
         if not self.asset_table.selectionModel().selection().indexes(): return
         
         row = self.asset_table.currentRow()
         ip = self.asset_table.item(row, 0).text()
-        os_type = self.asset_table.item(row, 1).text()
-        
-        """
-        미사용 메모
-        menu.addAction("📝 Edit Memo / Tag", self.edit_asset_memo)
-        menu.addSeparator()
-        """
+        # [버그 수정] 컬럼에 "출처" 배지가 새로 끼어들면서 OS/Type이 3번 컬럼으로 밀렸다 -
+        # 기존엔 1번(hostname) 컬럼 텍스트를 os_type으로 잘못 읽어서 RDP/SSH 메뉴가
+        # hostname 문자열에 "Windows"/"Linux"가 우연히 포함될 때만 뜨는 잠재 버그였다.
+        os_type = self.asset_table.item(row, 3).text()
+
         menu = QMenu()
         menu.addAction(f"Ping Check ({ip})", lambda: OSUtils.open_ping_test(ip))
         menu.addSeparator()
@@ -1154,15 +1501,43 @@ class ScannerApp(QMainWindow):
                 return None
             return cell
 
-        # 1) 헤더에서 "IP"가 들어간 컬럼을 우선 탐색
+        # 1) 헤더에서 "IP"가 들어간 컬럼, 그리고 자산명/호스트명/구역태그/부서/담당자/설명
+        # 컬럼을 탐색한다. [P0: 자산 매핑] hostname 컬럼도 같이 읽으면 DNS/SNMP가 없는
+        # OT 구간에서도 고객이 이미 문서로 갖고 있는 이름을 hostname 폴백 체인의 한
+        # 단계로 쓸 수 있고, 스캔 후 "선언된 자산 vs 실제 발견된 자산" diff(누락/유령
+        # 자산 탐지)도 가능해진다. [자산 import 강화 - 2026-08-06] 구역태그/부서/
+        # 담당자/설명 컬럼도 인식해서 import 시점에 바로 DB에 반영한다(스캔을 굳이
+        # 안 해도 정보자산목록 자체를 자산 등록/갱신 소스로 쓸 수 있게).
         header = rows[0]
         ip_col = None
+        host_col = None
+        zone_col = None
+        dept_col = None
+        owner_col = None
+        desc_col = None
+        HOST_HEADER_RE = re.compile(r'host|이름|명칭|자산명|장비명|호스트', re.IGNORECASE)
+        ZONE_HEADER_RE = re.compile(r'구역|zone|영역|망분리|태그', re.IGNORECASE)
+        DEPT_HEADER_RE = re.compile(r'부서|department|팀', re.IGNORECASE)
+        OWNER_HEADER_RE = re.compile(r'담당자|담당|owner|manager', re.IGNORECASE)
+        DESC_HEADER_RE = re.compile(r'설명|비고|description|note|remark', re.IGNORECASE)
         for idx, col in enumerate(header):
-            if col and re.search(r'ip', str(col), re.IGNORECASE):
+            col_str = str(col) if col else ""
+            if ip_col is None and re.search(r'ip', col_str, re.IGNORECASE):
                 ip_col = idx
-                break
+            elif host_col is None and HOST_HEADER_RE.search(col_str):
+                host_col = idx
+            elif zone_col is None and ZONE_HEADER_RE.search(col_str):
+                zone_col = idx
+            elif dept_col is None and DEPT_HEADER_RE.search(col_str):
+                dept_col = idx
+            elif owner_col is None and OWNER_HEADER_RE.search(col_str):
+                owner_col = idx
+            elif desc_col is None and DESC_HEADER_RE.search(col_str):
+                desc_col = idx
 
         found_ips = []
+        asset_map = {}
+        meta_map = {}  # ip -> {"zone_tag":.., "department":.., "owner_name":.., "description":..}
         data_rows = rows[1:] if ip_col is not None else rows
         if ip_col is not None:
             for r in data_rows:
@@ -1170,8 +1545,22 @@ class ScannerApp(QMainWindow):
                     ip = _looks_like_ip(r[ip_col])
                     if ip:
                         found_ips.append(ip)
+                        if host_col is not None and host_col < len(r):
+                            hostname = str(r[host_col]).strip()
+                            if hostname:
+                                asset_map[ip] = hostname
+                        meta = {}
+                        for field_name, col_idx in (("zone_tag", zone_col), ("department", dept_col),
+                                                     ("owner_name", owner_col), ("description", desc_col)):
+                            if col_idx is not None and col_idx < len(r):
+                                val = str(r[col_idx]).strip()
+                                if val:
+                                    meta[field_name] = val
+                        if meta:
+                            meta_map[ip] = meta
         else:
             # 헤더에서 IP 컬럼을 못 찾으면 모든 셀을 훑어 IP처럼 보이는 값을 수집 (수동 검토 필요)
+            # - 이 경로는 컬럼 위치를 알 수 없어 asset_map/meta_map을 채우지 않는다.
             for r in rows:
                 for cell in r:
                     ip = _looks_like_ip(cell)
@@ -1186,8 +1575,34 @@ class ScannerApp(QMainWindow):
             return
 
         self.ip_input.setText(",".join(safe_ips))
-        self.log_message(f"[System] 자산목록 가져오기 완료: {len(safe_ips)}개 IP ({os.path.basename(filepath)})")
-        QMessageBox.information(self, "가져오기 완료", f"{len(safe_ips)}개의 IP를 스캔 대상으로 불러왔습니다.\n(목록에 없는 IP는 스캔 후보에서 제외됩니다)")
+        # [P0] 이번에 가져온 목록을 세션 전체에서 참조할 수 있게 보관 - hostname 폴백과
+        # 스캔 종료 후 diff 둘 다 이 값을 쓴다. 새로 가져오기를 하면 이전 목록은 대체된다.
+        self.imported_asset_map = {ip: name for ip, name in asset_map.items() if ip in safe_ips}
+
+        # [자산 import 강화] 구역태그/부서/담당자/설명은 스캔을 기다리지 않고 지금
+        # 바로 자산을 등록(upsert)해서 반영한다 - 정보자산목록 자체가 이 값들의
+        # 권위있는 출처이므로 매번 최신 파일 값으로 덮어쓴다(빈 셀은 건드리지 않음).
+        meta_applied = 0
+        for ip in safe_ips:
+            meta = meta_map.get(ip)
+            if not meta:
+                continue
+            hostname = asset_map.get(ip, "")
+            asset_id = self.db.save_asset(ip, hostname=hostname or "Unknown",
+                                           hostname_source="매핑" if hostname else "")
+            if not asset_id:
+                continue
+            for field_name, val in meta.items():
+                self.db.update_asset_field(asset_id, field_name, val)
+            meta_applied += 1
+
+        host_note = f", 호스트명 {len(self.imported_asset_map)}건" if self.imported_asset_map else ""
+        meta_note = f", 구역/부서/담당자/설명 {meta_applied}건 반영" if meta_applied else ""
+        self.log_message(f"[System] 자산목록 가져오기 완료: {len(safe_ips)}개 IP{host_note}{meta_note} ({os.path.basename(filepath)})")
+        QMessageBox.information(self, "가져오기 완료",
+            f"{len(safe_ips)}개의 IP를 스캔 대상으로 불러왔습니다.\n(목록에 없는 IP는 스캔 후보에서 제외됩니다)"
+            + (f"\n\n호스트명 {len(self.imported_asset_map)}건도 함께 인식했습니다 - DNS로 이름을 못 얻는 자산의 폴백으로 쓰입니다." if self.imported_asset_map else "")
+            + (f"\n구역태그/부서/담당자/설명 중 인식된 값을 자산 {meta_applied}건에 바로 반영했습니다." if meta_applied else ""))
 
     @staticmethod
     def _read_asset_rows_csv(filepath):
@@ -1220,6 +1635,60 @@ class ScannerApp(QMainWindow):
         wb.close()
         return rows
 
+    # [자산 export - 2026-08-06 신규] 자산 목록 CSV/Excel 내보내기.
+    EXPORT_HEADERS = ["IP", "Hostname", "Hostname 출처", "OS", "MAC", "Vendor",
+                      "구역태그", "부서", "담당자", "설명", "용도", "최종 확인"]
+
+    def export_asset_list(self):
+        try:
+            assets = self.db.get_all_assets_for_export()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"자산 목록을 불러오지 못했습니다:\n{e}")
+            return
+
+        if not assets:
+            QMessageBox.warning(self, "Notice", "내보낼 자산이 없습니다.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "자산 목록 내보내기", "asset_list.xlsx",
+            "Excel (*.xlsx);;CSV (*.csv)"
+        )
+        if not filepath:
+            return
+
+        try:
+            if filepath.lower().endswith(".csv"):
+                # [보안] 엑셀에서 CSV를 열 때 "="로 시작하는 셀은 수식으로 해석돼
+                # CSV Injection으로 이어질 수 있다 - 그런 셀 앞에 탭 문자를 붙여 무력화.
+                def _csv_safe(val):
+                    s = "" if val is None else str(val)
+                    return ("\t" + s) if s.startswith(("=", "+", "-", "@")) else s
+                with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.EXPORT_HEADERS)
+                    for row in assets:
+                        writer.writerow([_csv_safe(v) for v in row])
+            else:
+                if not filepath.lower().endswith(".xlsx"):
+                    filepath += ".xlsx"
+                import openpyxl
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "자산 목록"
+                ws.append(self.EXPORT_HEADERS)
+                for row in assets:
+                    ws.append(["" if v is None else v for v in row])
+                wb.save(filepath)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"내보내기 중 오류가 발생했습니다:\n{e}")
+            return
+
+        self.log_message(f"[System] 자산 목록 내보내기 완료: {len(assets)}건 -> {filepath}")
+        if QMessageBox.question(self, "완료", f"자산 {len(assets)}건을 내보냈습니다.\n파일을 여시겠습니까?",
+                                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            self.open_file_platform_safe(filepath)
+
     def open_db_manager(self):
         from gui.db_manager import DatabaseManagerDialog
 
@@ -1246,6 +1715,14 @@ class ScannerApp(QMainWindow):
         dlg.exec()
 
     def open_waiver_manager(self):
+        # [버그 수정] 예전엔 Waiver에 등급 제한이 아예 없었다 - Expert Mode와 같은
+        # "전문가용" 기능으로 통일하면서 Enterprise 전용으로 맞췄다. 버튼 자체가
+        # 이제 Enterprise가 아니면 숨겨지지만, 방어적으로 메서드 안에서도 한 번 더 막는다.
+        if not self.license_mgr.can_use_waiver():
+            QMessageBox.warning(self, "License Restricted",
+                "예외처리(Waiver) 관리는 Enterprise 등급 전용 기능입니다.\n"
+                f"(현재 등급: {self.license_mgr.effective_tier()})")
+            return
         from gui.waiver_dialog import WaiverManagerDialog
         dlg = WaiverManagerDialog(self.db, self)
         dlg.exec()
@@ -1299,10 +1776,8 @@ class ScannerApp(QMainWindow):
         self.asset_table.setRowCount(0)
         self.scanned_ip_cache = set()
         
-        # 3. 데이터 가져오기 (DBConnector.get_all_assets()는 항상
-        #    (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
-        #    Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
-        #    (memo는 add_asset_to_table 내부에서 DB로부터 다시 조회하므로 여기서는 사용하지 않음)
+        # 3. 데이터 가져오기 ([버그 수정] hostname을 반환하지 않던 문제 고쳐서 Host 칸이
+        #    항상 빈칸이던 걸 해결 - vendor는 여전히 이 쿼리로 조회되지 않아 빈 값)
         assets = self.db.get_all_assets()
 
         # 화면 깜빡임 방지
@@ -1311,14 +1786,14 @@ class ScannerApp(QMainWindow):
 
         for data in assets:
             try:
-                ip, os_type, _memo, mac_addr = data
+                ip, os_type, _description, mac_addr, hostname, hostname_source = data
 
                 # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
                 # (실제 데이터가 있으면 그대로 유지됨)
                 os_type  = "" if str(os_type) == "-"  else os_type
                 mac_addr = "" if str(mac_addr) == "-" else mac_addr
 
-                self.add_asset_to_table(ip, "", os_type, mac_addr, "")
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, "", hostname_source)
 
             except Exception as e:
                 print(f"Error refreshing row: {e}")
@@ -1332,12 +1807,25 @@ class ScannerApp(QMainWindow):
         # 1. 윈도우 제목 변경
         new_title = self.license_mgr.get_window_title()
         self.setWindowTitle(new_title)
-        
-        # (선택사항) 헤더 라벨도 있다면 같이 변경
-        if hasattr(self, 'title_label'):
-            self.title_label.setText(new_title)
 
-        # 2. 엑셀 내보내기는 클릭 시점에 generate_excel()에서 라이선스를 강제하므로
+        # [버그 수정] self.title_label은 _build_page_header()가 호출될 때마다 그
+        # QLabel로 재바인딩되는 공유 속성이라, initUI() 이후엔 "마지막으로 만들어진
+        # 페이지 헤더"(Scan 페이지)만 가리킨다. 여기서 new_title(예: "Z-Vuln Scan v3.0
+        # Enterprise")로 덮어쓰면 Scan 페이지 제목이 "Scan"에서 그 문자열로 바뀌는
+        # 실측 확인된 부작용이 있었다 - 페이지 제목은 건드리지 않는다.
+
+        # 2. 상단바 칩(담당자·라이선스 등급) 갱신
+        self.refresh_topbar_chip()
+
+        # 3. [UI/UX 개선 - 2026-08-06] Waiver/Expert 버튼 표시 여부 - Enterprise가
+        # 아니면 아예 숨긴다(클릭 후 차단 메시지 대신). demo_toggle_license()(Ctrl+Shift+L
+        # 개발자 미리보기)로 등급을 바꿔도 여기서 다시 호출되므로 즉시 반영된다.
+        if hasattr(self, 'btn_waiver'):
+            self.btn_waiver.setVisible(self.license_mgr.can_use_waiver())
+        if hasattr(self, 'btn_expert'):
+            self.btn_expert.setVisible(self.license_mgr.can_use_expert_mode())
+
+        # 4. 엑셀 내보내기는 클릭 시점에 generate_excel()에서 라이선스를 강제하므로
         #    (Reports 메뉴 항목이라 상시 위젯이 없어) 여기서는 별도 처리 없음.
 
     # [숨겨진 개발자 전용 동작] Ctrl+Shift+L로만 접근 (메뉴/버튼 노출 없음).
@@ -1382,6 +1870,24 @@ class ScannerApp(QMainWindow):
             if download_url:
                 QDesktopServices.openUrl(QUrl(download_url))
 
+    def _check_ruleset_update(self):
+        # [룰셋 증분 업데이트] 기본 OFF(app_settings.ruleset_auto_update) - 이 함수
+        # 자체는 항상 호출하지만, rule_update.check_and_apply_update()가 설정을
+        # 직접 확인해서 꺼져 있으면 네트워크 요청 없이 즉시 "DISABLED"로 반환한다
+        # (버전 업데이트 확인과 동일하게 시작 흐름에 조용히 얹힌다).
+        from utils import rule_update
+        status, detail = rule_update.check_and_apply_update()
+        if status == "UPDATED":
+            self.log_message(f"[RuleUpdate] {detail}")
+            QMessageBox.information(self, "룰셋 업데이트 완료", detail)
+        elif status == "VERIFY_FAILED":
+            # [보안] 서명 검증 실패는 조용히 넘기지 않는다 - 배포 채널이 뭔가
+            # 잘못됐다는 신호일 수 있어 사용자가 반드시 인지해야 한다.
+            self.log_message(f"[RuleUpdate] 서명 검증 실패: {detail}")
+            QMessageBox.warning(self, "룰셋 업데이트 서명 검증 실패", detail)
+        # DISABLED/UP_TO_DATE/NO_RELEASE_ASSET/ERROR는 조용히 넘어간다
+        # (버전 업데이트 확인과 동일하게 시작 속도/사용자 경험에 영향 안 주도록)
+
     def sync_to_cloud(self):
         # 아직 기능은 없지만, 사업계획서상 '로드맵' 기능을 시연하는 용도
         QMessageBox.information(self, "Enterprise Feature", 
@@ -1407,11 +1913,10 @@ class ScannerApp(QMainWindow):
         count = 0
         for asset in assets:
             try:
-                # DBConnector.get_all_assets()는 항상
-                # (ip_addr, os_type, memo, mac_addr) 4개 컬럼을 반환한다.
-                # Hostname/Vendor는 이 쿼리로는 조회되지 않으므로 빈 값으로 둔다.
-                ip, os_type, _memo, mac = asset
-                self.add_asset_to_table(ip, "", os_type, mac, "")
+                # [버그 수정] hostname을 반환하지 않던 문제 고쳐서 시작 시 Host 칸이
+                # 항상 빈칸이던 걸 해결 - vendor는 여전히 이 쿼리로 조회되지 않아 빈 값
+                ip, os_type, _description, mac, hostname, hostname_source = asset
+                self.add_asset_to_table(ip, hostname, os_type, mac, "", hostname_source)
                 count += 1
             except Exception as e:
                 print(f"Error loading asset: {e}")

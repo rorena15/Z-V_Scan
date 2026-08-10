@@ -36,13 +36,13 @@
       "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (DBMS/Oracle, D-xx)",
       "item_count": 22,
       "last_updated": "2026-07-22",
-      "_비고": "룰셋 JSON만 준비된 상태 - database_inspector.py의 엔진 커넥션 분기, worker.py 룰셋 선택 로직, text_report.py의 RULE_FILES 등록이 아직 안 되어 있어 라이브 스캔에는 아직 연결되지 않음"
+      "_비고": "2026-08-05 라이브 스캔 배선 완료(database_inspector.py/worker.py/text_report.py 등). 서비스명(Service Name) 입력 UI가 아직 없어 기본값(ORCL)으로만 시도 - 실서버 검증 및 서비스명 UI 추가 전"
     },
     "mssql_rules.json": {
       "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (DBMS/MSSQL, D-xx)",
       "item_count": 21,
       "last_updated": "2026-07-22",
-      "_비고": "룰셋 JSON만 준비된 상태 - database_inspector.py의 엔진 커넥션 분기, worker.py 룰셋 선택 로직, text_report.py의 RULE_FILES 등록이 아직 안 되어 있어 라이브 스캔에는 아직 연결되지 않음"
+      "_비고": "2026-08-05 라이브 스캔 배선 완료(database_inspector.py/worker.py/text_report.py 등). 실 SQL Server 검증 전"
     }
   }
 }

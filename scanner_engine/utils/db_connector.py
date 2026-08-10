@@ -14,6 +14,35 @@ import sys
 import threading
 from datetime import datetime
 from utils.logger import AppLogger
+from utils import rule_crypto
+
+# [보안수준 계산] output/excel_report.py의 RULE_FILES/IMPORTANCE_WEIGHT와 동일 규칙
+# (엔진 접두어, 중요도 가중치) - 대시보드 KPI가 Excel 리포트 표지의 "보안수준"과
+# 같은 값을 내야 하므로 산식을 그대로 복제한다. rules/*.json이 바뀌면 이 둘을
+# 같이 봐야 한다(기존에도 text_report.py/excel_report.py 두 곳에 이미 중복돼 있던
+# 패턴이라 세 번째 사본을 추가하는 것- 공용 모듈로 뽑는 건 이번 범위 밖).
+RULE_FILES = {
+    "linux_rules.json": "",
+    "windows_rules.json": "",
+    "pc_rules.json": "",
+    "mysql_rules.json": "MYSQL-",
+    "postgresql_rules.json": "POSTGRESQL-",
+    "mssql_rules.json": "MSSQL-",
+    "oracle_rules.json": "ORACLE-",
+    "web_rules.json": "",
+}
+IMPORTANCE_WEIGHT = {"상": 10, "중": 8, "하": 6}
+
+# [hostname 우선순위 - 2026-08-06 추가] 여러 경로로 hostname이 식별됐을 때, 신뢰도
+# 낮은 출처가 이미 확보된 신뢰도 높은 hostname을 조용히 덮어쓰지 않게 순위를 정한다
+# (숫자가 작을수록 우선순위 높음). 실측(인증 접속으로 확인)/수동입력(사람이 직접
+# 입력)은 자동 추정(역DNS/매핑/vendor 추정)보다 항상 우선한다. 알 수 없는/빈 출처는
+# 가장 낮은 우선순위로 둬서 항상 새 값으로 덮어써질 수 있게 한다(기존 호출부 호환).
+HOSTNAME_SOURCE_PRIORITY = {"실측": 1, "수동입력": 2, "역DNS": 3, "매핑": 4, "추정": 5}
+
+
+def _hostname_source_rank(source):
+    return HOSTNAME_SOURCE_PRIORITY.get(source, 99)
 
 class DBConnector:
     _db_lock = threading.Lock()
@@ -26,6 +55,7 @@ class DBConnector:
             base_path = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 
         self.db_path = os.path.join(base_path, 'zvuln_scan.db')
+        self._rule_importance_cache = None
         self._init_db()
 
     def _init_db(self):
@@ -52,7 +82,8 @@ class DBConnector:
                     mac_addr TEXT,
                     vendor TEXT,
                     last_seen DATETIME,
-                    memo TEXT DEFAULT ''
+                    description TEXT DEFAULT '',
+                    hostname_source TEXT DEFAULT ''
                 )
             ''')
 
@@ -130,10 +161,32 @@ class DBConnector:
                     FOREIGN KEY(asset_id) REFERENCES TBL_ASSETS(asset_id)
                 )
             ''')
+
+            # 5. [대시보드 - 최근 활동 개편] 세션(스캔 1회 실행)당 어떤 대상 문자열
+            # (IP/범위/CIDR)을 어떤 모드(Discovery/Audit)로 스캔했는지 기록. 예전엔
+            # TBL_SCAN_RESULT에 session_id는 남아도 "무슨 대역을 스캔했는지"는 어디에도
+            # 저장되지 않아서 대시보드에서 보여줄 수가 없었다 - worker.py.run()이 스캔
+            # 시작 시점에 한 번 기록한다(대상이 하나도 안 살아있어도 시도한 사실은 남게).
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS TBL_SCAN_SESSIONS (
+                    session_id TEXT PRIMARY KEY,
+                    target_input TEXT,
+                    mode TEXT,
+                    started_at DATETIME
+                )
+            ''')
             
             # 자산 테이블 컬럼 보정
             try:
                 cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN open_ports TEXT DEFAULT ''")
+            except sqlite3.OperationalError: pass
+
+            # [버그 수정 - 실사용 중 확인] vendor는 CREATE TABLE 문에만 있고 이 마이그레이션이
+            # 빠져있었다 - vendor 컬럼이 스키마에 추가되기 전에 이미 만들어진 DB 파일에는
+            # 컬럼 자체가 없어서 "table TBL_ASSETS has no column named vendor" 오류로
+            # save_asset()의 INSERT/UPDATE가 계속 실패하고 있었다.
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN vendor TEXT")
             except sqlite3.OperationalError: pass
 
             # [자산 태그/그룹 관리] 구역별(DMZ, 제어망 A 등) 분류/필터용 태그
@@ -153,32 +206,67 @@ class DBConnector:
                 cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN avail_score INTEGER")
             except sqlite3.OperationalError: pass
 
+            # [Phase 3: memo -> description 리네임] 기존 배포 DB는 이미 memo 컬럼으로
+            # 생성돼 있으므로, RENAME COLUMN으로 데이터를 유실 없이 옮긴다. 이 저장소
+            # 최초의 RENAME COLUMN 마이그레이션 - 지금까지는 전부 ADD COLUMN(추가)만
+            # 있었다. 신규 DB는 위 CREATE TABLE에서 이미 description으로 만들어지므로
+            # memo 컬럼이 없어 매번 예외로 조용히 스킵된다(멱등).
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS RENAME COLUMN memo TO description")
+            except sqlite3.OperationalError: pass
+
+            # [UI/UX 개선 - hostname 출처 배지] hostname이 어느 경로(역DNS/매핑/실측/추정)로
+            # 채워졌는지 자산 목록에 표시하기 위한 컬럼. worker.py.discover_target()/
+            # _save_hostname_update_to_db()가 채운다.
+            try:
+                cursor.execute("ALTER TABLE TBL_ASSETS ADD COLUMN hostname_source TEXT DEFAULT ''")
+            except sqlite3.OperationalError: pass
+
             conn.commit()
             conn.close()
 
-    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", open_ports="", mac_addr="-", vendor=""):
+    def save_asset(self, ip, hostname="Unknown", os_type="Unknown", open_ports="", mac_addr="-", vendor="", hostname_source=""):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                cursor.execute("SELECT asset_id FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+                cursor.execute("SELECT asset_id, hostname_source FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
                 row = cursor.fetchone()
 
                 if row:
-                    asset_id = row[0]
-                    if mac_addr and mac_addr not in ["-", "Unknown"]:
-                        cursor.execute("""
-                            UPDATE TBL_ASSETS
-                            SET last_seen=?, hostname=?, os_type=?, open_ports=?, mac_addr=?
-                            WHERE asset_id=?
-                        """, (now, hostname, os_type, open_ports, mac_addr, asset_id))
+                    asset_id, existing_source = row
+                    # [hostname 우선순위] 새로 들어온 출처가 기존보다 신뢰도가 낮으면(예:
+                    # 실측으로 이미 확보된 hostname을 나중 스캔의 역DNS 결과가 덮어쓰려는
+                    # 경우) hostname/hostname_source는 그대로 두고 나머지 필드만 갱신한다.
+                    update_hostname = _hostname_source_rank(hostname_source) <= _hostname_source_rank(existing_source)
+
+                    if update_hostname:
+                        if mac_addr and mac_addr not in ["-", "Unknown"]:
+                            cursor.execute("""
+                                UPDATE TBL_ASSETS
+                                SET last_seen=?, hostname=?, os_type=?, open_ports=?, mac_addr=?, hostname_source=?
+                                WHERE asset_id=?
+                            """, (now, hostname, os_type, open_ports, mac_addr, hostname_source, asset_id))
+                        else:
+                            cursor.execute("""
+                                UPDATE TBL_ASSETS
+                                SET last_seen=?, hostname=?, os_type=?, open_ports=?, hostname_source=?
+                                WHERE asset_id=?
+                            """, (now, hostname, os_type, open_ports, hostname_source, asset_id))
                     else:
-                        cursor.execute("""
-                            UPDATE TBL_ASSETS
-                            SET last_seen=?, hostname=?, os_type=?, open_ports=?
-                            WHERE asset_id=?
-                        """, (now, hostname, os_type, open_ports, asset_id))
+                        if mac_addr and mac_addr not in ["-", "Unknown"]:
+                            cursor.execute("""
+                                UPDATE TBL_ASSETS
+                                SET last_seen=?, os_type=?, open_ports=?, mac_addr=?
+                                WHERE asset_id=?
+                            """, (now, os_type, open_ports, mac_addr, asset_id))
+                        else:
+                            cursor.execute("""
+                                UPDATE TBL_ASSETS
+                                SET last_seen=?, os_type=?, open_ports=?
+                                WHERE asset_id=?
+                            """, (now, os_type, open_ports, asset_id))
                     # [수정] vendor는 지금까지 어떤 경로로도 DB에 저장되지 않고 있었다(누락 버그).
                     # mac_addr과 같은 규칙으로, 이번에 못 얻었으면("Unknown"/"Unknown Vendor") 이전에
                     # 알아낸 값을 덮어쓰지 않는다.
@@ -186,9 +274,9 @@ class DBConnector:
                         cursor.execute("UPDATE TBL_ASSETS SET vendor=? WHERE asset_id=?", (vendor, asset_id))
                 else:
                     cursor.execute("""
-                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, vendor, last_seen, memo)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (ip, hostname, os_type, open_ports, mac_addr, vendor, now, ""))
+                        INSERT INTO TBL_ASSETS (ip_addr, hostname, os_type, open_ports, mac_addr, vendor, last_seen, description, hostname_source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (ip, hostname, os_type, open_ports, mac_addr, vendor, now, "", hostname_source))
                     asset_id = cursor.lastrowid
                 conn.commit()
                 return asset_id
@@ -406,14 +494,42 @@ class DBConnector:
         return self.save_result(asset_id, vuln_code, vuln_name or vuln_code, "Info", status, detail, remediation)
 
     def get_all_assets(self):
+        """반환: [(ip_addr, os_type, description, mac_addr, hostname, hostname_source), ...]
+        [버그 수정] hostname은 원래 이 쿼리로 조회되지 않아 앱 재시작/새로고침 때마다
+        자산 목록의 Host 칸이 항상 빈칸으로 표시되던 문제가 있었다 - 실측으로 확인됨.
+        hostname_source는 UI/UX 개선(hostname 출처 배지)을 위해 함께 추가."""
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT ip_addr, os_type, memo, mac_addr FROM TBL_ASSETS ORDER BY last_seen DESC")
+                cursor.execute("""
+                    SELECT ip_addr, os_type, description, mac_addr, hostname, hostname_source
+                    FROM TBL_ASSETS ORDER BY last_seen DESC
+                """)
                 return cursor.fetchall()
             except: return []
             finally: conn.close()
+
+    def get_all_assets_for_export(self):
+        """[자산 export - 2026-08-06 신규] 자산 목록 CSV/Excel 내보내기 전용 - 화면
+        테이블보다 많은 컬럼(vendor/구역태그/부서/담당자/설명/용도)까지 전부 포함한다.
+        반환: [(ip_addr, hostname, hostname_source, os_type, mac_addr, vendor,
+                zone_tag, department, owner_name, description, asset_purpose, last_seen), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT ip_addr, hostname, hostname_source, os_type, mac_addr, vendor,
+                           zone_tag, department, owner_name, description, asset_purpose, last_seen
+                    FROM TBL_ASSETS ORDER BY ip_addr ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get All Assets For Export Failed", e)
+                return []
+            finally:
+                conn.close()
 
     # [Phase 3: 대시보드] ---------------------------------------------------
     def get_dashboard_metrics(self):
@@ -459,6 +575,237 @@ class DBConnector:
                 conn.close()
             return metrics
 
+    def _final_status_label(self, status, waived):
+        """output/excel_report.py._final_status()와 동일 매핑 - 보안수준 계산에서
+        같은 상태 문자열을 써야 채점 분기(취약/부분만족/양호/그외)가 일치한다."""
+        if waived == 1: return "예외"
+        if status == "VULNERABLE": return "취약"
+        if status == "PARTIAL": return "부분만족"
+        if status == "NA": return "해당없음"
+        if status == "MANUAL": return "검토필요"
+        if status == "ERROR": return "점검불가"
+        return "양호"
+
+    def _load_rule_importance_lookup(self):
+        """vuln_code(엔진 접두어 포함) -> importance(상/중/하). 프로세스 생애주기 동안
+        1회만 로드해 캐시한다(rules/*.json은 실행 중 안 바뀜)."""
+        if self._rule_importance_cache is not None:
+            return self._rule_importance_cache
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        rules_dir = os.path.join(base_path, 'rules')
+        if hasattr(sys, '_MEIPASS') and not os.path.isdir(rules_dir):
+            rules_dir = os.path.join(sys._MEIPASS, 'rules')
+
+        lookup = {}
+        for filename, prefix in RULE_FILES.items():
+            path = os.path.join(rules_dir, filename)
+            if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
+                continue
+            try:
+                data = rule_crypto.load_ruleset(path)
+                for rule in data:
+                    lookup[f"{prefix}{rule['code']}"] = rule.get("importance", "중")
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Failed to load {filename} for security level", e)
+        self._rule_importance_cache = lookup
+        return lookup
+
+    def get_dashboard_trend(self):
+        """[대시보드 KPI] '보안수준' 게이지 + KPI 카드별 '전 회차 대비' 추이를 한 번의
+        조회로 함께 계산한다. scan_round는 (asset_id, vuln_code) 단위로 따로 올라가므로
+        (get_round_comparison()과 동일 이유) 코드 하나하나의 최신/직전 회차를 비교하는
+        방식으로 계산한다 - 실측 데이터 기반이며 가짜 수치를 넣지 않는다.
+        보안수준 산식은 output/excel_report.py._score_group()과 동일(중요도 가중치,
+        부분만족=0.5가중, 예외/해당없음 제외)해서 Excel 리포트 표지의 보안수준과 일치한다.
+        보안수준 채점 대상은 rule_lookup에 실제 정의된 코드만이다(SYS-/CONN- 같은 메타
+        항목은 애초에 rules/*.json에 없어 자동으로 빠진다 - excel_report.py도 rule_lookup
+        기반 코드만 채점하므로 동일한 제외 효과).
+        critical_findings/partial_compliance current 값은 get_dashboard_metrics()와
+        완전히 같은 정의(코드 종류 무관, 최신 회차, waiver 제외)로 세서 그 카드 값과
+        정확히 일치한다 - [버그 수정] 처음엔 보안수준용 코드 필터(SYS-/CONN- 등 제외)를
+        crit/partial 집계에도 그대로 썼다가 get_dashboard_metrics()보다 적게 세는
+        불일치가 실측 확인됨(예: 21 vs 19) - 두 집계를 분리해서 고쳤다.
+        반환: {
+          "security_level": {"current": float|None, "previous": float|None, "delta": float|None},
+          "critical_findings": {"current": int, "previous": int|None, "delta": int|None},
+          "partial_compliance": {"current": int, "previous": int|None, "delta": int|None},
+        } (2회 이상 스캔된 코드가 하나도 없으면 previous/delta는 None)"""
+        empty = {
+            "security_level": {"current": None, "previous": None, "delta": None},
+            "critical_findings": {"current": 0, "previous": None, "delta": None},
+            "partial_compliance": {"current": 0, "previous": None, "delta": None},
+        }
+        rule_lookup = self._load_rule_importance_lookup()
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT asset_id, vuln_code, scan_round, status, risk_level, waiver_status
+                    FROM TBL_SCAN_RESULT
+                """)
+                rows = cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Dashboard Trend Failed", e)
+                return empty
+            finally:
+                conn.close()
+
+        by_key = {}
+        for asset_id, vuln_code, rnd, status, risk, waived in rows:
+            by_key.setdefault((asset_id, vuln_code), {})[rnd] = (status, risk, waived)
+
+        def _previous_round(rounds):
+            latest = max(rounds)
+            return latest - 1 if latest >= 2 and (latest - 1) in rounds else None
+
+        def _tally(round_picker):
+            full = 0.0
+            vuln = 0.0
+            counted = False
+            crit = 0
+            partial = 0
+            has_any_round = False
+            for (asset_id, vuln_code), rounds in by_key.items():
+                rnd = round_picker(rounds)
+                if rnd is None:
+                    continue
+                has_any_round = True
+                status, risk, waived = rounds[rnd]
+                label = self._final_status_label(status, waived)
+
+                # get_dashboard_metrics()와 동일 정의 - 코드 종류 무관하게 전부 집계
+                if label == "취약" and risk in ("Critical", "High"):
+                    crit += 1
+                if label == "부분만족":
+                    partial += 1
+
+                # 보안수준 - rules/*.json에 실제 정의된 코드만 채점(excel_report.py와 동일 범위)
+                if vuln_code in rule_lookup:
+                    weight = IMPORTANCE_WEIGHT.get(rule_lookup[vuln_code], 8)
+                    if label == "취약":
+                        full += weight; vuln += weight; counted = True
+                    elif label == "부분만족":
+                        full += weight; vuln += weight / 2; counted = True
+                    elif label == "양호":
+                        full += weight; counted = True
+            security = None if (not counted or full == 0) else round((full - vuln) / full * 100, 1)
+            return security, crit, partial, has_any_round
+
+        cur_security, cur_crit, cur_partial, _ = _tally(lambda rounds: max(rounds))
+        prev_security, prev_crit, prev_partial, prev_has_any = _tally(_previous_round)
+
+        def _delta(cur, prev):
+            return None if (cur is None or prev is None) else round(cur - prev, 1)
+
+        return {
+            "security_level": {
+                "current": cur_security, "previous": prev_security,
+                "delta": _delta(cur_security, prev_security),
+            },
+            "critical_findings": {
+                "current": cur_crit,
+                "previous": prev_crit if prev_has_any else None,
+                "delta": (cur_crit - prev_crit) if prev_has_any else None,
+            },
+            "partial_compliance": {
+                "current": cur_partial,
+                "previous": prev_partial if prev_has_any else None,
+                "delta": (cur_partial - prev_partial) if prev_has_any else None,
+            },
+        }
+
+    def save_scan_session(self, session_id, target_input, mode):
+        """[대시보드 - 최근 활동 개편] 스캔 1회 실행이 시작될 때 worker.py가 한 번
+        호출한다 - "무슨 대역/대상을 어떤 모드로 스캔했는지"를 기록해서 대시보드
+        최근 활동에 표시할 수 있게 한다. session_id가 PK라 같은 세션이 여러 번
+        호출해도(재시도 등) 마지막 값으로 덮어쓰기만 될 뿐 중복 행은 안 생긴다."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("""
+                    INSERT INTO TBL_SCAN_SESSIONS (session_id, target_input, mode, started_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        target_input=excluded.target_input, mode=excluded.mode
+                """, (session_id, target_input, mode, now))
+                conn.commit()
+            except Exception as e:
+                AppLogger.log_error("[DB] Save Scan Session Failed", e)
+            finally:
+                conn.close()
+
+    def get_recent_sessions(self, days=1):
+        """[대시보드 - 최근 활동] session_id별로 묶어 언제/누가/몇 대를, 무슨 대역을
+        어떤 모드로 스캔했는지 최신순으로 반환한다. session_id가 없는(구버전 데이터
+        등) 결과는 제외한다. days=None이면 기간 제한 없이 전체를 반환한다(페이지네이션은
+        호출부 - dashboard_widgets.RecentActivityCard - 가 담당).
+        반환: [(session_id, operator, started_at, asset_count, target_input, mode,
+                is_discovery_only), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                date_filter = "AND R.scan_date >= datetime('now', ?)" if days is not None else ""
+                params = (f'-{int(days)} days',) if days is not None else ()
+                cursor.execute(f"""
+                    SELECT R.session_id, MAX(R.operator), MIN(R.scan_date), COUNT(DISTINCT R.asset_id),
+                           MAX(S.target_input), MAX(S.mode),
+                           SUM(CASE WHEN R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'TCP-%'
+                                    AND R.vuln_code NOT LIKE 'UDP-%' AND R.vuln_code NOT LIKE 'INFO-%'
+                                    AND R.vuln_code NOT LIKE 'CONN-%' THEN 1 ELSE 0 END)
+                    FROM TBL_SCAN_RESULT R
+                    LEFT JOIN TBL_SCAN_SESSIONS S ON S.session_id = R.session_id
+                    WHERE R.session_id IS NOT NULL AND R.session_id != ''
+                    {date_filter}
+                    GROUP BY R.session_id
+                    ORDER BY MIN(R.scan_date) DESC
+                """, params)
+                rows = cursor.fetchall()
+                return [
+                    (session_id, operator, started_at, asset_count, target_input, mode, real_findings == 0)
+                    for session_id, operator, started_at, asset_count, target_input, mode, real_findings in rows
+                ]
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Recent Sessions Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_unresolved_assets(self):
+        """[커버리지 추적] 자산은 등록돼 있지만(TBL_ASSETS) 최신 회차에 실제 KISA 판정
+        코드(U-/W-/D-/WEB-/PC- 등)가 단 하나도 없는 자산을 반환한다. Discovery 메타
+        항목(SYS-/TCP-/UDP-/INFO-/CONN-)만 있는 경우도 "판정이 없다"로 취급한다 -
+        포트가 열려있었다는 사실만으로는 KISA 감사 완결성을 충족하지 못한다.
+        반환: [(ip_addr, hostname), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT A.ip_addr, A.hostname FROM TBL_ASSETS A
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM TBL_SCAN_RESULT R
+                        WHERE R.asset_id = A.asset_id
+                        AND {self.latest_round_condition('R')}
+                        AND R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'TCP-%'
+                        AND R.vuln_code NOT LIKE 'UDP-%' AND R.vuln_code NOT LIKE 'INFO-%'
+                        AND R.vuln_code NOT LIKE 'CONN-%'
+                    )
+                    ORDER BY A.ip_addr ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Unresolved Assets Failed", e)
+                return []
+            finally:
+                conn.close()
+
     def get_all_latest_findings(self):
         """
         대시보드 결과 테이블용: 모든 자산의 최신 회차 진단 결과 (SYS-/CONN-/TCP- 메타 항목 제외)를
@@ -482,6 +829,32 @@ class DBConnector:
                 return cursor.fetchall()
             except Exception as e:
                 AppLogger.log_error("[DB] Get All Latest Findings Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_findings_by_session(self, session_id):
+        """[UI/UX 개선 - 최근 활동 드릴다운] 대시보드 '최근 활동'의 세션 하나를 클릭했을 때
+        그 세션이 실제로 남긴 결과만 보여주기 위한 조회. get_all_latest_findings()와 달리
+        '최신 회차' 기준이 아니라 session_id로 직접 필터링한다 - 이후 재스캔으로 더 최신
+        회차가 생겨도 그 세션 시점에 어떤 결과가 나왔는지 그대로 볼 수 있어야 하기 때문."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT A.ip_addr, A.hostname, A.os_type,
+                           CASE WHEN R.kisa_code IS NOT NULL AND R.kisa_code != '' THEN R.kisa_code ELSE R.vuln_code END,
+                           R.vuln_name, R.status, R.risk_level, R.waiver_status
+                    FROM TBL_SCAN_RESULT R
+                    JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
+                    WHERE R.session_id = ?
+                    AND R.vuln_code NOT LIKE 'SYS-%' AND R.vuln_code NOT LIKE 'CONN-%' AND R.vuln_code NOT LIKE 'TCP-%'
+                    ORDER BY A.ip_addr ASC, R.vuln_code ASC
+                """, (session_id,))
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Findings By Session Failed", e)
                 return []
             finally:
                 conn.close()
@@ -549,23 +922,23 @@ class DBConnector:
                 return False
             finally: conn.close()
 
-    def get_memo(self, ip):
+    def get_description(self, ip):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT memo FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
+                cursor.execute("SELECT description FROM TBL_ASSETS WHERE ip_addr = ?", (ip,))
                 row = cursor.fetchone()
                 return row[0] if row else ""
             except: return ""
             finally: conn.close()
 
-    def update_memo(self, ip, memo_text):
+    def update_description(self, ip, description_text):
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
-                cursor.execute("UPDATE TBL_ASSETS SET memo = ? WHERE ip_addr = ?", (memo_text, ip))
+                cursor.execute("UPDATE TBL_ASSETS SET description = ? WHERE ip_addr = ?", (description_text, ip))
                 conn.commit()
                 return True
             except: return False
@@ -609,7 +982,7 @@ class DBConnector:
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, open_ports, last_seen, memo, zone_tag
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, open_ports, last_seen, description, zone_tag
                     FROM TBL_ASSETS
                     ORDER BY last_seen DESC
                 """)
@@ -621,7 +994,12 @@ class DBConnector:
                 conn.close()
 
     def update_asset_field(self, asset_id, field_name, new_value):
-        allowed_fields = ["hostname", "os_type", "mac_addr", "memo", "zone_tag"]
+        # [자산 import 강화] department/owner_name 추가 - 정보자산목록 파일에 있는
+        # 부서/담당자 컬럼을 import 시점에 바로 반영하기 위함. update_asset_assessment()는
+        # C/I/A 점수까지 한 번에 덮어써서 이미 입력된 평가값을 날릴 위험이 있어(import
+        # 파일엔 보통 C/I/A가 없음), 그 필드들만 건드리지 않는 이 경로를 쓴다.
+        allowed_fields = ["hostname", "os_type", "mac_addr", "description", "zone_tag",
+                           "hostname_source", "department", "owner_name"]
         if field_name not in allowed_fields: return False
 
         with self._db_lock:

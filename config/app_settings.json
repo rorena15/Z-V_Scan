@@ -3,5 +3,6 @@
   "theme": "light",
   "report_output_dir": "",
   "default_username": "",
-  "show_log_panel": false
+  "show_log_panel": false,
+  "ruleset_auto_update": false
 }

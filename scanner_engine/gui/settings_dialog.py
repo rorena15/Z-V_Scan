@@ -192,11 +192,18 @@ class SettingsDialog(QDialog):
         box_layout = QVBoxLayout(box)
         box_layout.addWidget(QLabel(
             "룰 카테고리/개별 코드 단위 include-exclude 설정은 '전문가 모드' 창에서 관리합니다.\n"
-            "(점검 명령어·중요도는 KISA 신뢰성을 위해 어디서도 수정할 수 없습니다)"
+            "(점검 명령어·중요도는 KISA 신뢰성을 위해 어디서도 수정할 수 없습니다)\n"
+            "둘 다 Enterprise 등급 전용이며, 자산 탭이 아니라 여기서만 열 수 있습니다."
         ))
         btn_open_expert = QPushButton("전문가 모드 열기")
         btn_open_expert.clicked.connect(self._open_expert_mode)
         box_layout.addWidget(btn_open_expert)
+
+        # [UI/UX 개선 - 2026-08-06] Waiver도 Expert Mode와 같은 "전문가용" 기능으로
+        # 묶어 여기로 옮겼다(예전엔 자산 탭에만 있었고 등급 제한도 없었음).
+        btn_open_waiver = QPushButton("예외처리(Waiver) 관리 열기")
+        btn_open_waiver.clicked.connect(self._open_waiver_manager)
+        box_layout.addWidget(btn_open_waiver)
         v.addWidget(box)
 
         version_box = QGroupBox("룰셋 버전 (KISA 가이드 개정 대응)")
@@ -204,8 +211,53 @@ class SettingsDialog(QDialog):
         version_box_layout.addWidget(QLabel(self._build_ruleset_version_text()))
         v.addWidget(version_box)
 
+        update_box = QGroupBox("룰셋 자동 업데이트")
+        update_box_layout = QVBoxLayout(update_box)
+        update_box_layout.addWidget(QLabel(
+            "GitHub Releases에서 서명된 룰셋 업데이트를 확인합니다. 서명 검증에 실패하면\n"
+            "어떤 파일도 반영하지 않습니다. 기본값은 꺼짐입니다 - 인터넷이 없거나 외부\n"
+            "접속이 통제된 환경(OT/에어갭 등)에서는 켜지 않는 걸 권장합니다."
+        ))
+        self.chk_ruleset_auto_update = QCheckBox("룰셋 자동 업데이트 확인 사용")
+        self.chk_ruleset_auto_update.setChecked(bool(self.settings.get("ruleset_auto_update", False)))
+        update_box_layout.addWidget(self.chk_ruleset_auto_update)
+
+        btn_check_now = QPushButton("지금 확인")
+        btn_check_now.setToolTip("설정 저장 여부와 무관하게 지금 이 자리에서 1회 확인합니다.")
+        btn_check_now.clicked.connect(self._check_ruleset_update_now)
+        update_box_layout.addWidget(btn_check_now)
+        v.addWidget(update_box)
+
         v.addStretch()
         return w
+
+    def _check_ruleset_update_now(self):
+        """[수동 확인] Settings에서 아직 저장 안 했어도, 이 체크박스 현재 상태 기준으로
+        1회 즉시 확인한다 - "켜고 저장하고 다시 열어서 눌러야" 하는 번거로움을 피하려고
+        app_settings.ruleset_auto_update를 잠깐 체크박스 값으로 덮어썼다가 원복한다."""
+        from utils.app_settings import load_settings as _load, save_settings as _save
+        from utils import rule_update
+
+        original = _load()
+        temp = dict(original)
+        temp["ruleset_auto_update"] = self.chk_ruleset_auto_update.isChecked()
+        _save(temp)
+        try:
+            status, detail = rule_update.check_and_apply_update()
+        finally:
+            _save(original)
+
+        title = {
+            "UPDATED": "업데이트 완료", "UP_TO_DATE": "이미 최신",
+            "VERIFY_FAILED": "서명 검증 실패", "DISABLED": "비활성화됨",
+            "NO_RELEASE_ASSET": "업데이트 없음", "ERROR": "오류",
+        }.get(status, status)
+        if status == "VERIFY_FAILED":
+            QMessageBox.critical(self, title, detail)
+        elif status == "ERROR":
+            QMessageBox.warning(self, title, detail)
+        else:
+            QMessageBox.information(self, title, detail)
 
     @staticmethod
     def _build_ruleset_version_text():
@@ -232,6 +284,17 @@ class SettingsDialog(QDialog):
             return
         from gui.expert_mode_dialog import ExpertModeDialog
         dlg = ExpertModeDialog(self)
+        dlg.exec()
+
+    def _open_waiver_manager(self):
+        main_win = self.parent()
+        if main_win is not None and hasattr(main_win, 'license_mgr') and not main_win.license_mgr.can_use_waiver():
+            QMessageBox.warning(self, "License Restricted",
+                "예외처리(Waiver) 관리는 Enterprise 등급 전용 기능입니다.\n"
+                f"(현재 등급: {main_win.license_mgr.effective_tier()})")
+            return
+        from gui.waiver_dialog import WaiverManagerDialog
+        dlg = WaiverManagerDialog(self.db, self)
         dlg.exec()
 
     # ------------------------------------------------------------------
@@ -478,6 +541,7 @@ class SettingsDialog(QDialog):
         self.settings["show_log_panel"] = self.chk_show_log_panel.isChecked()
         self.settings["report_output_dir"] = self.report_path_input.text().strip()
         self.settings["default_username"] = self.default_user_input.text().strip()
+        self.settings["ruleset_auto_update"] = self.chk_ruleset_auto_update.isChecked()
 
         if save_settings(self.settings):
             QMessageBox.information(self, "저장 완료", "설정이 저장되었습니다.\n(테마는 재시작 후 적용됩니다)")

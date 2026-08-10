@@ -14,6 +14,7 @@ import ssl
 import json
 import struct # UDP 패킷 구조체 생성용
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 # 상위 디렉토리(프로젝트 루트)를 시스템 경로에 추가
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -37,7 +38,7 @@ class AdvancedScanner:
 
     def __init__(self):
         # 기본 스캔 대상 포트
-        self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 1433, 3306, 3389, 8080]
+        self.default_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 1433, 1521, 3306, 3389, 8080]
         
         # [Strategy 1] TCP Service Probes
         # [Update v4.4] HTTP Title 수집을 위해 HEAD -> GET 변경
@@ -243,28 +244,46 @@ class AdvancedScanner:
         except: pass
         return is_alive, detected_os, mac_address, vendor
 
+    # [성능 개선] 포트 단위 병렬 스캔 시 동시 소켓 수 상한 - 무제한 병렬은 로컬
+    # 소켓/파일디스크립터 고갈이나 상대측에 SYN 폭주로 보일 수 있어 상한을 둔다.
+    _PORT_SCAN_MAX_WORKERS = 50
+
     def tcp_scan(self, ip, ports=None, delay=0):
         target_ports = ports if ports else self.default_ports
-        open_ports = []
         timeout = 1
-        for port in target_ports:
+
+        def _check(port):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(timeout)
                     if s.connect_ex((ip, port)) == 0:
-                        open_ports.append(port)
+                        return port
             except: pass
-            # [OT/저속 모드] 포트 하나하나 사이에 소폭의 대기시간을 둬서 연결 시도 폭주를 방지
-            if delay:
+            return None
+
+        # [OT/저속 모드] delay가 있으면(=OT 모드) 순차 + 딜레이를 그대로 유지한다 -
+        # delay 자체가 "연결 시도 폭주를 의도적으로 줄인다"는 안전장치라, 여기서
+        # 병렬화하면 그 취지가 무력화된다. delay가 없을 때(일반 모드)만 병렬화해
+        # 대용량 커스텀 포트 범위의 스캔 시간을 줄인다.
+        if delay:
+            open_ports = []
+            for port in target_ports:
+                result = _check(port)
+                if result:
+                    open_ports.append(result)
                 time.sleep(delay)
-        return open_ports
+            return open_ports
+
+        if not target_ports:
+            return []
+        with ThreadPoolExecutor(max_workers=min(self._PORT_SCAN_MAX_WORKERS, len(target_ports))) as executor:
+            return [p for p in executor.map(_check, target_ports) if p]
 
     def udp_scan(self, ip, ports=None, delay=0):
         target_ports = ports if ports else [53, 123, 137, 161, 1900]
-        open_ports = []
         timeout = 1.0
 
-        for port in target_ports:
+        def _check(port):
             payload = self.UDP_PROBES.get(port, b"")
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -272,15 +291,27 @@ class AdvancedScanner:
                     s.sendto(payload, (ip, port))
                     try:
                         data, _ = s.recvfrom(1024)
-                        open_ports.append((port, "UDP-Open", len(data)))
+                        return (port, "UDP-Open", len(data))
                     except (socket.timeout, ConnectionResetError):
                         pass
             except:
                 pass
-            # [OT/저속 모드] tcp_scan과 동일하게 포트 사이에 소폭의 대기시간을 둠
-            if delay:
+            return None
+
+        # [OT/저속 모드] tcp_scan과 동일한 원칙 - delay 있으면 순차 유지, 없으면 병렬화
+        if delay:
+            open_ports = []
+            for port in target_ports:
+                result = _check(port)
+                if result:
+                    open_ports.append(result)
                 time.sleep(delay)
-        return open_ports
+            return open_ports
+
+        if not target_ports:
+            return []
+        with ThreadPoolExecutor(max_workers=min(self._PORT_SCAN_MAX_WORKERS, len(target_ports))) as executor:
+            return [r for r in executor.map(_check, target_ports) if r]
 
     def extract_http_title(self, banner):
         #HTML 본문에서 <title> 태그 내용 추출

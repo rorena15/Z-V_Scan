@@ -8,7 +8,7 @@
 STYLESHEET = """
 /* [공통] 윈도우 및 폰트 */
 QMainWindow { background-color: #1e1e1e; }
-QWidget { color: #d4d4d4; font-size: 10pt; font-family: 'Segoe UI', sans-serif; }
+QWidget { color: #d4d4d4; font-size: 10pt; font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif; }
 QToolTip { color: #ffffff; background-color: #2b2b2b; border: 1px solid #767676; }
 
 /* [입력창] QLineEdit */
@@ -49,7 +49,7 @@ QPushButton {
     color: #ffffff;
     font-weight: bold;
 }
-QPushButton:hover { background-color: #4a4a4a; border-color: #007acc; }
+QPushButton:hover { background-color: #4a4a4a; border-color: #5B8DEF; }
 QPushButton:pressed { background-color: #2a2a2a; }
 QPushButton:disabled { background-color: #252526; color: #666666; border-color: #333333; }
 
@@ -155,100 +155,110 @@ QScrollArea { background: transparent; border: none; }
 QScrollArea > QWidget > QWidget { background: transparent; }
 """
 
-# [Phase 3: 설정 페이지 - 테마] 라이트 테마 (다크 테마의 색상 반전 버전)
+# [Phase 3: 설정 페이지 - 테마] 라이트 테마
+# [UI/UX 개선 - "신뢰할 수 있는 작업대" 방향] dashboard_widgets.py의 LIGHT_COLORS와
+# 같은 팔레트(쿨톤 배경 #F5F7FA, 파랑 액센트 #2E6BE6)로 맞춤 - 이 파일은 그
+# 토큰 dict를 직접 import하지 않는 독립된 전역 QSS라, 색상 값을 나란히 맞춰
+# 관리한다(dashboard_widgets.LIGHT_COLORS를 바꾸면 이 블록도 같이 봐야 함).
 LIGHT_STYLESHEET = """
-QMainWindow { background-color: #f3f3f3; }
-QWidget { color: #1e1e1e; font-size: 10pt; font-family: 'Segoe UI', sans-serif; }
-QToolTip { color: #1e1e1e; background-color: #ffffe1; border: 1px solid #767676; }
+QMainWindow { background-color: #F5F7FA; }
+QWidget { color: #1B2430; font-size: 10pt; font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif; }
+QToolTip { color: #1B2430; background-color: #FFFFFF; border: 1px solid #E3E7EE; }
 
 QLineEdit {
-    background-color: #ffffff;
-    color: #1e1e1e;
-    border: 1px solid #c0c0c0;
-    border-radius: 4px;
-    padding: 6px;
+    background-color: #FFFFFF;
+    color: #1B2430;
+    border: 1px solid #E3E7EE;
+    border-radius: 8px;
+    padding: 7px 9px;
 }
-QLineEdit:focus { border: 1px solid #007acc; background-color: #ffffff; }
-QLineEdit:disabled { background-color: #e8e8e8; color: #999999; }
+QLineEdit:focus { border: 1px solid #2E6BE6; background-color: #FFFFFF; }
+QLineEdit:disabled { background-color: #EEF1F5; color: #8B94A3; }
 
 QComboBox {
-    background-color: #ffffff;
-    border: 1px solid #c0c0c0;
-    border-radius: 4px;
+    background-color: #FFFFFF;
+    border: 1px solid #E3E7EE;
+    border-radius: 8px;
     padding: 5px;
-    color: #1e1e1e;
+    color: #1B2430;
 }
 QComboBox::drop-down { border: none; }
-QComboBox::down-arrow { image: none; border-left: 2px solid #555; width: 0; height: 0; }
+QComboBox::down-arrow { image: none; border-left: 2px solid #5B6675; width: 0; height: 0; }
 QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    color: #1e1e1e;
-    border: 1px solid #c0c0c0;
-    selection-background-color: #cce8ff;
-    selection-color: #1e1e1e;
+    background-color: #FFFFFF;
+    color: #1B2430;
+    border: 1px solid #E3E7EE;
+    selection-background-color: #E8EFFE;
+    selection-color: #1B2430;
 }
 
+/* [주의] 이건 앱 전체 모든 QPushButton에 적용되는 전역 규칙이다(다이얼로그
+   취소/확인, DB Manager, Waiver/Expert 버튼 등 전부 포함) - 그래서 액센트
+   블루를 여기 전역으로 쓰면 화면마다 파란 버튼이 난립해 주/보조 액션 구분이
+   사라진다. 중립 톤을 기본으로 두고, 특정 버튼만 강조하고 싶으면 ScanConfigCard의
+   스캔 시작 버튼처럼 objectName으로 별도 선택자를 추가한다(#ClearBtn 패턴 참고). */
 QPushButton {
-    background-color: #e8e8e8;
-    border: 1px solid #b0b0b0;
-    border-radius: 6px;
+    background-color: #EEF1F5;
+    border: 1px solid #E3E7EE;
+    border-radius: 8px;
     padding: 10px 15px;
-    color: #1e1e1e;
-    font-weight: bold;
+    color: #1B2430;
+    font-weight: 600;
 }
-QPushButton:hover { background-color: #d8d8d8; border-color: #007acc; }
-QPushButton:pressed { background-color: #c8c8c8; }
-QPushButton:disabled { background-color: #f0f0f0; color: #a0a0a0; border-color: #d0d0d0; }
+QPushButton:hover { background-color: #E3E7EE; border-color: #C7D0DC; }
+QPushButton:pressed { background-color: #D5DBE5; }
+QPushButton:disabled { background-color: #F5F7FA; color: #8B94A3; border-color: #E3E7EE; }
 
 QPushButton#ClearBtn {
     padding: 4px 10px;
     font-size: 9pt;
-    background-color: #eee;
-    border: 1px solid #ccc;
+    background-color: #EEF1F5;
+    color: #1B2430;
+    border: 1px solid #E3E7EE;
 }
-QPushButton#ClearBtn:hover { background-color: #e74c3c; color: white; border-color: #c0392b; }
+QPushButton#ClearBtn:hover { background-color: #C0271F; color: white; border-color: #C0271F; }
 
 QGroupBox {
-    border: 1px solid #d0d0d0;
-    border-radius: 6px;
+    border: 1px solid #E3E7EE;
+    border-radius: 10px;
     margin-top: 10px;
-    background-color: #fafafa;
-    color: #333;
-    font-weight: bold;
+    background-color: #FFFFFF;
+    color: #1B2430;
+    font-weight: 600;
     padding-top: 15px;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; }
 
 QTableWidget {
-    background-color: #ffffff;
-    gridline-color: #ddd;
-    border: 1px solid #c0c0c0;
-    border-radius: 4px;
-    alternate-background-color: #f5f5f5;
+    background-color: #FFFFFF;
+    gridline-color: #E3E7EE;
+    border: 1px solid #E3E7EE;
+    border-radius: 8px;
+    alternate-background-color: #F5F7FA;
 }
 QHeaderView::section {
-    background-color: #eaeaea;
-    color: #333;
+    background-color: #F5F7FA;
+    color: #5B6675;
     padding: 8px;
     border: none;
-    border-bottom: 1px solid #c0c0c0;
-    font-weight: bold;
+    border-bottom: 1px solid #E3E7EE;
+    font-weight: 600;
 }
-QTableWidget::item { padding: 5px; color: #1e1e1e; }
+QTableWidget::item { padding: 5px; color: #1B2430; }
 QTableWidget::item:selected {
-    background-color: #cce8ff;
-    color: #1e1e1e;
-    border-left: 2px solid #007acc;
+    background-color: #E8EFFE;
+    color: #1B2430;
+    border-left: 2px solid #2E6BE6;
 }
-QTableWidget::item:hover { background-color: #eef6ff; }
+QTableWidget::item:hover { background-color: #F2F6FE; }
 
 QTextEdit {
-    background-color: #ffffff;
-    color: #1e1e1e;
+    background-color: #FFFFFF;
+    color: #1B2430;
     font-family: Consolas, 'Courier New', monospace;
     font-size: 9pt;
-    border: 1px solid #c0c0c0;
-    border-radius: 4px;
+    border: 1px solid #E3E7EE;
+    border-radius: 8px;
     padding: 5px;
 }
 
@@ -287,7 +297,7 @@ QProgressBar {
     text-align: center;
     color: #1e1e1e;
 }
-QProgressBar::chunk { background: #007acc; }
+QProgressBar::chunk { background: #5B8DEF; }
 
 /* [Phase 3: UI 재구성] 대시보드 카드 스크롤 영역 - 다크 테마와 동일한 이유로 투명 처리 */
 QScrollArea { background: transparent; border: none; }

@@ -13,12 +13,17 @@ class AppConfig:
     # ----------------------------------------------------------------------
     # [2] 라이선스 키 생성 정책 (License Policy)
     # ----------------------------------------------------------------------
-    # 구조: ZV3-{TIER}-{EXPIRY_TOKEN}-{RANDOM}-{HASH}
-    # 예시: ZV3-ENT-1A4F-X9A2-B7F1
-    # EXPIRY_TOKEN은 만료일(YYYYMMDD)을 그대로 넣지 않고, salt로 XOR 난독화한
-    # 4자리 hex 토큰이다(`LicenseValidator.encode_expiry_token`/`_decode_expiry_token`).
-    # 키만 봐서는 발급/만료 패턴이 드러나지 않으며, salt를 아는 코드만 오프라인으로
-    # 실제 날짜를 복원할 수 있다.
+    # 구조: {PREFIX_TOKEN}-{TIER_TOKEN}-{EXPIRY_TOKEN}-{RANDOM}-{HASH}
+    # 예시: A4F-EC-1D51-X9A2-B7F1
+    # [2026-08-06] PREFIX/TIER 모두 평문(예전엔 "ZV3"/"STD"/"PRO"/"ENT")이 아니라
+    # salt로 XOR 난독화한 토큰이다 - 키의 5개 구간 중 어디를 봐도 사람이 읽어서 뜻을
+    # 알 수 있는 조각이 없다(`LicenseValidator.key_prefix`/`encode_tier_token`/
+    # `_decode_tier_token`). EXPIRY_TOKEN도 만료일(YYYYMMDD)을 그대로 넣지 않고
+    # 같은 방식으로 XOR 난독화한 4자리 hex 토큰이다(`encode_expiry_token`/
+    # `_decode_expiry_token`). 키만 봐서는 제품·등급·발급/만료 패턴 어느 것도
+    # 드러나지 않으며, salt를 아는 코드만 오프라인으로 실제 값을 복원할 수 있다.
+    # 예전 평문 형식(ZV3-STD/PRO/ENT-...)으로 이미 발급된 키도 하위 호환으로
+    # 계속 검증된다.
     #
     # [TIER 코드 목록 및 리포트 노출 범위]
     # - STD : Standard     - PDF만 가능(Excel 불가) / 증적(raw_output)은 취약·부분만족 항목만 / 조치방안 없음
@@ -76,3 +81,19 @@ class AppConfig:
     # 바로 룰 수정/테스트), rule_crypto.load_ruleset()은 .enc가 없으면 평문
     # 파일로 자동 폴백한다 - 이 키는 오직 "빌드된 배포판"에서만 실제로 쓰인다.
     RULE_ENCRYPTION_KEY = "8gUHbl7QOUhhyeZyK_6wrTMxJbrwWJnufELuYQTk_YQ="
+
+    # ----------------------------------------------------------------------
+    # [6] 룰셋 증분 업데이트 서명 검증 (Ed25519)
+    # ----------------------------------------------------------------------
+    # 공개키 자체는 노출돼도 안전한 값(서명 위조 불가, 검증만 가능)이지만,
+    # [GS 인증 대비] 하드코딩 배제 원칙에 따라 소스에 상수로 박아두지 않고
+    # config/rule_update_config.json(레포에 커밋됨, 비밀 아님)에서 읽는다
+    # - utils/rule_update.py._load_update_config() 참고. 키 교체 시에도
+    # 재컴파일 없이 이 파일만 갱신하면 되는 부수 효과도 있다.
+    #
+    # 개인키는 절대 이 저장소/exe/CI 어디에도 두지 않는다 - 개발자 하드웨어
+    # 보안키(YubiKey류)에만 보관하고, 릴리즈마다 로컬에서 수동 서명한다
+    # (ci/sign_rules_update.py). 룰의 command 필드는 SSH/WinRM으로 대상
+    # 호스트에서 실제 실행되므로(privileged: true면 sudo까지), 조작된 룰셋은
+    # 단순 오탐이 아니라 진단 대상 전체에 대한 RCE 공급망 공격이 될 수 있어
+    # 이 서명 검증은 선택이 아니라 필수다.

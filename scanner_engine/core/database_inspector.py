@@ -18,13 +18,20 @@ from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
 from utils import rule_crypto
 
-DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432, "mssql": 1433}
+DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432, "mssql": 1433, "oracle": 1521}
+
+# [한계] Oracle은 host+port만으로 접속이 안 되고 서비스명(Service Name/SID)이 반드시
+# 필요한데, 지금 UI(Scan Configuration)엔 이걸 입력받는 칸이 없다. MySQL/PostgreSQL/
+# MSSQL은 계정+비밀번호만 있으면 접속되는 것과 다른 지점 - Oracle 지원을 실전에서
+# 신뢰성 있게 쓰려면 DB 계정 입력 UI에 서비스명 필드를 별도로 추가하는 게 맞다.
+# 그 전까지는 설치 환경마다 다른 실제 값 대신 가장 흔한 기본 서비스명으로 시도한다.
+ORACLE_DEFAULT_SERVICE_NAME = "ORCL"
 
 
 class DatabaseInspector:
     """MySQL / PostgreSQL / MSSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
 
-    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False):
+    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False, service_name=None):
         self.ip = ip
         self.username = username
         self.engine = engine  # "mysql" or "postgresql"
@@ -32,6 +39,9 @@ class DatabaseInspector:
         self.conn = None
         self.is_simulation = False
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 쿼리 간격을 늘림
+        # [Oracle 전용] Scan Configuration의 서비스명 입력칸 값. None/빈 문자열이면
+        # connect()가 ORACLE_DEFAULT_SERVICE_NAME으로 폴백한다.
+        self.oracle_service_name = service_name
         # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
         self.demo_mode = demo_mode
         self.rules_path = self._get_rules_path()
@@ -85,6 +95,16 @@ class DatabaseInspector:
                 self.conn = pymssql.connect(
                     server=self.ip, port=self.port, user=self.username,
                     password=password, timeout=10, login_timeout=10
+                )
+            elif self.engine == "oracle":
+                # [python-oracledb, thin 모드] Oracle Instant Client 번들 없이 순수
+                # Python으로 접속 - cx_Oracle/thick 모드가 요구하는 별도 클라이언트
+                # 배포 문제를 피한다(패키징 관련 기존 논의 참고).
+                import oracledb
+                service_name = self.oracle_service_name or ORACLE_DEFAULT_SERVICE_NAME
+                dsn = f"{self.ip}:{self.port}/{service_name}"
+                self.conn = oracledb.connect(
+                    user=self.username, password=password, dsn=dsn, tcp_connect_timeout=10
                 )
             else:
                 return False

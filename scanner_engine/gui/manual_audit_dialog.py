@@ -402,7 +402,7 @@ class ManualAuditDialog(QDialog):
 
         hostname = self.hostname_input.text().strip() or "Unknown"
         os_label = self.ruleset_combo.currentText()
-        asset_id = self.db.save_asset(ip, hostname=hostname, os_type=os_label)
+        asset_id = self.db.save_asset(ip, hostname=hostname, os_type=os_label, hostname_source="수동입력")
         if not asset_id:
             QMessageBox.critical(self, "저장 실패", "자산 정보를 저장하지 못했습니다.")
             return

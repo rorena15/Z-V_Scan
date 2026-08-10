@@ -37,12 +37,21 @@ def generate_key(tier_code, valid_days=365):
     expiry_date = (datetime.now() + timedelta(days=valid_days)).date()
     expiry_token = LicenseValidator.encode_expiry_token(expiry_date)
 
-    # 3. 해시 계산 (Tier + Expiry Token + Random + Salt)
-    raw_str = f"{tier_code}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
+    # 2.5 등급 -> 난독화 토큰 (예전엔 "ZV3-ENT-..."처럼 평문이라 키만 봐도 등급이
+    # 바로 드러났다. 만료일과 같은 방식으로 감춰서 키만 봐서는 무슨 등급인지 유추할
+    # 수 없게 한다 - license_validator.py._decode_tier_token()이 이걸 되돌린다.)
+    tier_token = LicenseValidator.encode_tier_token(tier_code)
+
+    # 3. 해시 계산 (Tier Token + Expiry Token + Random + Salt)
+    raw_str = f"{tier_token}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
     checksum = hashlib.md5(raw_str.encode()).hexdigest()[:4].upper()
 
-    # 4. 키 조합
-    return f"ZV3-{tier_code}-{expiry_token}-{random_val}-{checksum}", expiry_date
+    # 4. 키 조합 - 접두어도 "ZV3"(제품명 이니셜+버전) 평문 대신 난독화된 태그를 쓴다.
+    # 등급/만료일을 감춰도 앞자리가 "ZV3"로 그대로면 이게 Z-VulnScan 키라는 것
+    # 자체는 누구나 바로 알 수 있어서, 5개 구간 어디에도 읽어서 뜻이 통하는 조각이
+    # 남지 않게 통일했다.
+    prefix = LicenseValidator.key_prefix()
+    return f"{prefix}-{tier_token}-{expiry_token}-{random_val}-{checksum}", expiry_date
 
 
 def _load_ledger():
@@ -136,7 +145,7 @@ if __name__ == "__main__":
         print("="*40)
         print("실제 발급/취소/이력조회는 아래처럼 서브커맨드를 사용하세요:")
         print("  python keygen.py generate --tier PRO --days 365 --label \"고객사명\"")
-        print("  python keygen.py revoke --key ZV3-...")
+        print("  python keygen.py revoke --key <발급된 키 전체>")
         print("  python keygen.py list-issued")
         print("  python keygen.py list-revoked")
     else:
