@@ -106,7 +106,7 @@ class ScanWorker(QThread):
             live_hosts = []
             # [실전 안전장치] 데모 모드가 꺼져 있으면 이 IP들도 그냥 일반 대상으로 취급되어
             # 정상적으로 살아있는지 확인을 거친다 (강제로 살아있다고 처리하지 않음)
-            sim_ips = ["0.0.0.0", "localhost", "127.0.0.1", "127.0.0.2"] if self.demo_mode else []
+            sim_ips = AppConfig.DEMO_SIMULATION_IPS if self.demo_mode else []
 
             if self.mode != "CUSTOM":
                 # 1. 실제 스캔 (시뮬레이션 IP 제외)
@@ -321,7 +321,7 @@ class ScanWorker(QThread):
         if self.stop_flag: return None
 
         # [핵심] 시뮬레이션 타겟 확인 (데모 모드가 꺼져 있으면 이 IP들도 실제 대상처럼 취급)
-        is_sim = self.demo_mode and (ip in ["0.0.0.0", "127.0.0.2", "localhost", "127.0.0.1"])
+        is_sim = self.demo_mode and (ip in AppConfig.DEMO_SIMULATION_IPS)
 
         scanner = AdvancedScanner()
 
@@ -448,7 +448,7 @@ class ScanWorker(QThread):
         """
         if self.stop_flag: return
 
-        is_sim = self.demo_mode and (ip in ["0.0.0.0", "127.0.0.2", "localhost", "127.0.0.1"])
+        is_sim = self.demo_mode and (ip in AppConfig.DEMO_SIMULATION_IPS)
 
         cached = None
         if not is_sim:
@@ -456,10 +456,21 @@ class ScanWorker(QThread):
             cached = db.get_discovery_info(ip)
 
         if cached:
-            os_type = cached["os_type"]
-            open_ports = cached["open_ports"]
-        else:
-            # 사전 Discovery 이력이 없는 자산 (또는 시뮬레이션) - 1회 Discovery로 채운다
+            try:
+                os_type = cached["os_type"]
+                open_ports = cached["open_ports"]
+            except (KeyError, TypeError) as e:
+                # [버그 수정] 캐시된 Discovery 레코드가 스키마 변경/부분 기록 등으로
+                # 손상돼 있으면 이 자산이 어떤 로그/보고도 없이 그냥 통째로 스캔에서
+                # 사라졌었다(예외가 여기서 안 잡히고 밖으로 나가 run()의 일반
+                # 로깅에서만 조용히 남음). 캐시가 없는 것과 동일하게 취급해 재검색으로
+                # 복구한다 - 접속 실패 때처럼 보고서에서 이 자산이 소리 없이
+                # 빠지는 일이 없도록 한다.
+                AppLogger.log_error(f"[Worker] Cached discovery info for {ip} is malformed, re-discovering", e)
+                cached = None
+
+        if not cached:
+            # 사전 Discovery 이력이 없는 자산 (또는 시뮬레이션, 또는 캐시 손상) - 1회 Discovery로 채운다
             discovered = self.discover_target(ip)
             if discovered is None or self.stop_flag: return
             os_type = discovered["os_type"]

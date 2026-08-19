@@ -174,6 +174,32 @@ class PDFGenerator:
             if not all_assets:
                 raise Exception("No assets found.")
 
+            # [효율성 개선] 예전엔 자산마다 따로 쿼리해서(N+1) 자산 수가 많을수록
+            # DB 왕복이 그만큼 늘었다 - excel_report.py의 _fetch_scan_result()처럼
+            # 전체 자산분을 한 번에 가져와 asset_id로 파이썬에서 그룹핑한다.
+            # [버그 수정] WHERE 절이 SYS-%만 제외해서, get_all_latest_findings()와
+            # 달리 TCP-xx/UDP-xx(포트스캔) · CONN-xx(접속실패 메타행) 같은 비-진단성
+            # 행이 진단 결과처럼 섞여 나왔다 - 동일하게 제외한다.
+            cursor.execute(f"""
+                SELECT
+                    asset_id,
+                    CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' THEN kisa_code ELSE vuln_code END as code_display,
+                    vuln_name, risk_level, status, detected_value, remediation
+                FROM TBL_SCAN_RESULT R
+                WHERE waiver_status = 0
+                AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
+                AND vuln_code NOT LIKE 'TCP-%' AND vuln_code NOT LIKE 'UDP-%'
+                AND {DBConnector.latest_round_condition('R')}
+                ORDER BY asset_id ASC,
+                    CASE risk_level
+                        WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                        WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
+                        ELSE 5 END ASC
+            """)
+            findings_by_asset = {}
+            for row in cursor.fetchall():
+                findings_by_asset.setdefault(row[0], []).append(row[1:])
+
             # 통계 조회 (예외처리 제외, 최신 회차만 집계)
             # [버그 수정] status='VULNERABLE'만 집계해 "부분만족(PARTIAL)" 항목이 통째로 빠지던 문제
             cursor.execute(f"""
@@ -221,24 +247,9 @@ class PDFGenerator:
                 elements.append(Paragraph(f"🔍 자산 상세 분석: {ip} ({hostname})", title_style))
                 elements.append(Spacer(1, 0.3*cm))
 
-                # [수정된 SQL Query] KISA Code와 증적 로직 반영
                 # PDF에서는 공간 제약상 'raw_output' 전체를 출력하지 않고 'detected_value(요약)'를 출력함
-                # 하지만 vuln_code 대신 kisa_code를 우선 표시하도록 COALESCE 사용
-                sql = f"""
-                    SELECT
-                        CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' THEN kisa_code ELSE vuln_code END as code_display,
-                        vuln_name, risk_level, status, detected_value, remediation
-                    FROM TBL_SCAN_RESULT R
-                    WHERE asset_id = ? AND waiver_status = 0 AND vuln_code NOT LIKE 'SYS-%'
-                    AND {DBConnector.latest_round_condition('R')}
-                    ORDER BY
-                        CASE risk_level
-                            WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
-                            WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
-                            ELSE 5 END ASC
-                """
-                cursor.execute(sql, (asset_id,))
-                rows = cursor.fetchall()
+                # (KISA Code/제외 조건/정렬은 위에서 미리 한 번에 조회해둔 findings_by_asset 사용)
+                rows = findings_by_asset.get(asset_id, [])
 
                 # 테이블 헤더 (양호/취약/경고를 명확히 구분하는 판정 컬럼 추가)
                 table_data = [['Code', '점검 항목', '판정', '위험도', '현황 요약', '조치 방안']]

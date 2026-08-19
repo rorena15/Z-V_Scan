@@ -30,14 +30,16 @@ class AppConfig:
     # - PRO : Professional - Excel+PDF 가능 / 증적 전체 제공 / 조치방안은 중요도 상·중 항목만
     # - ENT : Enterprise   - 모든 기능(전문가 모드 포함) / 증적 전체 / 조치방안 전체(중요도 무관)
     #
-    # [실구현 상태 및 기본 동작]
+    # [실구현 상태 및 기본 동작 - 2026-08-19 정식 출시 대비 변경]
     # 등급별 차등 로직(LicenseManager, ExcelGenerator, PDFGenerator)은 실제로 항상 적용된다
-    # (별도 on/off 스위치 없음). 다만 `license.dat`에 유효한 키가 없으면(본인 자체 사용 단계
-    # 기본값) LicenseManager가 ENTERPRISE로 시작하므로 지금 당장은 아무것도 제한되지 않는다.
-    # 나중에 고객사에 STD/PRO 키를 발급하면, 그 키가 검증되는 순간부터 해당 등급 제한이
-    # 실제로 적용된다. 등급별 화면을 미리 확인하고 싶으면 숨겨진 개발자 단축키(Ctrl+Shift+L,
-    # main_window.py의 action_license_switch)로 STD->PRO->ENT 순으로 순환 전환할 수 있다
-    # (메모리에만 반영되며, 재시작하면 license.dat 기준으로 다시 초기화됨).
+    # (별도 on/off 스위치 없음). `license.dat`에 유효한 키가 없으면 LicenseManager가 가장
+    # 제한적인 STANDARD로 시작한다 - 예전엔 본인 자체 사용 편의를 위해 ENTERPRISE로
+    # 시작했지만, 그 상태로는 라이선스 없이 받은 사람도 전체 기능을 무제한으로 쓸 수 있어
+    # 정식 출시와 맞지 않아 변경함. 고객사에 STD/PRO/ENT 키를 발급하면, 그 키가 검증되는
+    # 순간부터 해당 등급 기능이 실제로 열린다. 등급별 화면을 미리 확인하고 싶으면 숨겨진
+    # 개발자 단축키(Ctrl+Shift+L, main_window.py의 action_license_switch)로
+    # STD->PRO->ENT 순으로 순환 전환할 수 있다(메모리에만 반영되며, 재시작하면
+    # license.dat 기준으로 다시 초기화됨 - 키가 없으면 STANDARD로).
     #
     # [보안 주의]
     # 이 SALT 값은 해커가 절대 알면 안 됩니다.
@@ -97,3 +99,14 @@ class AppConfig:
     # 호스트에서 실제 실행되므로(privileged: true면 sudo까지), 조작된 룰셋은
     # 단순 오탐이 아니라 진단 대상 전체에 대한 RCE 공급망 공격이 될 수 있어
     # 이 서명 검증은 선택이 아니라 필수다.
+
+    # ----------------------------------------------------------------------
+    # [7] 데모/시뮬레이션 모드 대상 IP 허용 목록
+    # ----------------------------------------------------------------------
+    # [버그 수정] worker.py와 3개 inspector(ssh/windows/database)가 각자 이
+    # 목록을 따로 하드코딩하고 있었는데, 이미 서로 어긋나 있었다(windows_inspector는
+    # 127.0.0.1 누락, ssh/database_inspector는 127.0.0.2 누락) - worker.py는 특정
+    # IP를 데모 대상으로 인식해 가짜 데이터를 주입하는데 정작 그 IP를 받는
+    # inspector가 데모 모드로 인식 못 하면(또는 반대) 동작이 클래스마다 제각각으로
+    # 갈렸다. 하나의 목록만 두고 전부 여기를 참조한다.
+    DEMO_SIMULATION_IPS = ["0.0.0.0", "localhost", "127.0.0.1", "127.0.0.2"]

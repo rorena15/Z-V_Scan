@@ -43,9 +43,10 @@ from utils.app_settings import get_report_output_dir
 from utils import rule_crypto
 import core.vuln_matcher as Vuln
 from output.text_report import RULE_FILES, STATUS_TO_RESULT
-
-# 항목 하나의 "중요도 값" - 컨설턴트 엑셀 수식 그대로(상=10/중=8/하=6)
-IMPORTANCE_WEIGHT = {"상": 10, "중": 8, "하": 6}
+# [버그 수정] IMPORTANCE_WEIGHT가 이 파일/db_connector.py 두 곳에 따로 복사돼
+# 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합(RULE_FILES는 이미
+# text_report.py를 통해 간접 공유되고 있었으므로 그대로 둠).
+from utils.rule_constants import IMPORTANCE_WEIGHT
 
 # 코드 접두어 -> 표시 카테고리명. 순서가 그대로 시트 등장 순서가 된다.
 # 관리적/물리적/보안장비/네트워크장비는 자동 점검 대상이 아니라 제외.
@@ -128,10 +129,21 @@ class ExcelGenerator:
     # 공용 유틸 (기존 excel_report.py에서 그대로 유지)
     # ------------------------------------------------------------------
     def clean_text(self, text):
-        if not text:
+        # [버그 수정] "if not text"는 파이썬에서 0/0.0도 falsy라 실제 값이 0인
+        # 취약건수·CIA 점수 등이 "누락"과 똑같이 "-"로 표시되고 있었다. None/빈
+        # 문자열만 "없음"으로 취급한다.
+        if text is None or text == "":
             return "-"
         text = str(text)
-        return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+        # [버그 수정] Excel 수식 인젝션 방지 - raw_output/detected_value는 스캔
+        # 대상이 실제로 응답한 값이라 신뢰할 수 없는 입력이다. '='/'+'/'-'/'@'로
+        # 시작하면 openpyxl이 셀을 수식으로 저장해, 리포트를 여는 사람 PC에서
+        # 그대로 실행될 수 있다(OWASP CSV Injection과 동일한 유형). 선행 문자를
+        # 작은따옴표로 escape해 값은 보존하되 수식으로 해석되지 않게 한다.
+        if text and text[0] in ('=', '+', '-', '@'):
+            text = "'" + text
+        return text
 
     def _style_range(self, ws, cell_range, border=None, fill=None, font=None, alignment=None):
         selection = ws[cell_range]

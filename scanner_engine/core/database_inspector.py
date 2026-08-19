@@ -17,6 +17,7 @@ from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
 from utils import rule_crypto
+from core.config import AppConfig
 
 DEFAULT_PORTS = {"mysql": 3306, "postgresql": 5432, "mssql": 1433, "oracle": 1521}
 
@@ -47,28 +48,10 @@ class DatabaseInspector:
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
-        filename = f"{self.engine}_rules.json"
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-        external_path = os.path.join(base_dir, 'rules', filename)
-
-        internal_path = None
-        if hasattr(sys, '_MEIPASS'):
-            internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
-        else:
-            internal_path = external_path
-
-        if rule_crypto.ruleset_exists(external_path):
-            return external_path
-        elif internal_path and rule_crypto.ruleset_exists(internal_path):
-            return internal_path
-        return external_path
+        return rule_crypto.resolve_rules_path(f"{self.engine}_rules.json")
 
     def connect(self):
-        if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
+        if self.demo_mode and self.ip in AppConfig.DEMO_SIMULATION_IPS:
             self.is_simulation = True
             return True
 

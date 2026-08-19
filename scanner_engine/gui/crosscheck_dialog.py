@@ -29,10 +29,36 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtGui import QColor
+from PySide6.QtCore import QThread, Signal
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from core.crosscheck_engine import run_cross_check, run_cross_check_db  # noqa: E402
 from output.crosscheck_report import CrossCheckReportGenerator  # noqa: E402
+
+
+class _CrossCheckWorker(QThread):
+    """[버그 수정] 예전엔 _run_cross_check()가 파싱+대조를 버튼 클릭 핸들러
+    안에서 그대로(동기) 실행해서, 파일이 많거나 크면 그 동안 창 전체가 멈췄다
+    (Windows에서 '응답 없음'으로 뜰 수 있음). ScanWorker와 같은 QThread 패턴으로
+    빼서 UI 스레드를 막지 않게 한다."""
+    finished_ok = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, files, db=None, use_db_compare=False, parent=None):
+        super().__init__(parent)
+        self.files = files
+        self.db = db
+        self.use_db_compare = use_db_compare
+
+    def run(self):
+        try:
+            if self.use_db_compare:
+                result = run_cross_check_db(self.files, self.db)
+            else:
+                result = run_cross_check(self.files)
+            self.finished_ok.emit(result)
+        except Exception as e:
+            self.failed.emit(str(e))
 
 
 class CrossCheckDialog(QDialog):
@@ -219,13 +245,28 @@ class CrossCheckDialog(QDialog):
             QMessageBox.warning(self, "파일 없음", "먼저 TXT 파일 또는 폴더를 선택하세요.")
             return
 
-        if self.rb_dbcompare.isChecked():
-            if self.db is None:
-                QMessageBox.warning(self, "DB 없음", "DB 직접대조 모드를 쓸 수 없는 창입니다.")
-                return
-            result = run_cross_check_db(self._selected_files, self.db)
-        else:
-            result = run_cross_check(self._selected_files)
+        use_db_compare = self.rb_dbcompare.isChecked()
+        if use_db_compare and self.db is None:
+            QMessageBox.warning(self, "DB 없음", "DB 직접대조 모드를 쓸 수 없는 창입니다.")
+            return
+
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("처리 중...")
+        self._worker = _CrossCheckWorker(
+            list(self._selected_files), db=self.db, use_db_compare=use_db_compare, parent=self
+        )
+        self._worker.finished_ok.connect(self._on_cross_check_finished)
+        self._worker.failed.connect(self._on_cross_check_failed)
+        self._worker.start()
+
+    def _on_cross_check_failed(self, message):
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("교차검증 실행")
+        QMessageBox.critical(self, "오류", f"교차검증 중 오류가 발생했습니다:\n{message}")
+
+    def _on_cross_check_finished(self, result):
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("교차검증 실행")
         self._last_result = result
 
         self.warning_label.setVisible(False)
