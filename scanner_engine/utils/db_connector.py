@@ -276,9 +276,8 @@ class DBConnector:
 
     @staticmethod
     def compute_asset_grade(c, i, a):
-        """C/I/A(각 1~3점) 합산으로 자산등급을 계산한다. 컨설턴트 엑셀 서식(별첨07 '점검대상'
-        시트)의 실제 수식 `=IF(H+I+J<=2,"-",IF(sum>=7,"상",IF(sum>=5,"중","하")))`을 그대로
-        옮긴 것 - 값이 하나라도 없으면(미평가) "-"를 반환한다."""
+        """C/I/A(각 1~3점) 합산으로 자산등급을 계산한다: 합산 <=2는 "-", >=7은 "상",
+        >=5는 "중", 그 외는 "하". 값이 하나라도 없으면(미평가) "-"를 반환한다."""
         if c is None or i is None or a is None:
             return "-"
         total = c + i + a

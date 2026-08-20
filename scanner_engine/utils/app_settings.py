@@ -33,6 +33,12 @@ DEFAULTS = {
     "report_company_name": "",
     "report_title": "",
     "report_filename": "",
+    # [PC 진단 도구] 비어있으면 report_output_dir과 동일하게 <base_dir>/reports 사용.
+    # 파일명은 저장 대화상자의 기본 제안값일 뿐 - 결과 TXT 자체의 이름([PC]{host}_
+    # {os}_{ip}.txt)은 crosscheck_parser.py가 host/os/ip를 파싱하는 데 그 구조를
+    # 그대로 쓰기 때문에 여기서 자유롭게 바꿀 수 없다(설정 대상은 스크립트 파일명뿐).
+    "pc_check_output_dir": "",
+    "pc_check_script_filename": "Z-VulnScan_PC_Check.bat",
 }
 
 
@@ -84,3 +90,13 @@ def get_report_output_dir():
     if custom and os.path.isdir(custom):
         return custom
     return os.path.join(get_base_dir(), 'reports')
+
+
+def get_pc_check_output_dir():
+    """PC 진단 스크립트 저장 시 기본 제안 경로. 별도로 지정 안 했으면 리포트 출력
+    경로(get_report_output_dir)와 동일한 기본값을 공유한다."""
+    settings = load_settings()
+    custom = settings.get("pc_check_output_dir", "").strip()
+    if custom and os.path.isdir(custom):
+        return custom
+    return get_report_output_dir()

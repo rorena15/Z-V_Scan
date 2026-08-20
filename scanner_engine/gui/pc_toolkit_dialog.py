@@ -18,14 +18,16 @@ import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QGroupBox, QLineEdit
 )
 from PySide6.QtGui import QColor
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-from core.pc_toolkit import generate_pc_script, generate_pc_launcher_bat  # noqa: E402
+from core.pc_toolkit import generate_pc_script_bat  # noqa: E402
 from core.crosscheck_engine import import_pc_results  # noqa: E402
-from utils.app_settings import get_report_output_dir  # noqa: E402
+from utils.app_settings import (  # noqa: E402
+    get_pc_check_output_dir, load_settings, save_settings, get_base_dir,
+)
 
 
 class PCToolkitDialog(QDialog):
@@ -47,6 +49,37 @@ class PCToolkitDialog(QDialog):
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
+
+        # ---- 출력 설정 ----
+        out_box = QGroupBox("출력 설정")
+        out_layout = QVBoxLayout(out_box)
+
+        saved = load_settings()
+
+        dir_row = QHBoxLayout()
+        dir_row.addWidget(QLabel("출력 경로:"))
+        self.pc_check_dir_input = QLineEdit(saved.get("pc_check_output_dir", ""))
+        self.pc_check_dir_input.setPlaceholderText(f"비워두면 기본 경로 사용: {get_pc_check_output_dir()}")
+        dir_row.addWidget(self.pc_check_dir_input, 1)
+        btn_browse_dir = QPushButton("찾아보기...")
+        btn_browse_dir.clicked.connect(self._browse_output_dir)
+        dir_row.addWidget(btn_browse_dir)
+        out_layout.addLayout(dir_row)
+
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("스크립트 파일명:"))
+        self.pc_check_filename_input = QLineEdit(saved.get("pc_check_script_filename", "Z-VulnScan_PC_Check.bat"))
+        name_row.addWidget(self.pc_check_filename_input, 1)
+        out_layout.addLayout(name_row)
+        name_hint = QLabel(
+            "생성되는 진단 스크립트(.bat) 파일명만 바꿉니다. 스크립트가 만드는 결과 TXT 파일명은 "
+            "([PC]호스트명_OS_IP.txt) 교차검증 파서가 host/IP를 그 구조에서 읽어내므로 고정입니다."
+        )
+        name_hint.setWordWrap(True)
+        name_hint.setStyleSheet("color: #666666;")
+        out_layout.addWidget(name_hint)
+
+        layout.addWidget(out_box)
 
         # ---- ① 스크립트 생성 ----
         gen_box = QVBoxLayout()
@@ -116,38 +149,54 @@ class PCToolkitDialog(QDialog):
         layout.addLayout(bottom_row)
 
     # ------------------------------------------------------------------
+    def _browse_output_dir(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "PC 진단 출력 폴더 선택", self.pc_check_dir_input.text() or get_base_dir()
+        )
+        if path:
+            self.pc_check_dir_input.setText(path)
+
+    def _save_output_settings(self):
+        settings = load_settings()
+        settings["pc_check_output_dir"] = self.pc_check_dir_input.text().strip()
+        filename = self.pc_check_filename_input.text().strip() or "Z-VulnScan_PC_Check.bat"
+        settings["pc_check_script_filename"] = filename
+        save_settings(settings)
+        return filename
+
+    # ------------------------------------------------------------------
     def _generate_script(self):
         try:
-            script_text = generate_pc_script()
+            script_text = generate_pc_script_bat()
         except Exception as e:
             QMessageBox.critical(self, "생성 실패", f"진단 스크립트 생성 중 오류가 발생했습니다:\n{e}")
             return
 
-        default_dir = get_report_output_dir()
-        default_path = os.path.join(default_dir, "Z-VulnScan_PC_Check.ps1")
+        filename = self._save_output_settings()
+        default_dir = get_pc_check_output_dir()
+        default_path = os.path.join(default_dir, filename)
         path, _ = QFileDialog.getSaveFileName(
-            self, "진단 스크립트 저장", default_path, "PowerShell script (*.ps1)"
+            self, "진단 스크립트 저장", default_path, "Batch script (*.bat)"
         )
         if not path:
             return
 
-        ps1_name = os.path.basename(path)
-        bat_path = os.path.splitext(path)[0] + ".bat"
         try:
-            with open(path, 'w', encoding='utf-8-sig') as f:
+            # [주의] generate_pc_script_bat()이 반환하는 문자열은 이미 "\r\n".join()으로
+            # CRLF를 직접 넣어뒀다 - 여기서 newline='\r\n'을 또 쓰면 파이썬이 그 안의
+            # '\n'을 다시 치환해 '\r\r\n'으로 이중 손상된다(실측 확인됨). newline=''로
+            # 번역을 끄고 문자열을 있는 그대로 써야 한다. 인코딩은 pc_toolkit.
+            # generate_pc_script_bat()의 자기-재실행(ReadAllText)이 cp949로 읽으므로
+            # 반드시 cp949로 맞춘다.
+            with open(path, 'w', encoding='cp949', newline='') as f:
                 f.write(script_text)
-            # [주의] .bat은 cmd.exe가 읽는다 - UTF-8 BOM이 섞이면 @echo off 첫 줄이 깨질 수
-            # 있고, 본문(ASCII)에 이어 파일명(한글일 수 있음)도 그대로 들어가므로, 대상 PC의
-            # 기본 코드페이지(현장 PC 대부분 한국어 Windows, cp949)로 저장해 둘 다 안전하게 한다.
-            with open(bat_path, 'w', encoding='cp949', newline='') as f:
-                f.write(generate_pc_launcher_bat(ps1_name))
         except Exception as e:
             QMessageBox.critical(self, "저장 실패", f"스크립트 파일 저장 중 오류가 발생했습니다:\n{e}")
             return
         QMessageBox.information(
             self, "완료",
-            f"진단 스크립트를 저장했습니다:\n{path}\n{bat_path}\n\n"
-            f"대상 PC로 두 파일을 함께 옮겨 {os.path.basename(bat_path)}를 더블클릭하세요 "
+            f"진단 스크립트를 저장했습니다:\n{path}\n\n"
+            f"대상 PC로 이 파일 하나만 옮겨 더블클릭하세요 "
             "(관리자 권한 승인 창이 자동으로 뜹니다). 완료되면 같은 폴더에 생성되는 "
             "[PC]로 시작하는 .txt 파일을 아래 ②에서 불러오세요."
         )

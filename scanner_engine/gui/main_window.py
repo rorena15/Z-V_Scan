@@ -334,13 +334,12 @@ class ScannerApp(QMainWindow):
         self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", "compare", checkable=False)
         self.nav_crosscheck.clicked.connect(self.open_cross_check)
 
-        # [기능 비활성화] PC 진단 도구: 컨설턴트 스크립트 로직/방식을 아무리 따라가도 컨설턴트가
-        # 제공하는 엑셀 결과물과 호환성을 맞출 수 없다는 사용자 판단으로 비활성화(코드는 보존,
-        # 삭제하지 않음 - pc_toolkit.py/pc_toolkit_dialog.py/import_pc_results()는 그대로 둠).
-        # 기존 WinRM 기반 PC 점검 경로(worker.py)는 이 결정과 무관하게 그대로 유지된다.
+        # [2026-08-20] PC 진단 도구 재활성화 - 예전엔 기존에 쓰던 외부 엑셀 결과물
+        # 형식과 호환성을 맞출 수 없다는 이유로 숨겨뒀으나, 배포용 진단 스크립트를
+        # 단일 .bat 파일로 재구성(generate_pc_script_bat, pc_toolkit.py)하면서 다시
+        # 노출한다. 기존 WinRM 기반 PC 점검 경로(worker.py)와는 별개의 대체 경로다.
         self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", "folder", checkable=False)
         self.nav_pc_toolkit.clicked.connect(self.open_pc_toolkit)
-        self.nav_pc_toolkit.setVisible(False)
 
         layout.addStretch()
 

@@ -62,10 +62,9 @@ OS_VERSION_RE = re.compile(r'OS version is\s*"(?P<os>[^"]*)"')
 FILENAME_TAG_RE = re.compile(r'^\[(?P<tag>[A-Za-z]+)\]')
 
 # ----------------------------------------------------------------------
-# [실제 스크립트 포맷] text_report.py를 그대로 흉내낸 자체 포맷과 달리,
-# 실제 KISA 대조검증 스크립트(00. Script/01. UNIX 서버/2026_ICTIS_Linux_v0.96.sh 등)는
-# 호스트 구분선이 파일 안에 없고(파일당 1호스트), 파일명 자체에 호스트/OS/IP를 담는다:
-#   CREATE_FILE="$BASE_DIR/[RESULT]${HOST}_${OS}_${IP}.txt"
+# [외부 스크립트 포맷] text_report.py를 그대로 흉내낸 자체 포맷과 달리, 외부에서
+# 가져오는 이 형식의 파일은 호스트 구분선이 파일 안에 없고(파일당 1호스트), 파일명
+# 자체에 호스트/OS/IP를 담는다: 예) [RESULT]${HOST}_${OS}_${IP}.txt
 # 항목 블록도 "[SRV-xxx] 이름" + (있을 수도 없을 수도 있는) "[U-xx] 이름2" 두 줄 조합이고,
 # [REASON]이 여러 줄 나올 수 있으며, [RESULT]는 양호/취약/확인 세 가지뿐이다(부분만족/N/A 없음).
 # 이 포맷은 정식 text_report.py 출력과 완전히 달라서 별도 파서가 필요하다.
@@ -404,8 +403,8 @@ def parse_single_file(filepath):
 
     두 포맷을 자동 판별한다:
     - text_report.py 자체 포맷: 파일 안에 '---------[ host Result - ip ]-------' 구분선이 있음
-    - 실제 스크립트 포맷: 구분선이 없고, 파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴
-      (00. Script/ 아래 실제 KISA 대조검증 스크립트들의 출력 - 호스트 구분선 없이 파일당 1호스트)
+    - 외부 스크립트 포맷: 구분선이 없고, 파일명이 '[TAG]{host}_{os}_{ip}.txt' 패턴
+      (호스트 구분선 없이 파일당 1호스트로 출력하는 외부 도구의 산출물)
     둘 다 아니면 기존처럼 파일 전체를 단일 미상 호스트로 취급(전체 실패 처리하지 않기 위함)."""
     text = _read_text(filepath)
 

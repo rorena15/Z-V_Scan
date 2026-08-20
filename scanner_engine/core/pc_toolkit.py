@@ -80,9 +80,10 @@ def generate_pc_script():
 
     lines = [
         "# Z-VulnScan PC 로컬 진단 스크립트 (자동 생성됨 - 수정하지 마세요)",
-        "# 이 파일을 직접 실행하지 말고, 같은 폴더의 동봉된 .bat 파일을 더블클릭하세요",
-        "# (관리자 권한 승인 창이 자동으로 뜹니다). 결과 TXT 파일이 이 스크립트와 같은",
-        "# 폴더에 생성됩니다 - 그 파일을 Z-VulnScan의 'PC 진단 도구 > 결과 가져오기'로 불러오세요.",
+        "# 이 아래는 generate_pc_script_bat()이 배치 헤더 뒤에 이어붙이는 PowerShell 본문이다.",
+        "# $ZVScriptDir는 이 스크립트가 단독 .ps1로 실행될 일이 없다는 전제로(항상 배치",
+        "# 헤더의 iex 경유로만 실행됨) 배치 헤더 쪽에서 미리 주입해주는 변수다 - iex로 실행된",
+        "# 코드는 $PSScriptRoot가 항상 비어 있어(파일로 직접 실행할 때만 채워짐) 대신 쓴다.",
         "# [버그 수정] $ErrorActionPreference를 전역으로 SilentlyContinue로 두면 reg query 등",
         "# 네이티브 명령이 '키/값 없음'을 stderr로 낼 때 2>&1로 리다이렉트해도 그 내용 자체가",
         "# 사라진다(실측 확인) - 그래서 여기서는 설정하지 않는다. 위험한 개별 cmdlet에는",
@@ -94,7 +95,7 @@ def generate_pc_script():
         "Select-Object -First 1 -ExpandProperty IPAddress)",
         "if (-not $ipAddr) { $ipAddr = '0.0.0.0' }",
         "$dateStr = Get-Date -Format 'yyyyMMdd'",
-        "$outFile = Join-Path $PSScriptRoot \"[PC]${hostname}_Windows_${ipAddr}_${dateStr}.txt\"",
+        "$outFile = Join-Path $ZVScriptDir \"[PC]${hostname}_Windows_${ipAddr}_${dateStr}.txt\"",
         "# [주의] 파일명의 대괄호를 PowerShell이 와일드카드로 해석해 -Path로는 파일 생성이",
         "# 조용히 실패한다 - 반드시 -LiteralPath를 사용한다.",
         "Set-Content -LiteralPath $outFile -Value '' -Encoding UTF8",
@@ -159,11 +160,11 @@ def generate_pc_script():
         lines.append("Add-Content -LiteralPath $outFile -Value '' -Encoding UTF8")
         lines.append("")
 
-    # [증적 보강] 실제 KISA 대조검증 스크립트(00. Script/04. PC/2026_ICTIS_PC_v0.9.bat)는 18개
-    # 룰 뒤에 systeminfo/ipconfig/포트/서비스 전체/secpol 전체/설치 프로그램 목록을 "SYSTEM
-    # Detail" 부록으로 덧붙인다 - 이 부분이 실제 산출물을 훨씬 충실해 보이게 하는 핵심이었다.
-    # 특정 KISA 코드에 안 묶인 참고 정보라 [START]/[END]로 감싸지 않는다 - crosscheck_parser는
-    # [START]/[END] 블록 밖의 텍스트는 그냥 무시하므로 파싱에 영향 없음.
+    # [증적 보강] 개별 룰 항목만으로는 사람이 눈으로 볼 증적이 빈약해서, systeminfo/ipconfig/
+    # 포트/서비스 전체/secpol 전체/설치 프로그램 목록을 "SYSTEM Detail" 부록으로 뒤에
+    # 덧붙인다 - 모두 Z-VulnScan 자체 판단으로 선택한, PC 진단에 흔히 쓰이는 표준 Windows
+    # 명령이다. 특정 KISA 코드에 안 묶인 참고 정보라 [START]/[END]로 감싸지 않는다 -
+    # crosscheck_parser는 [START]/[END] 블록 밖의 텍스트는 그냥 무시하므로 파싱에 영향 없음.
     lines.append("Add-Content -LiteralPath $outFile -Value '' -Encoding UTF8")
     lines.append("Add-Content -LiteralPath $outFile -Value '----------------------------------------------------' -Encoding UTF8")
     lines.append("Add-Content -LiteralPath $outFile -Value '                     SYSTEM Detail' -Encoding UTF8")
@@ -200,24 +201,38 @@ def generate_pc_script():
     return "\r\n".join(lines)
 
 
-def generate_pc_launcher_bat(ps1_filename):
-    """.ps1을 더블클릭만으로 실행할 수 있게 하는 동봉용 .bat 런처.
+def generate_pc_script_bat():
+    """generate_pc_script()의 PowerShell 진단 로직을, 대상 PC에 파일 하나만 넘기면
+    되도록 배치/PowerShell "폴리글랏" 단일 .bat 파일로 감싸서 반환한다.
 
-    .ps1은 Windows 탐색기 기본 동작이 "실행"이 아니라 "편집"이라 더블클릭으로
-    안 돌아가고, 설령 "PowerShell로 실행"을 골라도 관리자 권한 프롬프트가 뜨지
-    않아 secedit/레지스트리(HKLM) 등 PC-01/02류 점검이 조용히 실패한다. .bat은
-    탐색기에서 더블클릭 시 기본 실행되므로, 여기서 관리자 권한 여부를 확인해
-    아니면 UAC 승인 창을 띄워 자기 자신을 재실행한 뒤 .ps1을 돌린다.
+    예전에는 .ps1(본문) + .bat(실행기) 두 파일을 함께 넘겨야 했다 - .ps1은 탐색기
+    기본 동작이 "실행"이 아니라 "편집"이라 더블클릭으로 안 돌아가고, "PowerShell로
+    실행"을 골라도 관리자 권한 프롬프트가 뜨지 않아 secedit/레지스트리(HKLM) 등
+    PC-01/02류 점검이 조용히 실패했기 때문이다. 두 파일을 따로 옮기다 하나를
+    빠뜨리는 실수를 없애기 위해 한 파일로 합쳤다.
 
-    본문은 영문 ASCII만 쓴다 - cmd.exe는 이 .bat의 저장 인코딩(UTF-8)을 기본
-    코드페이지로 잘못 해석해 한글 echo/주석이 깨지거나, 대상 PC가 비한국어
-    로케일이면 더 예측 불가능해질 수 있어 인코딩 문제 자체를 피한다.
+    동작 원리: 파일 앞부분을 PowerShell 블록 코멘트(`<# ... #>`)로 감싼 배치
+    스크립트로 시작한다. cmd.exe로 실행(더블클릭)하면 `<# :`/`#>` 줄은 그냥 지나치고
+    안의 배치 명령만 실행되어, 관리자 권한을 확인하고 없으면 UAC 승인 창을 띄워
+    자기 자신(`%~f0`)을 재실행한다. 권한이 있으면 PowerShell을 불러 자기 자신을
+    다시 텍스트로 읽어(`[IO.File]::ReadAllText`) `iex`로 실행하는데, 이번엔
+    PowerShell이 파일을 파싱하므로 `<# ... #>`로 감싼 배치 부분은 코멘트로 건너뛰고
+    그 아래 실제 PowerShell 본문만 실행된다.
+
+    [주의] 반드시 CRLF(\\r\\n) 줄바꿈으로 저장해야 한다 - cmd.exe는 LF만 있는 배치
+    파일에서 줄 파싱이 깨진다(각 줄 앞부분 글자가 무작위로 잘려나가는 것을 실측
+    확인함). [주의] 파일 저장 인코딩과 위 ReadAllText의 인코딩이 반드시 일치해야
+    한다 - 대상 PC 대부분이 한국어 Windows(cp949)이므로 cp949로 통일한다
+    (호출부인 pc_toolkit_dialog.py에서 인코딩을 맞춰 저장한다).
     """
-    lines = [
+    ps1_body = generate_pc_script()
+
+    header = [
+        "<# :",
         "@echo off",
         "setlocal",
         "",
-        ":: Check for admin rights - if not elevated, relaunch via UAC prompt",
+        ":: 관리자 권한 확인 - 아니면 UAC 승인 창을 띄워 자기 자신을 재실행",
         "net session >nul 2>&1",
         "if %errorLevel% NEQ 0 (",
         "    powershell -NoProfile -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
@@ -225,10 +240,15 @@ def generate_pc_launcher_bat(ps1_filename):
         ")",
         "",
         "cd /d \"%~dp0\"",
-        f'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0{ps1_filename}"',
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"$ZVScriptDir = '%~dp0'; iex ([IO.File]::ReadAllText('%~f0', "
+        "[System.Text.Encoding]::GetEncoding(949)))\"",
         "",
         "echo.",
         "echo Done. You can close this window.",
         "pause >nul",
+        "exit /b",
+        "#>",
+        "",
     ]
-    return "\r\n".join(lines)
+    return "\r\n".join(header) + ps1_body
