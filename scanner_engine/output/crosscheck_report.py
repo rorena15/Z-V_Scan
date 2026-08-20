@@ -86,7 +86,7 @@ class CrossCheckReportGenerator:
 
     @staticmethod
     def _safe_cell_value(value):
-        """[버그 수정] 이 리포트는 제3자 컨설턴트 TXT 파일을 파싱한, 설계상 신뢰할
+        """[버그 수정] 이 리포트는 외부에서 가져온 TXT 파일을 파싱한, 설계상 신뢰할
         수 없는 외부 입력을 셀에 그대로 썼다 - excel_report.clean_text()가 하는
         수식 인젝션 방지(=/+/-/@ 선행문자 escape)조차 전혀 없었다. 여기도 동일한
         원칙을 적용한다."""
