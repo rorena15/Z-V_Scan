@@ -18,8 +18,9 @@ from utils.app_settings import get_report_output_dir
 from utils.logger import AppLogger
 from utils import rule_crypto
 # [버그 수정] RULE_FILES가 이 파일/db_connector.py/excel_report.py 세 곳에 따로
-# 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합.
-from utils.rule_constants import RULE_FILES
+# 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용으로 통합
+# (새 파일을 만들지 않고 rule_crypto.py에 합침 - PyArmor 트라이얼 파일 수 제약).
+from utils.rule_crypto import RULE_FILES
 
 SYS_DETAIL_LABELS = [
     ("SYS-OS_INFO", "시스템 정보"),

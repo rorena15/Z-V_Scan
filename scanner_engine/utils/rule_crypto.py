@@ -30,6 +30,26 @@ import sys
 from cryptography.fernet import Fernet, InvalidToken
 from core.config import AppConfig
 
+# [버그 수정 - 중복 제거] db_connector.py/text_report.py/excel_report.py 세 곳에
+# RULE_FILES/IMPORTANCE_WEIGHT가 각각 복사돼 있었다 - 이 모듈로 통합.
+# [빌드 제약] 원래는 별도 파일(utils/rule_constants.py)로 뽑았었는데, PyArmor
+# 트라이얼 라이선스가 난독화 가능한 파일 개수에 상한이 있어 새 .py 파일을 하나
+# 늘리는 것만으로 "out of license" 빌드 실패가 났다 - 이미 존재하는(그리고
+# 룰셋을 다루는 성격이 같은) 이 파일에 합쳐서 전체 파일 수를 세션 시작 시점과
+# 동일하게 유지한다.
+RULE_FILES = {
+    "linux_rules.json": "",
+    "windows_rules.json": "",
+    "pc_rules.json": "",
+    "mysql_rules.json": "MYSQL-",
+    "postgresql_rules.json": "POSTGRESQL-",
+    "mssql_rules.json": "MSSQL-",
+    "oracle_rules.json": "ORACLE-",
+    "web_rules.json": "",
+}
+
+IMPORTANCE_WEIGHT = {"상": 10, "중": 8, "하": 6}
+
 
 def get_enc_path(plain_path):
     return plain_path + ".enc"

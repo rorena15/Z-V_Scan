@@ -84,19 +84,43 @@ jobs:
         run: |
           python ci/build_cython.py build_ext --inplace
 
-      - name: PyArmor 난독화 (main_window.py는 trial 라이선스 한계로 제외 후 평문 병합)
+      - name: PyArmor 난독화 (gui만 대상, 대용량 스크립트는 trial 한계로 제외 후 평문 병합)
         shell: pwsh
         run: |
           if (Test-Path "dist/obfuscated") { Remove-Item "dist/obfuscated" -Recurse -Force }
 
+          # [2026-08-20] "out of license" 빌드 실패 원인 로컬 재현으로 확인함:
+          # 1) 파일당(스크립트당) 크기/복잡도 상한이 있다(`pyarmor --version`이 스스로
+          #    밝히는 trial 제약 "Can't obfuscate big script") - main_window.py(1939줄)는
+          #    이미 이 이유로 제외돼 있었는데, dashboard_widgets.py(1172줄)도 같은
+          #    상한을 넘어 매번 여기서 멈췄다.
+          # 2) 한 번의 pyarmor gen 호출 안에서 처리하는 전체 누적 크기에도 상한이
+          #    있다 - 위 두 파일만 제외해도 레포 전체(`-r .`)를 대상으로 하면 여전히
+          #    다른 파일(db_connector.py 등, 파일 자체는 크지 않음)에서 멈춘다.
+          # build_final_v3.ps1 [2/4]가 core/utils/output은 항상 Cython .pyd로
+          # 덮어쓰므로(무조건, gui처럼 "비어있을 때만" 조건 없음) 그 세 폴더와
+          # ci/*.py, 루트 스크립트(ico/library/make_ppt.py - 실제 배포판에 포함 안 됨)를
+          # PyArmor로 난독화해봐야 결과물이 전부 버려진다 - 애초에 필요 없는 작업이었고,
+          # 누적 상한을 불필요하게 갉아먹고 있었다. gui/(+ main.py, keygen.py)만 대상으로
+          # 좁히면 이 상한 안에 들어와 매번 정상 완료된다(로컬 재현으로 확인).
           pyarmor gen -O dist/obfuscated --obf-code 0 --no-wrap -r `
               --exclude "*main_window.py" `
-              --exclude "dist/*" --exclude "build/*" `
-              --exclude ".git/*" `
-              .
+              --exclude "*dashboard_widgets.py" `
+              scanner_engine/gui scanner_engine/main.py scanner_engine/keygen.py
 
           Copy-Item "scanner_engine/gui/main_window.py" `
-              "dist/obfuscated/scanner_engine/gui/main_window.py" -Force
+              "dist/obfuscated/gui/main_window.py" -Force
+          Copy-Item "scanner_engine/gui/dashboard_widgets.py" `
+              "dist/obfuscated/gui/dashboard_widgets.py" -Force
+
+          # pyarmor가 "scanner_engine/gui"를 --paths 없이 스캔하면 dist/obfuscated
+          # 밑에 scanner_engine/를 안 붙이고 바로 gui/, main.py, keygen.py로 풀어낸다
+          # (위 로컬 재현에서 확인된 실제 출력 구조) - build_final_v3.ps1이 기대하는
+          # dist/obfuscated/scanner_engine/... 구조로 옮겨준다.
+          New-Item -ItemType Directory -Force -Path "dist/obfuscated/scanner_engine" | Out-Null
+          Move-Item "dist/obfuscated/gui" "dist/obfuscated/scanner_engine/gui" -Force
+          Move-Item "dist/obfuscated/main.py" "dist/obfuscated/scanner_engine/main.py" -Force
+          Move-Item "dist/obfuscated/keygen.py" "dist/obfuscated/scanner_engine/keygen.py" -Force
 
       - name: 최종 패키징 (PyInstaller onefile)
         shell: pwsh
