@@ -19,6 +19,7 @@ from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
 from utils import rule_crypto
+from core.config import AppConfig
 
 class WindowsInspector:
     # [안정성] secedit 기반 룰들이 각자 자기 임시파일에 export/삭제를 반복하면
@@ -40,28 +41,10 @@ class WindowsInspector:
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
-        filename = self.ruleset
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        external_path = os.path.join(base_dir, 'rules', filename)
-        
-        internal_path = None
-        if hasattr(sys, '_MEIPASS'):
-            internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
-        else:
-            internal_path = external_path
-
-        if rule_crypto.ruleset_exists(external_path):
-            return external_path
-        elif internal_path and rule_crypto.ruleset_exists(internal_path):
-            return internal_path
-        return external_path
+        return rule_crypto.resolve_rules_path(self.ruleset)
 
     def connect(self):
-        if self.demo_mode and self.ip in ["0.0.0.0", "127.0.0.2", "localhost"]:
+        if self.demo_mode and self.ip in AppConfig.DEMO_SIMULATION_IPS:
             self.is_simulation = True
             return True
 

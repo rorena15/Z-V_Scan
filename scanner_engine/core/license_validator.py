@@ -147,7 +147,7 @@ class LicenseValidator:
     def validate_key(license_key):
         #입력된 키를 검증하고 유효하면 (True, Tier, 만료일(date))를 반환합니다.
         #위변조/형식오류/만료된 키는 모두 (False, None, None)으로 처리합니다
-        #(만료된 키는 "라이선스 없음"과 동일하게 취급되어, 호출부가 기본 등급(Enterprise)으로 폴백함).
+        #(만료된 키는 "라이선스 없음"과 동일하게 취급되어, 호출부가 기본 등급(Standard)으로 폴백함).
 
         try:
             parts = license_key.strip().upper().split('-')

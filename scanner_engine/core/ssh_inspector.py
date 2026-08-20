@@ -19,6 +19,7 @@ from utils.throttle import AdaptiveThrottle
 from utils.rule_judge import judge_rule
 from utils.expert_profile import get_excluded_codes
 from utils import rule_crypto
+from core.config import AppConfig
 
 class SSHInspector:
     def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False):
@@ -35,25 +36,7 @@ class SSHInspector:
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
-        filename = self.ruleset
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-        external_path = os.path.join(base_dir, 'rules', filename)
-
-        internal_path = None
-        if hasattr(sys, '_MEIPASS'):
-            internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
-        else:
-            internal_path = external_path
-
-        if rule_crypto.ruleset_exists(external_path):
-            return external_path
-        elif internal_path and rule_crypto.ruleset_exists(internal_path):
-            return internal_path
-        return external_path
+        return rule_crypto.resolve_rules_path(self.ruleset)
 
     @staticmethod
     def _get_known_hosts_path():
@@ -118,7 +101,7 @@ class SSHInspector:
         return True
 
     def connect(self):
-        if self.demo_mode and self.ip in ["127.0.0.1", "localhost", "0.0.0.0"]:
+        if self.demo_mode and self.ip in AppConfig.DEMO_SIMULATION_IPS:
             self.is_simulation = True
             return True
 
@@ -133,8 +116,18 @@ class SSHInspector:
             if os.path.exists(known_hosts_path):
                 try:
                     self.client.load_host_keys(known_hosts_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # [버그 수정] 예전엔 known_hosts가 손상됐을 때 조용히 넘어가서,
+                    # 파일은 있는데 핀 고정된 키가 하나도 안 실린 채로
+                    # AutoAddPolicy가 "처음 보는 호스트"처럼 새 키를 그냥 받아들이고
+                    # 재저장해버렸다 - TOFU/MITM 방지가 표시 없이 무력화되는 상태였다.
+                    # 최소한 로그로 남겨서 "이번 접속은 호스트 키 검증이 사실상
+                    # 안 됐다"는 걸 감사 로그에서 확인할 수 있게 한다.
+                    AppLogger.log_error(
+                        f"[SSH] known_hosts 파일을 읽지 못했습니다({known_hosts_path}) - "
+                        f"이번 접속은 기존 핀 고정 키 없이 진행됩니다(MITM 탐지 약화). "
+                        f"파일이 손상됐을 수 있으니 확인하세요.", e
+                    )
             # 최초 접속(known_hosts에 없는 IP)만 자동 등록하고, 이후 저장해둔 키와
             # 다른 키가 나오면 client.connect()가 BadHostKeyException으로 자동 거부한다.
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -186,7 +179,11 @@ class SSHInspector:
                 stdin, stdout, stderr = self.client.exec_command(actual_command, timeout=timeout)
                 return stdout.read().decode('utf-8').strip()
             except Exception:
-                return ""
+                # [버그 수정] 예전엔 실행 실패도 ""(정상 실행+결과없음)와 똑같이
+                # 취급해서, judge_rule()이 "값이 없으니 안전"으로 오판정했다.
+                # windows_inspector/database_inspector와 동일하게 실패는 None으로
+                # 명확히 구분해서 반환한다 - MANUAL로 빠지게 하기 위함.
+                return None
         else:
             return self.get_mock_data(command)
 
@@ -369,11 +366,15 @@ class SSHInspector:
                 "port_info": "tcp   0.0.0.0:22   LISTEN\ntcp   0.0.0.0:80   LISTEN",
                 "service_info": "sshd.service       loaded active running\nnginx.service      loaded active running",
             }
+        # [None 방어] execute_command가 이제 실행 실패 시 None을 반환하므로(판정
+        # 로직에는 필요한 구분이지만), 이 메서드는 순수 표시용 참고정보라 판정과
+        # 무관하다 - 리포트 문자열 조합에 None이 섞여 깨지지 않도록 여기서만
+        # 빈 문자열로 되돌린다.
         return {
-            "os_info": self.execute_command("uname -a; cat /etc/os-release 2>/dev/null"),
-            "ip_info": self.execute_command("ip addr show 2>/dev/null || ifconfig -a 2>/dev/null"),
-            "port_info": self.execute_command("ss -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null"),
+            "os_info": self.execute_command("uname -a; cat /etc/os-release 2>/dev/null") or "",
+            "ip_info": self.execute_command("ip addr show 2>/dev/null || ifconfig -a 2>/dev/null") or "",
+            "port_info": self.execute_command("ss -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null") or "",
             "service_info": self.execute_command(
                 "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null"
-            ),
+            ) or "",
         }

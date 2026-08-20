@@ -26,12 +26,40 @@ load_ruleset()은 "{path}.enc"가 있으면 그걸 복호화하고, 없으면 �
 """
 import json
 import os
+import sys
 from cryptography.fernet import Fernet, InvalidToken
 from core.config import AppConfig
 
 
 def get_enc_path(plain_path):
     return plain_path + ".enc"
+
+
+def resolve_rules_path(filename):
+    """[버그 수정 - 중복 제거] ssh_inspector.py/windows_inspector.py/
+    database_inspector.py 세 클래스가 이 로직(exe 옆 external_path 우선, 없으면
+    _MEIPASS 번들 internal_path로 폴백)을 각자 거의 동일하게(database_inspector만
+    파일명 조합 방식이 다름) 재구현하고 있었다 - 경로 해석을 바꿀 때마다 세 곳을
+    같이 고쳐야 했다. 필요한 건 최종 rules_path뿐이므로, 파일명만 각 클래스가
+    넘기고 해석 자체는 여기 한 곳으로 모은다."""
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    external_path = os.path.join(base_dir, 'rules', filename)
+
+    internal_path = None
+    if hasattr(sys, '_MEIPASS'):
+        internal_path = os.path.join(sys._MEIPASS, 'rules', filename)
+    else:
+        internal_path = external_path
+
+    if ruleset_exists(external_path):
+        return external_path
+    elif internal_path and ruleset_exists(internal_path):
+        return internal_path
+    return external_path
 
 
 def ruleset_exists(plain_path):

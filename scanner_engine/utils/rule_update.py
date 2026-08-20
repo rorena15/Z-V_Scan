@@ -44,14 +44,19 @@ from utils.app_settings import get_base_dir, load_settings
 from utils.logger import AppLogger
 
 _config_cache = None
+_trust_anchor_cache = None
 
 
 def _load_update_config():
-    """[GS 인증 대비 - 하드코딩 배제] 공개키/자산 파일명을 소스 상수가 아니라
-    config/rule_update_config.json에서 읽는다. 다른 inspector들의
-    external_path(exe 옆) -> internal_path(_MEIPASS 번들) 우선순위 패턴과 동일하게,
-    exe 옆 config/ 폴더를 먼저 찾고 없으면 내장 사본으로 폴백한다 - 키 교체 시
-    재컴파일 없이 이 파일만 바꿔치기하면 되는 부수 효과가 있다."""
+    """[GS 인증 대비 - 하드코딩 배제] 자산(zip/sig) 파일명을 소스 상수가 아니라
+    config/rule_update_config.json에서 읽는다. 이 파일명들은 보안이 걸린 값이
+    아니므로(신뢰 여부는 어차피 서명 검증이 결정) exe 옆 config/ 폴더를 먼저
+    찾고 없으면 내장 사본으로 폴백해도 안전하다.
+
+    [버그 수정] 예전엔 public_key_b64(신뢰 루트)도 이 함수로 같이 읽었는데, 그러면
+    exe 옆의 이 파일을 로컬에서 통째로 바꿔치기해서 검증 키 자체를 공격자 키로
+    바꿔치기할 수 있었다(그러면 공격자가 자기 키로 서명한 악성 룰셋도 "검증 통과"로
+    나옴). 신뢰 루트는 절대 이 경로로 읽지 않는다 - _load_trust_anchor() 참고."""
     global _config_cache
     if _config_cache is not None:
         return _config_cache
@@ -70,6 +75,34 @@ def _load_update_config():
     raise FileNotFoundError(
         "config/rule_update_config.json을 찾을 수 없습니다 - 룰셋 업데이트 서명 검증에 필요합니다."
     )
+
+
+def _load_trust_anchor():
+    """[신뢰 루트 전용 - exe 옆 경로에서는 절대 읽지 않음] public_key_b64는 반드시
+    PyInstaller 번들 내부(_MEIPASS, PyArmor로 보호된 실행파일 안)에서만 읽는다.
+    exe 옆 config/ 폴더는 설치 후 파일시스템 쓰기 권한만 있으면 누구나 덮어쓸 수
+    있는 위치라, 신뢰 루트를 거기서 읽으면 검증 로직 자체가 무의미해진다.
+    개발 환경(비frozen)에서는 번들 개념이 없으므로 저장소 내부 config/를 그대로
+    쓴다 - 이 구분이 의미 있는 건 오직 실제 배포되는 frozen 빌드뿐이다."""
+    global _trust_anchor_cache
+    if _trust_anchor_cache is not None:
+        return _trust_anchor_cache
+
+    if hasattr(sys, '_MEIPASS'):
+        internal_path = os.path.join(sys._MEIPASS, 'config', 'rule_update_config.json')
+    else:
+        internal_path = os.path.join(get_base_dir(), 'config', 'rule_update_config.json')
+
+    if not os.path.exists(internal_path):
+        raise FileNotFoundError(
+            "번들 내부 config/rule_update_config.json을 찾을 수 없습니다 - "
+            "룰셋 업데이트 서명 검증용 신뢰 루트가 없어 업데이트를 진행할 수 없습니다."
+        )
+
+    with open(internal_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    _trust_anchor_cache = data["public_key_b64"]
+    return _trust_anchor_cache
 
 
 def _local_manifest_version():
@@ -110,10 +143,22 @@ def _find_asset_url(release, name):
 
 
 def _verify_signature(zip_bytes, sig_b64_text):
-    public_key_b64 = _load_update_config()["public_key_b64"]
+    public_key_b64 = _load_trust_anchor()
     pub_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key_b64))
     signature = base64.b64decode(sig_b64_text.strip())
     pub_key.verify(signature, zip_bytes)  # 실패 시 InvalidSignature 예외
+
+
+def _safe_extract(zf, dest_dir):
+    """[Zip-Slip 방지] 서명 검증을 통과한 zip이라도 멤버 경로에 '..'나 절대경로가
+    섞여있으면 dest_dir 밖에 파일을 쓸 수 있다 - Python 버전에 따라 zipfile이
+    자체적으로 막아주기도/안 막아주기도 하므로 버전에 기대지 않고 직접 검증한다."""
+    dest_dir = os.path.realpath(dest_dir)
+    for member in zf.infolist():
+        target_path = os.path.realpath(os.path.join(dest_dir, member.filename))
+        if not (target_path == dest_dir or target_path.startswith(dest_dir + os.sep)):
+            raise ValueError(f"Zip 멤버 경로가 대상 폴더 밖을 가리킵니다(zip-slip 의심): {member.filename}")
+    zf.extractall(dest_dir)
 
 
 def check_and_apply_update(timeout=15):
@@ -169,7 +214,7 @@ def check_and_apply_update(timeout=15):
 
             rules_dir = os.path.join(get_base_dir(), 'rules')
             os.makedirs(rules_dir, exist_ok=True)
-            zf.extractall(rules_dir)
+            _safe_extract(zf, rules_dir)
     except Exception as e:
         AppLogger.log_error("[RuleUpdate] Failed to apply verified update", e)
         return "ERROR", f"검증은 통과했으나 적용 중 오류: {e}"

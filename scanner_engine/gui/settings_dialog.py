@@ -441,7 +441,7 @@ class SettingsDialog(QDialog):
         box_layout.addWidget(self.lbl_expiry)
 
         # [수정 불가, 입력/삭제만 가능] 기존 키를 고쳐 쓰는 개념이 없다 - 새 키를
-        # 입력하면 통째로 교체되고, 삭제하면 키 없는 기본 상태(Enterprise)로 돌아간다.
+        # 입력하면 통째로 교체되고, 삭제하면 키 없는 기본 상태(Standard)로 돌아간다.
         btn_row = QHBoxLayout()
         btn_activate = QPushButton("라이선스 키 입력")
         btn_activate.clicked.connect(self._open_license_dialog)
@@ -477,7 +477,7 @@ class SettingsDialog(QDialog):
             return
         reply = QMessageBox.question(
             self, "라이선스 삭제 확인",
-            "등록된 라이선스 키를 삭제합니다.\n삭제 후에는 키가 없는 기본 상태(Enterprise)로 동작합니다.\n계속하시겠습니까?",
+            "등록된 라이선스 키를 삭제합니다.\n삭제 후에는 키가 없는 기본 상태(Standard)로 동작합니다.\n계속하시겠습니까?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply != QMessageBox.Yes:
@@ -489,7 +489,7 @@ class SettingsDialog(QDialog):
         except OSError:
             QMessageBox.critical(self, "Error", "라이선스 파일 삭제에 실패했습니다.")
             return
-        license_mgr.current_tier = license_mgr.TIER_ENTERPRISE
+        license_mgr.current_tier = license_mgr.TIER_STANDARD
         license_mgr.expiry_date = None
         if hasattr(main_win, 'update_ui_by_license'):
             main_win.update_ui_by_license()
@@ -530,8 +530,8 @@ class SettingsDialog(QDialog):
     def _format_expiry(license_mgr):
         if license_mgr.expiry_date:
             return str(license_mgr.expiry_date)
-        if license_mgr.effective_tier() == license_mgr.TIER_ENTERPRISE:
-            return "무제한 (라이선스 키 미등록 - 기본 Enterprise 모드)"
+        if license_mgr.effective_tier() == license_mgr.TIER_STANDARD:
+            return "무제한 (라이선스 키 미등록 - 기본 Standard 모드)"
         return "무제한 (개발자 미리보기 모드 - 프로그램 재시작 시 초기화됨)"
 
     # ------------------------------------------------------------------

@@ -265,11 +265,15 @@ class AdvancedScanner:
         # delay 자체가 "연결 시도 폭주를 의도적으로 줄인다"는 안전장치라, 여기서
         # 병렬화하면 그 취지가 무력화된다. delay가 없을 때(일반 모드)만 병렬화해
         # 대용량 커스텀 포트 범위의 스캔 시간을 줄인다.
+        # [버그 수정] "if result"/"if p"는 파이썬에서 0을 falsy로 취급해서, 포트 0이
+        # 열려있어도(커스텀 범위에 0이 포함된 경우) 결과에서 조용히 빠졌다.
+        # _check()는 실패 시 None, 성공 시 포트 번호(0 포함)를 반환하므로
+        # "is not None"으로 명확히 구분한다.
         if delay:
             open_ports = []
             for port in target_ports:
                 result = _check(port)
-                if result:
+                if result is not None:
                     open_ports.append(result)
                 time.sleep(delay)
             return open_ports
@@ -277,7 +281,7 @@ class AdvancedScanner:
         if not target_ports:
             return []
         with ThreadPoolExecutor(max_workers=min(self._PORT_SCAN_MAX_WORKERS, len(target_ports))) as executor:
-            return [p for p in executor.map(_check, target_ports) if p]
+            return [p for p in executor.map(_check, target_ports) if p is not None]
 
     def udp_scan(self, ip, ports=None, delay=0):
         target_ports = ports if ports else [53, 123, 137, 161, 1900]

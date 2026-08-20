@@ -183,10 +183,17 @@ class DatabaseManagerDialog(QDialog):
         if column in col_map:
             field_name = col_map[column]
             success = self.db.update_asset_field(asset_id, field_name, new_value)
-            
+
             if not success:
                 QMessageBox.warning(self, "Error", "수정에 실패했습니다.")
                 # 실패하면 다시 로드해서 원복
+                self.load_data()
+            else:
+                # [버그 수정] 성공했을 때도 self._all_assets를 갱신하지 않아서,
+                # 이후 구역 필터를 바꾸면 _apply_zone_filter()가 이 오래된
+                # 캐시로 테이블을 다시 그려 방금 수정한 값이 화면에서 원래대로
+                # 되돌아가 보였다(DB에는 이미 새 값이 저장돼 있는데도). 실패
+                # 시와 동일하게 다시 로드해 캐시를 최신 상태로 맞춘다.
                 self.load_data()
 
     def delete_selected_row(self):
@@ -225,6 +232,10 @@ class DatabaseManagerDialog(QDialog):
                 print(f"[Delete Error] Row {row}: {e}")
 
         if success_count > 0:
+            # [버그 수정] self.table.removeRow()만으로는 self._all_assets가 갱신
+            # 안 돼서, 삭제 후 구역 필터를 바꾸면 이미 지운 자산이 캐시에서
+            # 되살아나 다시 나타났다(DB에는 없는데도) - 캐시도 함께 최신화한다.
+            self.load_data()
             QMessageBox.information(self, "Success", f"{success_count}개 항목이 삭제되었습니다.")
         else:
             QMessageBox.warning(self, "Fail", "삭제에 실패했습니다.")

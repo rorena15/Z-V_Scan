@@ -75,10 +75,12 @@ class LicenseManager:
     _TIER_CYCLE = [TIER_STANDARD, TIER_PROFESSIONAL, TIER_ENTERPRISE]
 
     def __init__(self):
-        # [기본값 = Enterprise] license.dat에 유효한 키가 없으면(본인 자체 사용 단계 기본
-        # 상태) 소유자 기본 모드로 전체 기능이 열린 채로 동작한다. 나중에 고객사에 STD/PRO
-        # 키를 발급하면 ScannerApp.__init__에서 그 키가 검증되는 즉시 이 값을 낮춘다.
-        self.current_tier = self.TIER_ENTERPRISE
+        # [기본값 = Standard, 2026-08-19 정식 출시 대비 변경] 예전에는 license.dat에
+        # 유효한 키가 없으면 본인 자체 사용 편의를 위해 Enterprise로 시작했으나, 그
+        # 상태로 출시하면 라이선스 없이 받은 사람도 전체 기능을 무제한으로 쓸 수 있어
+        # 상업적으로 말이 안 된다. 이제 키가 없거나 무효/만료면 가장 제한적인 Standard로
+        # 폴백한다 - 유효한 키가 검증되는 즉시 ScannerApp.__init__에서 실제 등급으로 올라간다.
+        self.current_tier = self.TIER_STANDARD
         # 실제 라이선스 키가 로드된 경우에만 채워짐 (없으면 무제한으로 취급)
         self.expiry_date = None
 
@@ -162,14 +164,14 @@ class ScannerApp(QMainWindow):
         if saved_key:
             is_valid, tier, expiry_date = LicenseValidator.validate_key(saved_key)
             if is_valid:
-                # 유효한 키가 있으면 그 등급/만료일로 낮추거나 갱신 (기본값은 Enterprise)
+                # 유효한 키가 있으면 그 등급/만료일로 올리거나 갱신 (기본값은 Standard)
                 self.license_mgr.current_tier = tier
                 self.license_mgr.expiry_date = expiry_date
                 print(f"[System] Valid License Found: {tier} (expires {expiry_date})")
             else:
-                print("[System] Saved license key invalid/expired - using default Enterprise mode")
+                print("[System] Saved license key invalid/expired - using default Standard mode")
         # [버그 수정] 예전엔 이 호출이 위 키 로딩보다 먼저 있어서, 실제 키가 있어도
-        # 창 제목이 항상 기본값(Enterprise) 기준으로만 표시되던 문제가 있었음 - 반드시
+        # 창 제목이 항상 기본값(Standard) 기준으로만 표시되던 문제가 있었음 - 반드시
         # current_tier가 최종 확정된 뒤에 호출해야 한다.
         self.update_ui_by_license()
         self.load_saved_data()
@@ -913,10 +915,13 @@ class ScannerApp(QMainWindow):
             self.scanned_ip_cache.add(ip)
 
         # 2. 설명 가져오기
+        # [버그 수정] 발견된 호스트마다 새 DBConnector()를 만들면 매번 스키마
+        # 마이그레이션(CREATE TABLE/ALTER TABLE 시도)이 재실행되고 커넥션도 새로
+        # 열려서, /24 스캔(호스트 ~250개) 기준 GUI 스레드가 불필요하게 오래 막혔다.
+        # __init__에서 이미 만들어 둔 self.db를 재사용한다.
         description_text = ""
         try:
-            db = DBConnector()
-            description_text = db.get_description(ip)
+            description_text = self.db.get_description(ip)
         except: pass
 
         # --- [핵심 수정] 강제 빈칸 처리 로직 ---
@@ -1324,7 +1329,12 @@ class ScannerApp(QMainWindow):
     def generate_text_report(self):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            generator = TextReportGenerator()
+            # [버그 수정] Excel/PDF와 동일하게 라이선스 등급을 전달 - 예전엔 안 넘겨서
+            # TXT로 내보내면 등급과 무관하게 증적/조치방안이 항상 전체 노출됐다.
+            generator = TextReportGenerator(
+                evidence_level=self.license_mgr.evidence_level(),
+                remediation_level=self.license_mgr.remediation_level(),
+            )
             # [매크로 호환] 호스트별로 별도 .txt 파일이 생성되므로 단일 파일이 아니라 목록으로 반환됨
             filepaths = generator.generate()
             QApplication.restoreOverrideCursor()

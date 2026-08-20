@@ -12,26 +12,13 @@ import sqlite3
 import os
 import sys
 import threading
+import time
 from datetime import datetime
 from utils.logger import AppLogger
 from utils import rule_crypto
-
-# [보안수준 계산] output/excel_report.py의 RULE_FILES/IMPORTANCE_WEIGHT와 동일 규칙
-# (엔진 접두어, 중요도 가중치) - 대시보드 KPI가 Excel 리포트 표지의 "보안수준"과
-# 같은 값을 내야 하므로 산식을 그대로 복제한다. rules/*.json이 바뀌면 이 둘을
-# 같이 봐야 한다(기존에도 text_report.py/excel_report.py 두 곳에 이미 중복돼 있던
-# 패턴이라 세 번째 사본을 추가하는 것- 공용 모듈로 뽑는 건 이번 범위 밖).
-RULE_FILES = {
-    "linux_rules.json": "",
-    "windows_rules.json": "",
-    "pc_rules.json": "",
-    "mysql_rules.json": "MYSQL-",
-    "postgresql_rules.json": "POSTGRESQL-",
-    "mssql_rules.json": "MSSQL-",
-    "oracle_rules.json": "ORACLE-",
-    "web_rules.json": "",
-}
-IMPORTANCE_WEIGHT = {"상": 10, "중": 8, "하": 6}
+# [버그 수정] RULE_FILES/IMPORTANCE_WEIGHT가 이 파일/text_report.py/excel_report.py
+# 세 곳에 따로 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합.
+from utils.rule_constants import RULE_FILES, IMPORTANCE_WEIGHT
 
 # [hostname 우선순위 - 2026-08-06 추가] 여러 경로로 hostname이 식별됐을 때, 신뢰도
 # 낮은 출처가 이미 확보된 신뢰도 높은 hostname을 조용히 덮어쓰지 않게 순위를 정한다
@@ -374,30 +361,59 @@ class DBConnector:
     # get_latest_round_filter()가 만드는 서브쿼리 조건을 함께 사용해야 한다.
     def save_result(self, asset_id, code, name, risk, status, detail, remediation="-", raw_output="", kisa_code="",
                      session_id=None, operator=""):
+        # [버그 수정] 예전엔 MAX(scan_round)+1 조회와 INSERT 사이를 파이썬
+        # threading.Lock(_db_lock)으로만 직렬화했다 - 이건 "같은 프로세스 안의
+        # 여러 스레드"만 막아주고, 같은 zvuln_scan.db를 가리키는 별도 프로세스
+        # 두 개(예: 공유/네트워크 경로에 DB를 두고 두 PC에서 동시 실행)가 동시에
+        # 같은 MAX값을 읽어버리면 동일 scan_round로 중복 INSERT될 수 있었다.
+        # BEGIN IMMEDIATE로 SQLite 파일 잠금 자체를 트랜잭션 시작 시점에 걸어,
+        # 프로세스 경계와 무관하게 조회+삽입을 원자적으로 만든다. 다른 프로세스가
+        # 이미 쓰기 잠금을 쥐고 있으면 "database is locked"가 날 수 있어 짧게
+        # 재시도한다.
         with self._db_lock:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = conn.cursor()
-            try:
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                cursor.execute(
-                    "SELECT COALESCE(MAX(scan_round), 0) + 1 FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?",
-                    (asset_id, code)
-                )
-                next_round = cursor.fetchone()[0]
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            max_attempts = 5
+            for attempt in range(1, max_attempts + 1):
+                conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=10)
+                conn.isolation_level = None  # autocommit off - BEGIN/COMMIT을 직접 제어
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("BEGIN IMMEDIATE")
+                    cursor.execute(
+                        "SELECT COALESCE(MAX(scan_round), 0) + 1 FROM TBL_SCAN_RESULT WHERE asset_id=? AND vuln_code=?",
+                        (asset_id, code)
+                    )
+                    next_round = cursor.fetchone()[0]
 
-                cursor.execute("""
-                    INSERT INTO TBL_SCAN_RESULT
-                    (asset_id, vuln_code, kisa_code, vuln_name, risk_level, status, detected_value, raw_output,
-                     remediation, scan_date, session_id, scan_round, operator)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (asset_id, code, kisa_code, name, risk, status, detail, raw_output, remediation,
-                      now, session_id, next_round, operator))
-                conn.commit()
-                return True
-            except Exception as e:
-                AppLogger.log_error(f"[DB] Save Result Error", e)
-                return False
-            finally: conn.close()
+                    cursor.execute("""
+                        INSERT INTO TBL_SCAN_RESULT
+                        (asset_id, vuln_code, kisa_code, vuln_name, risk_level, status, detected_value, raw_output,
+                         remediation, scan_date, session_id, scan_round, operator)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (asset_id, code, kisa_code, name, risk, status, detail, raw_output, remediation,
+                          now, session_id, next_round, operator))
+                    cursor.execute("COMMIT")
+                    return True
+                except sqlite3.OperationalError as e:
+                    try:
+                        cursor.execute("ROLLBACK")
+                    except sqlite3.OperationalError:
+                        pass
+                    if "locked" in str(e).lower() and attempt < max_attempts:
+                        time.sleep(0.2 * attempt)
+                        continue
+                    AppLogger.log_error(f"[DB] Save Result Error", e)
+                    return False
+                except Exception as e:
+                    try:
+                        cursor.execute("ROLLBACK")
+                    except sqlite3.OperationalError:
+                        pass
+                    AppLogger.log_error(f"[DB] Save Result Error", e)
+                    return False
+                finally:
+                    conn.close()
+            return False
 
     @staticmethod
     def latest_round_condition(table_alias="R"):
@@ -904,7 +920,20 @@ class DBConnector:
         """
         result_id(TBL_SCAN_RESULT.result_id) 단위로 예외처리를 설정/해제한다.
         [Phase 2/3] 예외처리 시 사유(reason)와 승인자(approver)를 함께 기록한다.
+
+        [버그 수정] "사유+승인자 필수" 감사 요건이 지금까지 WaiverInputDialog(UI)
+        에서만 강제되고 있었다 - 이 메서드를 다른 경로(일괄처리 기능, 스크립트,
+        또 다른 다이얼로그 등)에서 그 다이얼로그를 거치지 않고 직접 호출하면
+        빈 사유/승인자로도 예외처리가 그냥 걸렸다. 데이터 계층에서도 동일 요건을
+        강제해 "다이얼로그가 유일한 관문"인 상태를 없앤다.
         """
+        if waived and (not (reason or "").strip() or not (approver or "").strip()):
+            AppLogger.log_error(
+                f"[DB] Set Waiver rejected (result_id={result_id}): "
+                "예외처리는 사유와 승인자가 모두 필요합니다."
+            )
+            return False
+
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()

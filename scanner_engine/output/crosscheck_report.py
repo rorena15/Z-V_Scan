@@ -84,6 +84,19 @@ class CrossCheckReportGenerator:
                 pass
         self.header_fill = PatternFill(start_color=self.COLOR_HEADER_BG, end_color=self.COLOR_HEADER_BG, fill_type='solid')
 
+    @staticmethod
+    def _safe_cell_value(value):
+        """[버그 수정] 이 리포트는 제3자 컨설턴트 TXT 파일을 파싱한, 설계상 신뢰할
+        수 없는 외부 입력을 셀에 그대로 썼다 - excel_report.clean_text()가 하는
+        수식 인젝션 방지(=/+/-/@ 선행문자 escape)조차 전혀 없었다. 여기도 동일한
+        원칙을 적용한다."""
+        if value is None:
+            return value
+        text = str(value)
+        if text and text[0] in ('=', '+', '-', '@'):
+            text = "'" + text
+        return text
+
     def _write_header(self, ws, headers, row=1):
         for col, text in enumerate(headers, 1):
             cell = ws.cell(row=row, column=col, value=text)
@@ -159,7 +172,7 @@ class CrossCheckReportGenerator:
             color = self._CLASS_COLOR.get(e.get("classification"))
             fill = PatternFill(start_color=color, end_color=color, fill_type='solid') if color else None
             for col, value in enumerate(values, 1):
-                cell = ws.cell(row=r, column=col, value=value)
+                cell = ws.cell(row=r, column=col, value=self._safe_cell_value(value))
                 cell.font = self.FONT_NORMAL
                 cell.border = self.BORDER_THIN
                 if fill:
@@ -183,7 +196,7 @@ class CrossCheckReportGenerator:
         for m in self.result.get("missing_entries", []):
             values = [m.get("host"), m.get("ip"), m.get("ruleset_file"), m.get("code"), m.get("name")]
             for col, value in enumerate(values, 1):
-                cell = ws.cell(row=r, column=col, value=value)
+                cell = ws.cell(row=r, column=col, value=self._safe_cell_value(value))
                 cell.font = self.FONT_NORMAL
                 cell.border = self.BORDER_THIN
                 fill = PatternFill(start_color=self.COLOR_MISSING, end_color=self.COLOR_MISSING, fill_type='solid')

@@ -143,3 +143,21 @@ def encrypt_on_exit(plain_path):
     with open(tmp_path, 'wb') as f:
         f.write(blob)
     os.replace(tmp_path, enc_path)
+
+    # [버그 수정] 여기까지 오면 .enc가 안전하게 디스크에 있는 상태이므로, 지금까지
+    # 방치되던 평문 원본을 지운다 - 안 지우면 "at rest 암호화"가 이름만 그럴싸할 뿐
+    # 실제로는 아무것도 보호하지 못한다(평문 파일이 그대로 디스크에 남아있었음).
+    # 완전한 포렌식 복구 방지(SSD wear-leveling 등)까지는 이 모듈의 목표가 아니므로,
+    # 덮어쓰기 1회 후 삭제하는 best-effort 수준으로 처리한다.
+    try:
+        size = os.path.getsize(plain_path)
+        with open(plain_path, 'r+b') as f:
+            f.write(b"\x00" * size)
+            f.flush()
+            os.fsync(f.fileno())
+        os.remove(plain_path)
+    except OSError as e:
+        AppLogger.log_error(
+            "[DB Crypto] Encrypted snapshot saved but failed to remove plaintext original "
+            "- plaintext zvuln_scan.db may still be present on disk.", e
+        )

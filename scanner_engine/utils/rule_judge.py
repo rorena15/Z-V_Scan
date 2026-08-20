@@ -93,10 +93,24 @@ def judge_rule(rule, full_output, execute_fn=None):
         passed, total, unmet_labels = 0, len(criteria), []
         for c in criteria:
             c_output = full_output
+            c_exec_failed = False
             if c.get("command") and execute_fn:
-                c_output = execute_fn(c["command"]) or ""
+                c_result = execute_fn(c["command"])
+                # [버그 수정] 예전엔 `execute_fn(...) or ""`로 None(실행 실패)과
+                # ""(정상 실행됐지만 결과 없음)를 똑같이 빈 문자열로 뭉뚱그렸다.
+                # vulnerable_keyword 조건은 "빈 문자열엔 뭐가 있어도 안 걸림"이라
+                # 실행 자체가 실패한 기준이 자동으로 "충족(안전)"으로 잘못 집계됐다.
+                # 최상위 full_output이 None일 때 MANUAL로 보내는 것과 같은 원칙으로,
+                # 여기서도 실행 실패는 절대 "충족"으로 세지 않는다.
+                if c_result is None:
+                    c_exec_failed = True
+                    c_output = ""
+                else:
+                    c_output = c_result
 
-            if "vulnerable_keyword" in c:
+            if c_exec_failed:
+                ok = False
+            elif "vulnerable_keyword" in c:
                 ok = c["vulnerable_keyword"] not in c_output
             elif "safe_keyword" in c:
                 ok = bool(c_output) and c["safe_keyword"] in c_output
@@ -106,7 +120,10 @@ def judge_rule(rule, full_output, execute_fn=None):
             if ok:
                 passed += 1
             else:
-                unmet_labels.append(c.get("label", "세부기준"))
+                label = c.get("label", "세부기준")
+                if c_exec_failed:
+                    label += " (실행 실패 - 수동 확인 필요)"
+                unmet_labels.append(label)
 
         if passed == total:
             return "SAFE", f"양호 (세부기준 {passed}/{total} 충족)"

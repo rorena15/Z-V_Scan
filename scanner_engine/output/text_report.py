@@ -17,18 +17,9 @@ from utils.db_connector import DBConnector
 from utils.app_settings import get_report_output_dir
 from utils.logger import AppLogger
 from utils import rule_crypto
-
-# 엔진별 룰 파일과, database_inspector.py가 내부 저장 키에 붙이는 접두어
-RULE_FILES = {
-    "linux_rules.json": "",
-    "windows_rules.json": "",
-    "pc_rules.json": "",
-    "mysql_rules.json": "MYSQL-",
-    "postgresql_rules.json": "POSTGRESQL-",
-    "mssql_rules.json": "MSSQL-",
-    "oracle_rules.json": "ORACLE-",
-    "web_rules.json": "",
-}
+# [버그 수정] RULE_FILES가 이 파일/db_connector.py/excel_report.py 세 곳에 따로
+# 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합.
+from utils.rule_constants import RULE_FILES
 
 SYS_DETAIL_LABELS = [
     ("SYS-OS_INFO", "시스템 정보"),
@@ -62,7 +53,14 @@ class TextReportGenerator:
       3) SYSTEM Detail - 시스템/IP/PORT/서비스 원시 정보 부록
     """
 
-    def __init__(self):
+    def __init__(self, evidence_level="full", remediation_level="full"):
+        # [버그 수정] 예전엔 이 생성자가 등급 정보를 아예 안 받아서, TXT로 내보내면
+        # Standard 등급이어도 ExcelGenerator/PDFGenerator와 달리 증적/조치방안이
+        # 전부 그대로 노출됐다(라이선스 등급 제한을 통째로 우회하는 경로였음).
+        # evidence_level: "full"|"vuln_only" / remediation_level: "full"|"partial"|"none"
+        # - ExcelGenerator와 동일한 의미, 동일한 값을 그대로 받아 쓴다.
+        self.evidence_level = evidence_level
+        self.remediation_level = remediation_level
         self.db = DBConnector()
         if getattr(sys, 'frozen', False):
             base_path = os.path.dirname(sys.executable)
@@ -139,19 +137,25 @@ class TextReportGenerator:
             if not assets:
                 raise Exception("진단된 자산 데이터가 없습니다.")
 
+            # [효율성 개선] 자산마다 따로 쿼리하던 N+1 패턴 대신, 전체 자산의 결과를
+            # 한 번에 가져와 asset_id 기준으로 파이썬에서 그룹핑한다 -
+            # excel_report.py._fetch_scan_result()와 동일한 방식.
+            cursor.execute(f"""
+                SELECT asset_id, vuln_code, kisa_code, vuln_name, status, detected_value,
+                       raw_output, remediation, waiver_status, operator, risk_level
+                FROM TBL_SCAN_RESULT R
+                WHERE {DBConnector.latest_round_condition('R')}
+                ORDER BY asset_id ASC, vuln_code ASC
+            """)
+            rows_by_asset = {}
+            for row in cursor.fetchall():
+                rows_by_asset.setdefault(row[0], []).append(row[1:])
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             written_files = []
 
             for asset_id, ip, hostname, os_type in assets:
-                cursor.execute(f"""
-                    SELECT vuln_code, kisa_code, vuln_name, status, detected_value,
-                           raw_output, remediation, waiver_status, operator
-                    FROM TBL_SCAN_RESULT R
-                    WHERE asset_id = ?
-                    AND {DBConnector.latest_round_condition('R')}
-                    ORDER BY vuln_code ASC
-                """, (asset_id,))
-                rows = cursor.fetchall()
+                rows = rows_by_asset.get(asset_id)
                 if not rows:
                     continue
 
@@ -178,13 +182,13 @@ class TextReportGenerator:
         audit_rows = []
         sys_detail = {}
 
-        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator in rows:
+        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator, risk_level in rows:
             if self._is_system_detail_code(vuln_code):
                 sys_detail[vuln_code] = raw_output
             elif self._is_discovery_code(vuln_code):
                 discovery_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived))
             else:
-                audit_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator))
+                audit_rows.append((vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator, risk_level))
 
         buf = []
         fallback_host = hostname if hostname and hostname != "-" else ip
@@ -231,12 +235,23 @@ class TextReportGenerator:
 
         grouped = {}
         order = []
-        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator in audit_rows:
+        for vuln_code, kisa_code, name, status, detail, raw_output, remediation, waived, operator, risk_level in audit_rows:
             rule = self.rule_lookup.get(vuln_code, {})
             category = rule.get('category', '기타')
             if category not in grouped:
                 grouped[category] = []
                 order.append(category)
+
+            # [버그 수정] 라이선스 등급별 차등 - ExcelGenerator/PDFGenerator와 동일한
+            # 규칙을 여기서도 적용한다(evidence_level="vuln_only"면 취약/부분만족만
+            # 증적 노출, remediation_level로 조치방안 노출 범위 제한).
+            if self.evidence_level == "vuln_only" and status not in ("VULNERABLE", "PARTIAL"):
+                raw_output = "(상세 증적은 Professional 이상 등급에서 제공됩니다)"
+            if self.remediation_level == "none":
+                remediation = "(조치 방안은 Professional 이상 등급에서 제공됩니다)"
+            elif self.remediation_level == "partial" and risk_level not in ("Critical", "High"):
+                remediation = "(중요도 상/중 항목만 제공됩니다. 전체 제공은 Enterprise 등급)"
+
             grouped[category].append({
                 "code": kisa_code or vuln_code,
                 "name": name,
