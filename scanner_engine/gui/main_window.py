@@ -1242,7 +1242,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
-            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map)
+            self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, engine_token=AppConfig.ENGINE_ACCESS_TOKEN)
             self.connect_worker()
             self.worker.start()
         except Exception as e:
@@ -1288,7 +1288,7 @@ class ScannerApp(QMainWindow):
         oracle_service = self.oracle_service_input.text().strip()
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None, engine_token=AppConfig.ENGINE_ACCESS_TOKEN)
         self.connect_worker()
         self.worker.start()
 

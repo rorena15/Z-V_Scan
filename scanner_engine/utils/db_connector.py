@@ -17,8 +17,9 @@ from datetime import datetime
 from utils.logger import AppLogger
 from utils import rule_crypto
 # [버그 수정] RULE_FILES/IMPORTANCE_WEIGHT가 이 파일/text_report.py/excel_report.py
-# 세 곳에 따로 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합.
-from utils.rule_constants import RULE_FILES, IMPORTANCE_WEIGHT
+# 세 곳에 따로 복사돼 있어 하나만 안 고치면 조용히 어긋났다 - 공용으로 통합
+# (새 파일을 만들지 않고 rule_crypto.py에 합침 - PyArmor 트라이얼 파일 수 제약).
+from utils.rule_crypto import RULE_FILES, IMPORTANCE_WEIGHT
 
 # [hostname 우선순위 - 2026-08-06 추가] 여러 경로로 hostname이 식별됐을 때, 신뢰도
 # 낮은 출처가 이미 확보된 신뢰도 높은 hostname을 조용히 덮어쓰지 않게 순위를 정한다

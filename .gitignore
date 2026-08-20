@@ -37,6 +37,13 @@ __pycache__/
 *.pyc
 
 ########################################
+# Cython Build Artifacts (로컬 하이브리드 빌드 시 생성됨 - CI도 매번 새로 생성/폐기)
+########################################
+scanner_engine/**/*.c
+scanner_engine/**/*.pyd
+pyarmor.bug.log
+
+########################################
 # Scanner Engine Cache (Explicit)
 ########################################
 scanner_engine/__pycache__/

@@ -32,7 +32,6 @@ from utils.db_connector import DBConnector
 from utils.logger import AppLogger
 from utils.os_utils import OSUtils
 from core.discovery import HostDiscovery
-from utils.auth_token import get_engine_token
 from core.config import AppConfig
 
 class ScanWorker(QThread):
@@ -44,7 +43,7 @@ class ScanWorker(QThread):
     # [UI/UX 개선 - hostname 출처 배지] IP, Host, OS, MAC, Vendor, hostname 출처(역DNS/매핑/추정)
     asset_found_signal = Signal(str, str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None, engine_token=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -81,7 +80,16 @@ class ScanWorker(QThread):
         self.session_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         # [Phase 2: 운영자 태깅] 스캔을 수행한 운영자 식별값 - 결과에 함께 기록된다.
         self.operator = operator or ""
-        self._security_token = get_engine_token()
+        # [2026-08-20] 예전엔 inspect.stack()으로 "나를 부른 모듈이 core.worker인가"를
+        # 검사했는데, 두 가지 이유로 무의미했다: (1) Cython 컴파일된 모듈은 자기 호출에
+        # Python 프레임을 안 남겨서 inspect.stack()이 항상 core.worker를 못 찾고 폴백
+        # 토큰을 반환함 - 실빌드에서 스캔 시작 시 100% "Security Error"로 실패하는 것을
+        # 로컬 재현으로 확인함. (2) 설계상으로도 검사 지점이 이 __init__ 내부라 "나를
+        # 부른 게 core.worker냐"는 항상 참(자기 자신)이라, 엔진 모듈을 통째로 떼어내
+        # 직접 ScanWorker(...)를 호출하는 시나리오를 애초에 막지 못했음. 대신 정당한
+        # 호출자(main_window.py)가 토큰을 명시적으로 건네고 여기서 값만 비교한다 -
+        # 토큰 실값은 Cython 컴파일된 config.py 안에 있어 평문 노출은 아니다.
+        self._security_token = engine_token
 
     def run(self):
         if self._security_token != AppConfig.ENGINE_ACCESS_TOKEN:

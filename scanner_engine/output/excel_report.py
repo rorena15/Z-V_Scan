@@ -44,9 +44,10 @@ from utils import rule_crypto
 import core.vuln_matcher as Vuln
 from output.text_report import RULE_FILES, STATUS_TO_RESULT
 # [버그 수정] IMPORTANCE_WEIGHT가 이 파일/db_connector.py 두 곳에 따로 복사돼
-# 있어 하나만 안 고치면 조용히 어긋났다 - 공용 모듈로 통합(RULE_FILES는 이미
-# text_report.py를 통해 간접 공유되고 있었으므로 그대로 둠).
-from utils.rule_constants import IMPORTANCE_WEIGHT
+# 있어 하나만 안 고치면 조용히 어긋났다 - 공용으로 통합(RULE_FILES는 이미
+# text_report.py를 통해 간접 공유되고 있었으므로 그대로 둠. 새 파일을 만들지
+# 않고 rule_crypto.py에 합침 - PyArmor 트라이얼 파일 수 제약).
+from utils.rule_crypto import IMPORTANCE_WEIGHT
 
 # 코드 접두어 -> 표시 카테고리명. 순서가 그대로 시트 등장 순서가 된다.
 # 관리적/물리적/보안장비/네트워크장비는 자동 점검 대상이 아니라 제외.
