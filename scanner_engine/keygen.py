@@ -78,10 +78,20 @@ def _log_issued_key(key, tier_code, expiry_date, label):
 
 
 def _cmd_generate(args):
-    key, expiry_date = generate_key(args.tier, args.days)
+    # [2026-08-20] 발급일 기준 만료(키 자체에 절대 만료일이 박힘)라서, 발급 시점과
+    # 고객이 실제로 등록하는 시점 사이에 시차가 생기면 그만큼 실사용 기간이 약속한
+    # 기간보다 줄어드는 손해가 생길 수 있다. 등록 시점 기준으로 바꾸는 방법도
+    # 검토했으나, 그러려면 최초 활성화 시점을 로컬에 저장해야 하는데 이 프로젝트는
+    # 라이선스 서버 없이 완전 오프라인 검증이 전제라 그 저장값을 지우고 재설치하면
+    # 기간이 통째로 초기화되는 더 큰 구멍이 생긴다. 그래서 구조는 그대로 두고,
+    # --days(고객에게 약속한 기간)에 --grace-days(발급~등록 지연을 흡수하는 여유
+    # 기간, 기본 7일)를 더해서 실제 키의 만료일을 계산하는 절차로 대응한다.
+    total_days = args.days + args.grace_days
+    key, expiry_date = generate_key(args.tier, total_days)
     _log_issued_key(key, args.tier, expiry_date, args.label)
     print(f"발급된 키: {key}")
-    print(f"등급: {args.tier} / 만료일: {expiry_date} / 라벨: {args.label or '(없음)'}")
+    print(f"등급: {args.tier} / 약속 기간: {args.days}일 (+그레이스 {args.grace_days}일) / "
+          f"실제 만료일: {expiry_date} / 라벨: {args.label or '(없음)'}")
     print(f"(발급 대장에 기록됨: {os.path.abspath(_LEDGER_PATH)})")
 
 
@@ -118,7 +128,10 @@ if __name__ == "__main__":
 
     p_gen = sub.add_parser("generate", help="새 라이선스 키 발급")
     p_gen.add_argument("--tier", choices=["STD", "PRO", "ENT"], required=True)
-    p_gen.add_argument("--days", type=int, default=365, help="유효기간(일), 기본 365일")
+    p_gen.add_argument("--days", type=int, default=365, help="고객에게 약속한 유효기간(일), 기본 365일")
+    p_gen.add_argument("--grace-days", type=int, default=7,
+                        help="발급~등록 사이 지연을 흡수하는 여유 기간(일), 기본 7일 - "
+                             "실제 만료일 = 발급일 + days + grace-days")
     p_gen.add_argument("--label", type=str, default="", help="발급 대상 메모(예: 고객사명)")
     p_gen.set_defaults(func=_cmd_generate)
 
