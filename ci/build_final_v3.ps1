@@ -64,6 +64,18 @@ foreach ($folder in $modules_to_copy) {
             Copy-Item "$source_path\*.py" -Destination $dest_path -Force
             Write-Host "   -> Copied GUI scripts (.py) to: $folder" -ForegroundColor Gray
         }
+
+        # [대시보드 웹뷰, 2026-09] gui/web/(dashboard.html/js + vendor/chart.umd.min.js)는
+        # .py가 아니라서 PyArmor도 위 *.py 복사도 건드리지 않는다 - 안 하면 배포판에서
+        # 대시보드 화면이 빈 페이지로 뜬다. 매번 최신 상태로 덮어써서 스테일 웹 자산이
+        # 남지 않게 한다.
+        $webSrc = "$source_path\web"
+        if (Test-Path $webSrc) {
+            $webDest = "$dest_path\web"
+            if (Test-Path $webDest) { Remove-Item -Recurse -Force $webDest }
+            Copy-Item $webSrc $webDest -Recurse -Force
+            Write-Host "   -> Copied dashboard web assets (html/js/vendor) to: gui/web" -ForegroundColor Gray
+        }
     }
     else {
         # Core/Utils/Output: .pyd 모듈 복사
@@ -94,63 +106,26 @@ if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
 # ---------------------------------------------------------------------
 # [4/4] PyInstaller 실행
 # ---------------------------------------------------------------------
-Write-Host "`n[4/4] Packaging into Single EXE..." -ForegroundColor Yellow
+# [2026-09 "exe 부팅 속도" 피드백] 처음엔 onedir(압축 해제 자체를 없앰)로
+# 전환했었는데, 사용자가 배포 형태는 onefile 그대로 유지하고 싶어해서
+# (installer/zip 없이 exe 한 개로 배포하는 편의성 우선) onefile로 되돌리고,
+# 대신 --splash로 압축 해제~엔진 초기화 동안 "실행 중"임을 보여주는 안내 화면을
+# 띄우는 쪽으로 방향을 바꿨다. 여기서 한 걸음 더 - "진행바가 실제로 작동하게"
+# 해달라는 요청까지 반영하려면 Splash(text_pos=...)로 텍스트를 실시간 갱신해야
+# 하는데, 그 옵션은 PyInstaller CLI(--splash)에는 없고 .spec 파일에서만 쓸 수
+# 있다. 그래서 순수 CLI 인자 나열 대신 ci/zvulnscan.spec(기존 CLI 인자를 전부
+# 그대로 옮겨 담음)을 쓰도록 바꿨다 - main.py가 실제 부팅 단계(무거운 import,
+# DB 복호화, 메인 창 표시)마다 pyi_splash.update_text()로 진행바 문구를 갱신한다.
+# 스플래시 이미지(assets/splash.png)는 Z-VulnScan_Build_Work/splash_Image.psd
+# 원본 디자인을 바탕으로 다시 그린 것을 정적 에셋으로 커밋해 둔 것을 쓴다.
+Write-Host "`n[4/4] Packaging (onefile + live-progress splash screen)..." -ForegroundColor Yellow
 
-pyinstaller --noconfirm --onefile --windowed --clean `
-    --noupx `
-    --name $APP_NAME `
-    --icon "app_icon.ico" `
-    --distpath $DIST_DIR `
-    --paths "$SRC_DIR" `
-    --add-data "$SRC_DIR/$RUNTIME_DIR;${RUNTIME_DIR}" `
-    `
-    --add-data "$SRC_DIR/scanner_engine/core;scanner_engine/core" `
-    --add-data "$SRC_DIR/scanner_engine/core;core" `
-    `
-    --add-data "$SRC_DIR/scanner_engine/utils;scanner_engine/utils" `
-    --add-data "$SRC_DIR/scanner_engine/utils;utils" `
-    `
-    --add-data "$SRC_DIR/scanner_engine/output;scanner_engine/output" `
-    --add-data "$SRC_DIR/scanner_engine/output;output" `
-    `
-    --add-data "$SRC_DIR/scanner_engine/gui;scanner_engine/gui" `
-    --add-data "$SRC_DIR/scanner_engine/gui;gui" `
-    `
-    --add-data "$RULES_STAGED_DIR;rules" `
-    --add-data "config;config" `
-    --add-data "app_icon.ico;." `
-    `
-    --collect-all "reportlab" `
-    --collect-all "openpyxl" `
-    --collect-all "paramiko" `
-    --collect-all "keyring" `
-    --collect-all "bcrypt" `
-    --collect-all "pynacl" `
-    --collect-all "cryptography" `
-    --collect-all "pymysql" `
-    --collect-all "psycopg2" `
-    --collect-all "pymssql" `
-    --collect-all "oracledb" `
-    --hidden-import "scanner_engine.core.discovery" `
-    --hidden-import "scanner_engine.core.vuln_matcher" `
-    --hidden-import "sqlite3" `
-    --hidden-import "_sqlite3" `
-    --hidden-import "PySide6.QtWebEngineWidgets" `
-    --hidden-import "PySide6.QtWebEngineCore" `
-    --hidden-import "PySide6.QtXml" `
-    --hidden-import "PySide6.QtNetwork" `
-    --hidden-import "PySide6.QtPrintSupport" `
-    --hidden-import "winrm" `
-    --hidden-import "re" `
-    --hidden-import "PySide6.QtCore" `
-    --hidden-import "PySide6.QtGui" `
-    --hidden-import "PySide6.QtWidgets" `
-    --hidden-import "utils" `
-    --hidden-import "utils.logger" `
-    --hidden-import "utils.os_utils" `
-    --hidden-import "utils.secure_storage" `
-    --hidden-import "gui" `
-    "$SRC_DIR/scanner_engine/main.py"
+# .spec은 버전마다 달라지는 EXE 이름과 PyArmor 런타임 폴더명을 하드코딩할 수 없어서
+# 환경변수로 넘긴다 (ci/zvulnscan.spec 상단 주석 참고).
+$env:ZVULN_APP_NAME = $APP_NAME
+$env:ZVULN_RUNTIME_DIR = $RUNTIME_DIR
+
+pyinstaller --noconfirm --clean --distpath $DIST_DIR ci/zvulnscan.spec
 
 # 4. 결과 확인
 if ($LASTEXITCODE -eq 0) {

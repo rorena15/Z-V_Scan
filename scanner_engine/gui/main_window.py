@@ -9,6 +9,7 @@ import sys
 import os
 import csv
 import re
+import json
 import requests
 import threading
 
@@ -61,7 +62,45 @@ from utils.update_checker import check_for_updates
 from gui.styles import STYLESHEET, LIGHT_STYLESHEET
 from gui.help_texts import HELP_TEXTS
 from gui.dialogs import LicenseDialog, PortSelectorDialog
-from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, RecentActivityCard, COLORS, set_theme as set_dashboard_theme, make_line_icon, HostnameSourceBadge, InfoCard, LabelWithHelp
+from gui.dashboard_widgets import ScanConfigCard, MetricsRow, AssetsTableCard, RecentActivityCard, COLORS, STATUS_STYLE, set_theme as set_dashboard_theme, make_line_icon, HostnameSourceBadge, InfoCard, LabelWithHelp
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEnginePage
+
+_NAV_CONSOLE_PREFIX = "ZVULNSCAN_NAV:"
+
+
+class _DashboardNavPage(QWebEnginePage):
+    """[UI/UX 개선 - 2026-09] 대시보드 웹뷰(gui/web/dashboard.js)가 JS 쪽에서
+    "자산 탭으로 이동해서 이 조건으로 필터링해줘"를 Python에 요청하는 통로.
+
+    [버그 수정 - 시행착오 2건] 처음엔 QWebChannel(JS<->Python 양방향 바인딩)을
+    시도했는데 file:// 페이지에서 `qt.webChannelTransport`가 정의되지 않는 걸
+    확인했다(Uncaught ReferenceError). 다음으로 `zvulnscan://drill?...` 커스텀
+    URL 스킴 네비게이션 + acceptNavigationRequest 가로채기를 시도했는데(Qt
+    문서가 권장하는 표준 패턴), 이번 개발 환경(오프스크린/소프트웨어 렌더링)에서
+    반응이 들쭉날쭉해서 신뢰할 수 없었다 - 실제 사용자 PC(정상 GPU)에서는 될 수도
+    있지만 검증할 방법이 없어 채택하지 않았다.
+
+    최종적으로 `console.log("ZVULNSCAN_NAV:" + JSON)`를 여기서 가로채는 방식을
+    쓴다 - javaScriptConsoleMessage는 이 세션에서 디버깅 내내 100% 안정적으로
+    호출되는 걸 반복 확인했고(위 두 방식과 달리 스킴 등록·사용자 제스처·페이지
+    네비게이션 정책 등 어떤 것에도 의존하지 않는 가장 단순한 훅이다), 실제로도
+    잘 동작하는 것까지 실측 확인했다."""
+    def __init__(self, on_navigate, parent=None):
+        super().__init__(parent)
+        self._on_navigate = on_navigate
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        if message.startswith(_NAV_CONSOLE_PREFIX):
+            try:
+                payload = json.loads(message[len(_NAV_CONSOLE_PREFIX):])
+            except (ValueError, TypeError) as e:
+                AppLogger.log_error("[DashboardNav] Failed to parse nav payload", e)
+                return
+            self._on_navigate(payload)
+        else:
+            super().javaScriptConsoleMessage(level, message, line, source)
+
 
 class LicenseManager:
     #단일 바이너리 내에서 라이선스 등급에 따라 기능을 제어하는 매니저 클래스
@@ -452,9 +491,109 @@ class ScannerApp(QMainWindow):
         # 위젯에 몰려서 내용이 비정상적으로 커지는 문제가 있었다 - 남는 공간을
         # 흡수할 stretch를 맨 끝에 명시적으로 둔다.
         return self._wrap_scrollable_page(
-            [header, self._build_metrics_row(), self._build_unresolved_warning(), self.recent_activity_card],
+            [
+                header, self._build_metrics_row(), self._build_insights_row(),
+                self._build_unresolved_warning(), self.recent_activity_card,
+            ],
             trailing_stretch=True,
         )
+
+    def _dashboard_html_path(self):
+        """gui/web/dashboard.html 경로 - resource_path()(CWD 기준 dev 경로 가정)는
+        repo 루트 파일(app_icon.ico 등) 전용이라 scanner_engine/gui/ 아래 있는 이
+        파일에는 안 맞는다. _get_rules_path() 계열과 동일하게 __file__ 기준으로
+        계산해 CWD와 무관하게 항상 맞는 경로를 찾는다."""
+        gui_dir = os.path.dirname(os.path.abspath(__file__))
+        if hasattr(sys, '_MEIPASS'):
+            frozen_path = os.path.join(sys._MEIPASS, 'gui', 'web', 'dashboard.html')
+            if os.path.exists(frozen_path):
+                return frozen_path
+        return os.path.join(gui_dir, 'web', 'dashboard.html')
+
+    def _build_insights_row(self):
+        """[UI/UX 개선 - "보고서형" 대시보드 웹뷰, 2026-09] 사용자가 제시한 BI
+        대시보드 레퍼런스(카드형 KPI + 실제 차트 다수)처럼, 지표 카드만으로는 안
+        보이던 "어떤 영역이 취약한지/추세가 어떤지"를 실제 차트 3개로 보여준다.
+
+        처음엔 PySide6.QtCharts(네이티브 QWidget)로 만들었는데, 사용자가 레퍼런스
+        수준의 시각적 완성도를 원해서 QWebEngineView + Chart.js로 교체했다(전체
+        요청: "엔진은 그대로, 화면(제어)만 웹" - core/utils는 전혀 안 건드리고
+        gui/ 레이어만 교체). HTML/JS/Chart.js는 전부 로컬 파일(gui/web/)이라
+        서버/소켓 없이 인터넷 없는 OT망에서도 그대로 동작한다.
+
+        [버그 수정 - QWebChannel 포기] 처음엔 QWebChannel로 JS<->Python 양방향
+        연결을 시도했는데, 실측 확인 결과 `qt.webChannelTransport`가 정의되지
+        않아(`Uncaught ReferenceError: qt is not defined`) file:// 페이지에서
+        자동 주입이 안 되는 걸 확인했다. 그다음 시도한 커스텀 URL 스킴
+        네비게이션도 이 개발 환경에서 반응이 들쭉날쭉해 포기했다(_DashboardNavPage
+        주석 참고). 최종적으로 Python -> JS는 `page().runJavaScript()`(데이터
+        전달, refresh_insights_charts() 참고), JS -> Python은
+        `console.log("ZVULNSCAN_NAV:...")` 가로채기로 정착했다 - 둘 다 실측으로
+        안정성이 확인된 방식이다.
+
+        [버그 수정 - 2026-09 "시작 속도 저하" 피드백] QWebEngineView 생성은
+        Chromium 엔진 초기화라 수백ms~수 초가 걸리는 무거운 작업이다. 이걸
+        __init__()의 동기 경로(_build_dashboard_page() -> 여기)에서 만들면
+        메인 창이 화면에 뜨는 것 자체가 그만큼 늦어진다 - 그래서 여기서는
+        빈 자리(placeholder)만 먼저 반환하고, 실제 QWebEngineView 생성은
+        `QTimer.singleShot(0, ...)`으로 미뤄서 메인 창이 이미 화면에 뜬 뒤
+        (다음 이벤트 루프 틱)에 조용히 진행되게 한다(_init_dashboard_webview 참고)."""
+        container = QWidget()
+        self._insights_layout = QVBoxLayout(container)
+        self._insights_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._insights_placeholder = QLabel("차트를 준비하는 중...")
+        self._insights_placeholder.setAlignment(Qt.AlignCenter)
+        self._insights_placeholder.setMinimumHeight(260)
+        self._insights_placeholder.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
+        self._insights_layout.addWidget(self._insights_placeholder)
+
+        QTimer.singleShot(0, self._init_dashboard_webview)
+
+        return container
+
+    def _init_dashboard_webview(self):
+        """_build_insights_row()가 QTimer.singleShot(0, ...)으로 미뤄둔 실제
+        QWebEngineView 생성 - 메인 창이 화면에 뜬 다음(이벤트 루프 한 틱 이후)
+        실행되므로 앱 시작 자체를 늦추지 않는다."""
+        self.dashboard_web_view = QWebEngineView()
+        self.dashboard_web_view.setMinimumHeight(260)
+        nav_page = _DashboardNavPage(self._handle_dashboard_navigation, self.dashboard_web_view)
+        self.dashboard_web_view.setPage(nav_page)
+        # [배경 투명화] 웹뷰 자체는 배경을 없애서, 카드 사이 여백에 앱의 실제
+        # 배경(surface_1)이 그대로 비치게 한다 - 안 그러면 라이트/다크 어느
+        # 테마든 흰 사각형이 화면 위에 떠 있는 것처럼 보인다. .card는 HTML/CSS가
+        # var(--surface-2)로 직접 칠하므로 카드 자체는 그대로 보인다.
+        nav_page.setBackgroundColor(QColor(Qt.transparent))
+        self.dashboard_web_view.setAttribute(Qt.WA_TranslucentBackground)
+        # 페이지 로딩은 비동기라, 로딩이 끝난 뒤에야 renderFromPython()이
+        # 정의돼 있다 - 로딩 완료 시점에 맞춰 첫 데이터를 밀어준다.
+        self.dashboard_web_view.loadFinished.connect(
+            lambda ok: self.refresh_insights_charts() if ok else None
+        )
+        self.dashboard_web_view.load(QUrl.fromLocalFile(self._dashboard_html_path()))
+
+        self._insights_layout.removeWidget(self._insights_placeholder)
+        self._insights_placeholder.deleteLater()
+        self._insights_layout.addWidget(self.dashboard_web_view)
+
+    def _handle_dashboard_navigation(self, payload):
+        """[UI/UX 개선 - 2026-09] dashboard.js가 차트/랭킹 행을 클릭하면
+        `console.log("ZVULNSCAN_NAV:" + JSON.stringify({...}))`을 호출하고,
+        `_DashboardNavPage.javaScriptConsoleMessage()`가 그 메시지를 가로채
+        JSON을 파싱해 여기로 넘긴다(payload: {"type", "value", "value2"?, "label"})."""
+        filter_type = payload.get("type") or None
+        value = payload.get("value")
+        label = payload.get("label") or "필터링된 결과"
+
+        if filter_type == "host":
+            filter_value = (value, payload.get("value2"))
+        elif filter_type in ("status", "category", "code"):
+            filter_value = value
+        else:
+            filter_type, filter_value = None, None
+
+        self.drill_down_dashboard_filter(filter_type, filter_value, label)
 
     def _build_unresolved_warning(self):
         """[커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산이 있으면 보여주고
@@ -575,6 +714,22 @@ class ScannerApp(QMainWindow):
         self.metrics_row = MetricsRow()
         # refresh_dashboard_metrics()가 예전처럼 metric_labels로 접근할 수 있게 alias
         self.metric_labels = {k: card.value_label for k, card in self.metrics_row.cards.items()}
+
+        # [UI/UX 개선 - 2026-09 "카드 클릭 시 적합한 화면으로 이동"] 각 카드가
+        # 의미상 가장 관련 있는 화면/필터로 바로 이동한다.
+        self.metrics_row.cards["assets_scanned"].clicked.connect(
+            lambda: self.drill_down_dashboard_filter(None, None, "전체 진단 결과")
+        )
+        self.metrics_row.cards["critical_findings"].clicked.connect(
+            lambda: self.drill_down_dashboard_filter("status", "VULNERABLE", "취약 항목")
+        )
+        self.metrics_row.cards["partial_compliance"].clicked.connect(
+            lambda: self.drill_down_dashboard_filter("status", "PARTIAL", "부분만족 항목")
+        )
+        # 보안수준은 개별 findings 목록보다 리포트(Excel 표지에 동일 산식으로 실림)와
+        # 더 직접적으로 연결되므로 자산 탭이 아니라 리포트 탭으로 이동한다.
+        self.metrics_row.security_card.clicked.connect(lambda: self._on_nav_clicked("reports"))
+
         return self.metrics_row
 
     def _build_results_card(self):
@@ -818,6 +973,45 @@ class ScannerApp(QMainWindow):
         self.btn_clear_session_filter.setVisible(False)
         self.refresh_findings_table()
 
+    def drill_down_dashboard_filter(self, filter_type, filter_value, label):
+        """[UI/UX 개선 - 2026-09 "카드/차트 클릭 시 적합한 화면으로 이동"]
+        drill_down_session()과 같은 원리(자산 탭 진단결과표+필터 배너 재사용)로,
+        세션이 아니라 대시보드 KPI 카드/웹뷰 차트를 클릭했을 때의 다양한 기준
+        (상태/카테고리/호스트/코드)으로 필터링한다. 상세 내역 표 자체를 대시보드에
+        두지 않고("대시보드는 한눈에 보는 현황만" 원칙, _build_dashboard_page()
+        주석 참고) 여기 자산 탭으로 옮긴 것도 같은 맥락 - 조치가 필요한 상세
+        목록은 조치 화면(자산 탭)에 있는 게 맞다.
+
+        filter_type: 'status'|'category'|'host'|'code'|None(전체 취약+부분만족)
+        filter_value: status/category/code 문자열, host는 (hostname, ip) 튜플, None이면 무시
+        label: 필터 배너에 보여줄 설명 문구
+        """
+        self._on_nav_clicked("assets")
+        try:
+            findings = self.db.get_latest_findings()
+        except Exception as e:
+            AppLogger.log_error("[UI] Drill Down Dashboard Filter Failed", e)
+            findings = []
+
+        if filter_type == "status":
+            findings = [f for f in findings if f["status"] == filter_value]
+        elif filter_type == "category":
+            findings = [f for f in findings if f["category"] == filter_value and f["status"] in ("VULNERABLE", "PARTIAL")]
+        elif filter_type == "host":
+            hostname, ip = filter_value
+            findings = [f for f in findings if f["hostname"] == hostname and f["ip"] == ip]
+        elif filter_type == "code":
+            findings = [f for f in findings if f["code"] == filter_value and f["status"] in ("VULNERABLE", "PARTIAL")]
+        # filter_type이 None이면 get_latest_findings() 전체(취약+부분만족+양호 등)를 그대로 보여준다
+
+        self.assets_table_card.clear_rows()
+        for f in findings:
+            self.assets_table_card.add_row(f["hostname"], f["os_type"], f["code"], f["status"], f["risk"])
+
+        self.lbl_session_filter.setText(f"{label} ({len(findings)}건)")
+        self.lbl_session_filter.setVisible(True)
+        self.btn_clear_session_filter.setVisible(True)
+
     def _build_log_panel(self):
         """[Phase 3] 도킹/플로팅 창이 아니라 메인 창에 고정 임베드되는 로그 패널.
         기본적으로 숨겨져 있고, Settings > 테마·UI 탭의 체크박스로 표시 여부를 켠다."""
@@ -872,6 +1066,36 @@ class ScannerApp(QMainWindow):
             AppLogger.log_error("[UI] Refresh Dashboard Trend Failed", e)
         self.refresh_unresolved_warning()
         self.refresh_recent_activity()
+        self.refresh_insights_charts()
+
+    def refresh_insights_charts(self):
+        """[UI/UX 개선 - "보고서형" 대시보드 웹뷰] QWebChannel을 포기한 이유는
+        _build_insights_row()의 버그 수정 주석 참고 - 대신 여기서 Python이 직접
+        db_connector.py를 조회해 JSON으로 만든 뒤 `page().runJavaScript()`로
+        웹뷰 안의 `renderFromPython()`에 밀어넣는다(단방향 push, JS->Python
+        호출은 없음). 페이지가 아직 로딩 중이면(loadFinished 전) 그 함수가 없을
+        수 있어 JS 쪽에서 존재 여부를 확인한 뒤 호출한다.
+
+        [정보 부족 피드백 반영] 예전엔 status_distribution/category_breakdown처럼
+        Python이 미리 집계한 숫자만 넘겼는데, 그러면 "그 뒤에 어떤 자산/항목이
+        있는지" 드릴다운이 안 됐다 - 지금은 get_latest_findings()로 원본 목록을
+        통째로 넘기고, 위험도 분포/카테고리별 집계/Top 자산/Top 항목/드릴다운
+        테이블을 전부 dashboard.js가 그 원본에서 계산한다."""
+        if not hasattr(self, 'dashboard_web_view'):
+            return
+        try:
+            payload = {
+                "colors": dict(COLORS),
+                "status_colors": {k: v[1] for k, v in STATUS_STYLE.items()},
+                "status_labels": {k: v[2] for k, v in STATUS_STYLE.items()},
+                "findings": self.db.get_latest_findings(),
+                "security_history": self.db.get_security_level_history(),
+            }
+        except Exception as e:
+            AppLogger.log_error("[UI] Refresh Insights Charts Failed (data)", e)
+            return
+        script = f"if (window.renderFromPython) {{ window.renderFromPython({json.dumps(payload)}); }}"
+        self.dashboard_web_view.page().runJavaScript(script)
 
     def refresh_recent_activity(self):
         if not hasattr(self, 'recent_activity_card'):

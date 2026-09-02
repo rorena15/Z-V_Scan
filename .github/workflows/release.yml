@@ -59,7 +59,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install cython pyarmor pyinstaller setuptools
+          # Pillow: PyInstaller --splash(스플래시 화면, 2026-09 부팅 체감속도 개선)가
+          # 빌드 시점에 assets/splash.png를 처리하는 데 필요 - 앱 런타임 의존성은 아님.
+          pip install cython pyarmor pyinstaller setuptools pillow
 
       - name: 버전 삽입 - AppConfig.VERSION을 릴리즈 태그로 교체
         shell: pwsh
@@ -122,10 +124,15 @@ jobs:
           Move-Item "dist/obfuscated/main.py" "dist/obfuscated/scanner_engine/main.py" -Force
           Move-Item "dist/obfuscated/keygen.py" "dist/obfuscated/scanner_engine/keygen.py" -Force
 
-      - name: 최종 패키징 (PyInstaller onefile)
+      - name: 최종 패키징 (PyInstaller onefile + 스플래시 화면)
+        id: package
         shell: pwsh
         run: |
           ci/build_final_v3.ps1 -Version "${{ steps.ver.outputs.version }}"
+          $version = "${{ steps.ver.outputs.version }}"
+          $distDir = "Z-VulnScan_Professional_${version}_Final"
+          $appName = "Z-VulnScan_Professional_Edition_$version"
+          "exe_path=$distDir\$appName.exe" >> $env:GITHUB_OUTPUT
 
       - name: 릴리즈 노트(코멘터리) 생성 - 직전 태그 이후 커밋 로그
         id: notes
@@ -184,4 +191,4 @@ jobs:
           name: "Z-VulnScan Professional ${{ steps.ver.outputs.version }}"
           body_path: ${{ steps.notes.outputs.path }}
           files: |
-            Z-VulnScan_Professional_${{ steps.ver.outputs.version }}_Final/*.exe
+            ${{ steps.package.outputs.exe_path }}

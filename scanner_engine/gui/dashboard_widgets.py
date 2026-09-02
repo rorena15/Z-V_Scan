@@ -354,11 +354,19 @@ class LegendDot(QWidget):
 
 
 class MetricCard(HoverLiftFrame):
-    """지표 카드 (Assets scanned / Critical findings 등). tone: 'default'|'danger'|'warning'."""
+    """지표 카드 (Assets scanned / Critical findings 등). tone: 'default'|'danger'|'warning'.
+    [UI/UX 개선 - 2026-09 "카드 클릭 시 적합한 메뉴로 이동"] HoverLiftFrame이 주는
+    호버 그림자 효과에 더해, 카드마다 의미상 가장 관련 있는 화면으로 바로 이동하는
+    클릭 동작을 추가한다(예: '취약 항목' 카드 -> 자산 탭에서 취약 항목만 필터링).
+    실제 이동 로직은 main_window.py가 이 clicked 시그널을 구독해서 처리한다 -
+    이 위젯 자체는 어떤 화면으로 갈지 모르고 그냥 "클릭됐다"만 알린다."""
+    clicked = Signal()
+
     def __init__(self, label: str, value: str, tone: str = "default",
                  tooltip_text: str = None, icon_kind: str = None, parent=None):
         super().__init__(base_blur=16, base_y=2, alpha=22, parent=parent)
         self.tone = tone
+        self.setCursor(Qt.PointingHandCursor)
         bg_map = {
             "default": COLORS["surface_1"],
             "danger": COLORS["danger_bg"],
@@ -374,13 +382,16 @@ class MetricCard(HoverLiftFrame):
             "danger": COLORS["danger_text"],
             "warning": COLORS["warning_text"],
         }
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {bg_map[tone]};
-                border-radius: 10px;
-                border-left: 4px solid {accent_map[tone]};
-            }}
-        """)
+        # [버그 수정 - 2026-09 "호버링이 작동 안 됨"] HoverLiftFrame의 그림자
+        # 애니메이션(blur 16->26)만으로는 실제 화면에서 변화가 너무 미세해서
+        # 거의 안 보인다는 피드백을 받았다 - enterEvent/leaveEvent 자체는
+        # 헤드리스 테스트로 정상 발화하는 걸 확인했으니 "이벤트가 안 온다"가
+        # 아니라 "와도 눈에 안 띈다"는 문제였다. 그림자 애니메이션은 그대로 두고,
+        # 테두리 전체를 accent 색으로 두르는 확실히 보이는 변화를 추가한다
+        # (QSS 박스모델 속성이라 애니메이션 타이밍에 기대지 않고 즉시 반영됨).
+        self._card_bg = bg_map[tone]
+        self._card_border_color = accent_map[tone]
+        self.setStyleSheet(self._card_style(hover=False))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 11, 14, 11)
         layout.setSpacing(4)
@@ -426,6 +437,32 @@ class MetricCard(HoverLiftFrame):
         self.trend_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
         self.trend_label.setVisible(False)
         layout.addWidget(self.trend_label)
+
+    def _card_style(self, hover):
+        """hover=True면 테두리 전체를 accent 색으로 두른다 - 왼쪽 4px 강조선은
+        평소에도 있으니 호버 때는 그걸 그대로 두고 나머지 3면에 얇은 테두리를
+        더해서 "카드 전체가 강조됐다"는 게 분명히 드러나게 한다."""
+        extra = f"border-top: 1px solid {self._card_border_color}; border-right: 1px solid {self._card_border_color}; border-bottom: 1px solid {self._card_border_color};" if hover else ""
+        return f"""
+            QFrame {{
+                background-color: {self._card_bg};
+                border-radius: 10px;
+                border-left: 4px solid {self._card_border_color};
+                {extra}
+            }}
+        """
+
+    def enterEvent(self, event):
+        self.setStyleSheet(self._card_style(True))
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setStyleSheet(self._card_style(False))
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
     def set_value(self, value: str):
         """[UI/UX 개선 - 인터랙션] 숫자가 바뀔 때 그냥 스냅되지 않고 이전 값에서
@@ -533,16 +570,21 @@ class DonutGauge(QWidget):
 class SecurityLevelCard(HoverLiftFrame):
     """[UI/UX 개선] KPI 4번째 칸 - '보안수준' 도넛 게이지. db_connector.get_dashboard_trend()의
     실측 계산값을 표시한다(Excel 리포트 표지의 보안수준과 동일 산식). 스캔 이력이 없으면
-    게이지를 빈 회색으로, 값은 '-'로 둔다 - 가짜 퍼센트를 채우지 않는다."""
+    게이지를 빈 회색으로, 값은 '-'로 둔다 - 가짜 퍼센트를 채우지 않는다.
+    [UI/UX 개선 - 2026-09] MetricCard와 동일하게 클릭 시 관련 화면(리포트 탭 -
+    이 수치가 공식으로 실리는 Excel 표지와 같은 산식)으로 이동할 수 있게 clicked
+    시그널을 낸다."""
+    clicked = Signal()
+
     def __init__(self, parent=None):
         super().__init__(base_blur=16, base_y=2, alpha=22, parent=parent)
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS['surface_1']};
-                border-radius: 10px;
-                border-left: 4px solid {COLORS['accent']};
-            }}
-        """)
+        self.setCursor(Qt.PointingHandCursor)
+        # [버그 수정 - 2026-09 "호버링이 작동 안 됨"] MetricCard와 동일한 이유 -
+        # 그림자 애니메이션만으로는 변화가 너무 미세해서, 호버 시 테두리 전체를
+        # accent 색으로 두르는 확실히 보이는 변화를 추가한다.
+        self._card_bg = COLORS['surface_1']
+        self._card_border_color = COLORS['accent']
+        self.setStyleSheet(self._card_style(hover=False))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 11, 14, 11)
         layout.setSpacing(4)
@@ -579,6 +621,29 @@ class SecurityLevelCard(HoverLiftFrame):
         self._value_anim.setDuration(600)
         self._value_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._value_anim.valueChanged.connect(lambda v: self.value_label.setText(f"{v:.1f}%"))
+
+    def _card_style(self, hover):
+        extra = f"border-top: 1px solid {self._card_border_color}; border-right: 1px solid {self._card_border_color}; border-bottom: 1px solid {self._card_border_color};" if hover else ""
+        return f"""
+            QFrame {{
+                background-color: {self._card_bg};
+                border-radius: 10px;
+                border-left: 4px solid {self._card_border_color};
+                {extra}
+            }}
+        """
+
+    def enterEvent(self, event):
+        self.setStyleSheet(self._card_style(True))
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setStyleSheet(self._card_style(False))
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
     def _animate_value_label(self, target):
         """DonutGauge.animate_to()와 같은 타이밍으로 퍼센트 숫자도 함께 카운트업한다."""

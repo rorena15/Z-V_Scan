@@ -44,6 +44,7 @@ class DBConnector:
 
         self.db_path = os.path.join(base_path, 'zvuln_scan.db')
         self._rule_importance_cache = None
+        self._rule_defs_cache = None
         self._init_db()
 
     def _init_db(self):
@@ -602,11 +603,12 @@ class DBConnector:
         if status == "ERROR": return "점검불가"
         return "양호"
 
-    def _load_rule_importance_lookup(self):
-        """vuln_code(엔진 접두어 포함) -> importance(상/중/하). 프로세스 생애주기 동안
-        1회만 로드해 캐시한다(rules/*.json은 실행 중 안 바뀜)."""
-        if self._rule_importance_cache is not None:
-            return self._rule_importance_cache
+    def _load_rule_defs(self):
+        """vuln_code(엔진 접두어 포함) -> rule dict 전체. 프로세스 생애주기 동안 1회만
+        로드해 캐시한다(rules/*.json은 실행 중 안 바뀜) - importance/category 등 여러
+        조회가 이 캐시 하나를 공유해서 파일을 중복으로 읽지 않는다."""
+        if self._rule_defs_cache is not None:
+            return self._rule_defs_cache
         if getattr(sys, 'frozen', False):
             base_path = os.path.dirname(sys.executable)
         else:
@@ -615,7 +617,7 @@ class DBConnector:
         if hasattr(sys, '_MEIPASS') and not os.path.isdir(rules_dir):
             rules_dir = os.path.join(sys._MEIPASS, 'rules')
 
-        lookup = {}
+        defs = {}
         for filename, prefix in RULE_FILES.items():
             path = os.path.join(rules_dir, filename)
             if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
@@ -623,11 +625,56 @@ class DBConnector:
             try:
                 data = rule_crypto.load_ruleset(path)
                 for rule in data:
-                    lookup[f"{prefix}{rule['code']}"] = rule.get("importance", "중")
+                    defs[f"{prefix}{rule['code']}"] = rule
             except Exception as e:
-                AppLogger.log_error(f"[DB] Failed to load {filename} for security level", e)
+                AppLogger.log_error(f"[DB] Failed to load {filename} rule defs", e)
+        self._rule_defs_cache = defs
+        return defs
+
+    def _load_rule_importance_lookup(self):
+        """vuln_code(엔진 접두어 포함) -> importance(상/중/하)."""
+        if self._rule_importance_cache is not None:
+            return self._rule_importance_cache
+        lookup = {code: rule.get("importance", "중") for code, rule in self._load_rule_defs().items()}
         self._rule_importance_cache = lookup
         return lookup
+
+    def _score_at_round(self, by_key, rule_lookup, round_picker):
+        """get_dashboard_trend()(최신 vs 직전)와 get_security_level_history()(회차별
+        시계열)가 공유하는 채점 로직. by_key: {(asset_id, vuln_code): {round: (status,
+        risk, waived)}}. round_picker(rounds)가 각 코드마다 어떤 회차를 볼지 고른다
+        (None이면 그 코드는 이번 집계에서 제외)."""
+        full = 0.0
+        vuln = 0.0
+        counted = False
+        crit = 0
+        partial = 0
+        has_any_round = False
+        for (asset_id, vuln_code), rounds in by_key.items():
+            rnd = round_picker(rounds)
+            if rnd is None:
+                continue
+            has_any_round = True
+            status, risk, waived = rounds[rnd]
+            label = self._final_status_label(status, waived)
+
+            # get_dashboard_metrics()와 동일 정의 - 코드 종류 무관하게 전부 집계
+            if label == "취약" and risk in ("Critical", "High"):
+                crit += 1
+            if label == "부분만족":
+                partial += 1
+
+            # 보안수준 - rules/*.json에 실제 정의된 코드만 채점(excel_report.py와 동일 범위)
+            if vuln_code in rule_lookup:
+                weight = IMPORTANCE_WEIGHT.get(rule_lookup[vuln_code], 8)
+                if label == "취약":
+                    full += weight; vuln += weight; counted = True
+                elif label == "부분만족":
+                    full += weight; vuln += weight / 2; counted = True
+                elif label == "양호":
+                    full += weight; counted = True
+        security = None if (not counted or full == 0) else round((full - vuln) / full * 100, 1)
+        return security, crit, partial, has_any_round
 
     def get_dashboard_trend(self):
         """[대시보드 KPI] '보안수준' 게이지 + KPI 카드별 '전 회차 대비' 추이를 한 번의
@@ -678,41 +725,8 @@ class DBConnector:
             latest = max(rounds)
             return latest - 1 if latest >= 2 and (latest - 1) in rounds else None
 
-        def _tally(round_picker):
-            full = 0.0
-            vuln = 0.0
-            counted = False
-            crit = 0
-            partial = 0
-            has_any_round = False
-            for (asset_id, vuln_code), rounds in by_key.items():
-                rnd = round_picker(rounds)
-                if rnd is None:
-                    continue
-                has_any_round = True
-                status, risk, waived = rounds[rnd]
-                label = self._final_status_label(status, waived)
-
-                # get_dashboard_metrics()와 동일 정의 - 코드 종류 무관하게 전부 집계
-                if label == "취약" and risk in ("Critical", "High"):
-                    crit += 1
-                if label == "부분만족":
-                    partial += 1
-
-                # 보안수준 - rules/*.json에 실제 정의된 코드만 채점(excel_report.py와 동일 범위)
-                if vuln_code in rule_lookup:
-                    weight = IMPORTANCE_WEIGHT.get(rule_lookup[vuln_code], 8)
-                    if label == "취약":
-                        full += weight; vuln += weight; counted = True
-                    elif label == "부분만족":
-                        full += weight; vuln += weight / 2; counted = True
-                    elif label == "양호":
-                        full += weight; counted = True
-            security = None if (not counted or full == 0) else round((full - vuln) / full * 100, 1)
-            return security, crit, partial, has_any_round
-
-        cur_security, cur_crit, cur_partial, _ = _tally(lambda rounds: max(rounds))
-        prev_security, prev_crit, prev_partial, prev_has_any = _tally(_previous_round)
+        cur_security, cur_crit, cur_partial, _ = self._score_at_round(by_key, rule_lookup, lambda rounds: max(rounds))
+        prev_security, prev_crit, prev_partial, prev_has_any = self._score_at_round(by_key, rule_lookup, _previous_round)
 
         def _delta(cur, prev):
             return None if (cur is None or prev is None) else round(cur - prev, 1)
@@ -733,6 +747,105 @@ class DBConnector:
                 "delta": (cur_partial - prev_partial) if prev_has_any else None,
             },
         }
+
+    def get_security_level_history(self, max_points=12):
+        """[대시보드 - 보안수준 추이 라인차트] 회차(scan_round)별 보안수준을 시계열로
+        반환한다. scan_round는 (asset_id, vuln_code) 단위 독립 카운터라(전문가 모드로
+        코드마다 이번엔 뺐다 다시 넣었다 하면 회차가 어긋날 수 있음) 진짜 "동시각"
+        타임라인은 아니지만, get_dashboard_trend()/get_round_comparison()과 동일하게
+        "그 회차 번호에 도달한 코드들의 그 시점 값"을 모아 근사한다 - 완벽하진 않아도
+        가짜 수치를 넣지 않는 실측 기반 근사치다(_score_at_round() 재사용).
+        반환: [{"round": int, "security_level": float|None}, ...] (오래된 순, 최대
+        max_points개 - 회차가 아주 많이 쌓이면 그래프가 읽기 힘들어지는 것 방지).
+        회차 자체가 없으면(스캔 이력 없음) 빈 리스트."""
+        rule_lookup = self._load_rule_importance_lookup()
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT asset_id, vuln_code, scan_round, status, risk_level, waiver_status
+                    FROM TBL_SCAN_RESULT
+                """)
+                rows = cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Security Level History Failed", e)
+                return []
+            finally:
+                conn.close()
+
+        by_key = {}
+        max_round = 0
+        for asset_id, vuln_code, rnd, status, risk, waived in rows:
+            by_key.setdefault((asset_id, vuln_code), {})[rnd] = (status, risk, waived)
+            max_round = max(max_round, rnd)
+
+        if max_round == 0:
+            return []
+
+        history = []
+        for n in range(1, max_round + 1):
+            security, _, _, has_any = self._score_at_round(
+                by_key, rule_lookup, lambda rounds, n=n: n if n in rounds else None
+            )
+            if has_any:
+                history.append({"round": n, "security_level": security})
+
+        return history[-max_points:]
+
+    def get_latest_findings(self):
+        """[대시보드 웹뷰 - 원본 데이터] 위험도 분포/카테고리별 현황/Top 취약자산/
+        Top 다발항목/드릴다운 테이블까지 전부 이 원본 리스트 하나에서 JS가
+        계산한다(gui/web/dashboard.js) - Python이 화면마다 따로 집계 쿼리를 만드는
+        대신, 최신 회차 findings를 통째로 넘기고 집계/필터/드릴다운은 클라이언트에서
+        처리한다. 자산 수 x 룰(~250개) 규모라 한 번에 넘겨도 무리 없다.
+
+        예전엔 get_status_distribution()/get_category_breakdown()으로 따로
+        집계해서 반환했는데("정보가 너무 부족하다"는 피드백으로 확인됨), 집계된
+        숫자만 있으면 "그 뒤에 어떤 자산/항목이 있는지" 드릴다운이 안 됐다 -
+        원본을 넘기는 쪽으로 교체했다.
+
+        최신 회차, rules/*.json에 실제 정의된 코드(SYS-/CONN- 등 메타 항목 제외)만,
+        waiver 처리된 항목은 제외(KPI 카드와 동일 모집단).
+        반환: [{"ip":str, "hostname":str, "os_type":str, "code":str, "name":str,
+                "category":str, "importance":str, "status":str, "risk":str}, ...]
+        (os_type은 대시보드 웹뷰 JS는 안 쓰고, main_window.py의 자산 탭 드릴다운
+        테이블 표시용으로 2026-09에 추가됨)"""
+        rule_defs = self._load_rule_defs()
+        findings = []
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT A.ip_addr, A.hostname, A.os_type, R.vuln_code, R.status, R.risk_level
+                    FROM TBL_SCAN_RESULT R
+                    JOIN TBL_ASSETS A ON A.asset_id = R.asset_id
+                    WHERE R.waiver_status = 0 AND {self.latest_round_condition('R')}
+                """)
+                rows = cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Latest Findings Failed", e)
+                return []
+            finally:
+                conn.close()
+
+        for ip, hostname, os_type, code, status, risk in rows:
+            rule = rule_defs.get(code)
+            if not rule:
+                continue
+            findings.append({
+                "ip": ip,
+                "os_type": os_type or "",
+                "hostname": hostname or ip,
+                "code": code,
+                "name": rule.get("name", code),
+                "category": rule.get("category", "기타"),
+                "importance": rule.get("importance", "중"),
+                "status": status,
+                "risk": risk or "",
+            })
+        return findings
 
     def save_scan_session(self, session_id, target_input, mode):
         """[대시보드 - 최근 활동 개편] 스캔 1회 실행이 시작될 때 worker.py가 한 번

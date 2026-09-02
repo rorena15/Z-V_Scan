@@ -32,6 +32,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, Reference
 
 # 상위 모듈 참조
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -155,6 +156,30 @@ class ExcelGenerator:
                 if font: cell.font = font
                 if alignment: cell.alignment = alignment
 
+    def _add_security_level_chart(self, ws, title, anchor, header_row, first_row, last_row, value_col, cat_col=1):
+        """[2026-09] 표지/카테고리 시트/호스트 시트 3곳이 전부 "분류(또는 카테고리)별
+        보안수준(%) 막대 차트"를 쓰므로 공용 헬퍼 하나로 합쳤다.
+        [범위 버그 수정] y_axis.scaling.min/max를 안 정해두면 Excel이 데이터
+        최소~최대로 축을 자동 축소해서(예: 55~70%대 값이면 그 구간만 보여줌) 막대
+        높이 차이가 실제보다 과장돼 보인다 - 보안수준은 의미상 0~100% 범위이므로
+        축 범위를 항상 명시적으로 고정한다."""
+        chart = BarChart()
+        chart.type = "col"
+        chart.title = title
+        chart.y_axis.title = "보안수준"
+        chart.y_axis.numFmt = '0%'
+        chart.y_axis.scaling.min = 0
+        chart.y_axis.scaling.max = 1
+        chart.height = 7
+        chart.width = 16
+        chart.style = 10
+        chart.legend = None
+        data_ref = Reference(ws, min_col=value_col, min_row=header_row, max_row=last_row)
+        cats_ref = Reference(ws, min_col=cat_col, min_row=first_row, max_row=last_row)
+        chart.add_data(data_ref, titles_from_data=True)
+        chart.set_categories(cats_ref)
+        ws.add_chart(chart, anchor)
+
     def _unique_sheet_name(self, name):
         """엑셀 시트명 31자 제한 + 중복 방지(호스트명이 같거나 잘려서 겹치는 경우)."""
         name = re.sub(r'[\\/*?:\[\]]', '_', name)[:31]
@@ -233,17 +258,15 @@ class ExcelGenerator:
             self._create_cover_sheet(wb, asset_data, by_category)
             self._create_scope_sheet(wb, asset_data)
 
-            # [2026-08-06 - "요약시트를 나란히" 피드백 반영] 예전엔 카테고리마다
-            # 요약→보안수준→호스트상세를 이어서 만들어서 시트 순서가 "UNIX 요약,
-            # UNIX 보안수준, UNIX 상세, WINDOWS 요약, ..."처럼 요약류와 상세가
-            # 뒤섞였다. 이제는 3단계로 나눠 요약 시트끼리, 보안수준 시트끼리,
-            # 상세 시트끼리 각각 모아서 배치한다(감사보고서 관례 - 요약을 앞으로).
+            # [2026-09 - "시트가 너무 많다" 피드백 반영] 예전엔 카테고리마다
+            # 요약통계/보안수준통계/상세 3개 시트씩 만들었다(5개 카테고리 기준
+            # 15개) - 요약통계+보안수준통계를 "{cat}.현황" 하나로 합쳐서 카테고리당
+            # 2개 시트(현황+상세)로 줄였다. 요약류 시트끼리, 상세 시트끼리 각각
+            # 모아서 배치하는 기존 순서(감사보고서 관례 - 요약을 앞으로)는 유지.
             active_categories = [(cat, by_category[cat]) for cat, _ in CATEGORY_PREFIXES if by_category[cat]]
 
             for cat_name, rows in active_categories:
-                self._create_category_summary_sheet(wb, cat_name, rows)
-            for cat_name, rows in active_categories:
-                self._create_category_security_sheet(wb, cat_name, rows)
+                self._create_category_sheet(wb, cat_name, rows)
             for cat_name, rows in active_categories:
                 self._create_host_sheets(wb, cat_name, rows)
 
@@ -451,6 +474,41 @@ class ExcelGenerator:
             ws.column_dimensions[get_column_letter(2 + i)].width = 16
         ws.row_dimensions[header_row].height = 20
 
+        # [그래프 추가 - 2026-09 "너무 단조롭다" 피드백] 표지에서 바로 보이도록
+        # 카테고리별 보안수준(%) 막대 차트를 표 옆에 붙인다. "보안수준" 열은
+        # values 리스트에서 문자열("N/A" 또는 "72%")로 만들어 셀에 쓰지만,
+        # 여기서는 표 대신 별도로 숫자(0~1)를 써서 차트가 값을 인식하게 한다 -
+        # 표시용 텍스트와 차트용 숫자를 같은 셀에 담을 수 없어서 표 렌더링
+        # 로직은 그대로 두고 차트만 별도 보조 열(숨김)에 숫자를 채워 넣는다.
+        cat_data_first_row = header_row + 1
+        cat_data_last_row = row - 1
+        if cat_data_last_row >= cat_data_first_row:
+            helper_col = 2 + len(headers)  # 표 바로 오른쪽 열을 숨겨서 숫자 보조열로 사용
+            helper_letter = get_column_letter(helper_col)
+            ws.cell(row=header_row, column=helper_col, value="보안수준(차트용)")
+            for r in range(cat_data_first_row, cat_data_last_row + 1):
+                pct_text = ws.cell(row=r, column=2 + len(headers) - 1).value  # "보안수준" 열("72%" 또는 "N/A")
+                numeric = None
+                if isinstance(pct_text, str) and pct_text.endswith('%'):
+                    try:
+                        numeric = float(pct_text.rstrip('%')) / 100
+                    except ValueError:
+                        numeric = None
+                ws.cell(row=r, column=helper_col, value=numeric)
+            ws.column_dimensions[helper_letter].hidden = True
+
+            # [2026-09 - "한눈에 보기 편하게" 위치 조정] 표 "아래"가 아니라
+            # 표 "옆"(helper 열 I 다음, 한 칸 띄운 K열)에 붙인다 - 카테고리/호스트
+            # 시트 차트와 같은 배치 규칙이라 문서 전체가 일관되고, 표와 차트를
+            # 스크롤 없이 한 화면에서 같이 볼 수 있다. 아래에 두던 이전 방식은
+            # 차트 높이만큼(17행) 다음 섹션을 억지로 밀어내야 해서 표와 차트
+            # 사이에 큰 빈 공간이 생겼는데, 옆에 붙이면 그 여백 자체가 없어진다.
+            self._add_security_level_chart(
+                ws, "카테고리별 보안수준", f"K{header_row}",
+                header_row=header_row, first_row=cat_data_first_row, last_row=cat_data_last_row,
+                value_col=helper_col, cat_col=2,
+            )
+
         # [커버리지 추적] 발견됐지만 KISA 판정이 하나도 없는 자산을 감사 완결성
         # 근거자료로 명시한다 - "몇 %를 봤는가"가 아니라 "빠진 게 있는가"를 정직하게
         # 남기는 게 목적이라, 0건이어도 "완전 일치" 문구를 남겨 침묵하지 않는다.
@@ -511,38 +569,108 @@ class ExcelGenerator:
     # ------------------------------------------------------------------
     # 시트: {카테고리}.요약통계
     # ------------------------------------------------------------------
-    def _create_category_summary_sheet(self, wb, cat_name, rows):
-        sheet_name = self._unique_sheet_name(f"{cat_name}.요약통계")
+    def _create_category_sheet(self, wb, cat_name, rows):
+        """[2026-09 - "시트가 너무 많다" 피드백 반영] 예전엔 카테고리 1개당
+        {cat}.요약통계(항목코드별) + {cat}.보안수준통계(분류 롤업) 2개 시트로
+        나뉘어 있었다 - 서로 다른 데이터가 아니라 같은 카테고리를 보는 두 해상도
+        (분류 롤업 vs 항목코드별 상세)일 뿐이라 시트 하나로 합쳤다(5개 카테고리
+        기준 시트 10개 -> 5개). 롤업 표 옆에는 "그래프가 너무 단조롭다" 피드백에
+        맞춰 분류별 보안수준(%) 막대 차트를 바로 붙인다."""
+        sheet_name = self._unique_sheet_name(f"{cat_name}.현황")
         ws = wb.create_sheet(sheet_name)
-        headers = [
-            ("A", "분류", 14), ("B", "항목코드", 12), ("C", "항목명", 40),
-            ("D", "중요도", 8), ("E", "중요도값", 10),
-            ("F", "전체", 8), ("G", "점검", 8), ("H", "양호", 8),
-            ("I", "취약", 8), ("J", "부분만족", 10), ("K", "해당없음", 10),
+
+        by_subcat = {}
+        subcat_order = []
+        by_code = {}
+        code_order = []
+        for r in rows:
+            rule = self._rule_for(r["code"])
+            subcat = rule.get("category", "기타") if rule else "기타"
+            importance = rule.get("importance", "중") if rule else "중"
+            status = self._final_status(r["status"], r["waiver_status"])
+
+            if subcat not in by_subcat:
+                by_subcat[subcat] = []
+                subcat_order.append(subcat)
+            by_subcat[subcat].append((importance, status))
+
+            code = r["code"]
+            if code not in by_code:
+                by_code[code] = []
+                code_order.append(code)
+            by_code[code].append(r)
+
+        # --- ① 분류별 보안수준 통계 (롤업) ---
+        ws['A1'] = f"■ {cat_name} 분류별 보안수준 통계"
+        ws['A1'].font = self.FONT_SECTION
+        headers1 = [
+            ("A", "분류", 16), ("B", "전체항목", 10), ("C", "점검항목", 10),
+            ("D", "양호", 8), ("E", "취약", 8), ("F", "부분만족", 10), ("G", "해당없음", 10),
+            ("H", "전체점수", 10), ("I", "취약점수", 10), ("J", "보안수준", 10),
         ]
-        for col, title, width in headers:
-            cell = ws[f'{col}1']
+        header_row1 = 2
+        for col, title, width in headers1:
+            cell = ws[f'{col}{header_row1}']
             cell.value = title
             cell.fill = self.HEADER_FILL
             cell.font = self.FONT_HEADER
             cell.border = self.BORDER_ALL
             cell.alignment = Alignment(horizontal='center', vertical='center')
             ws.column_dimensions[col].width = width
-        ws.row_dimensions[1].height = 22
-        ws.freeze_panes = 'A2'
+        ws.row_dimensions[header_row1].height = 22
 
-        # 코드별로 묶는다 (여러 호스트가 같은 코드를 가질 수 있음)
-        by_code = {}
-        order = []
-        for r in rows:
-            code = r["code"]
-            if code not in by_code:
-                by_code[code] = []
-                order.append(code)
-            by_code[code].append(r)
+        r_idx = header_row1 + 1
+        all_items = []
+        subcat_first_row = r_idx
+        for subcat in subcat_order:
+            items = by_subcat[subcat]
+            all_items.extend(items)
+            stats = self._score_group(items)
+            self._write_security_row(ws, r_idx, subcat, stats, bold=False)
+            r_idx += 1
+        subcat_last_row = r_idx - 1
+        total_stats = self._score_group(all_items)
+        self._write_security_row(ws, r_idx, "전체", total_stats, bold=True)
+        r_idx += 1
 
-        r_idx = 2
-        for code in order:
+        # [그래프 추가] 분류별 보안수준(%) 막대 차트 - "전체" 합계 행은 다른 분류들과
+        # 스케일이 안 맞는 합산 행이라 차트에는 넣지 않고 개별 분류만 비교한다.
+        if subcat_last_row >= subcat_first_row:
+            self._add_security_level_chart(
+                ws, f"{cat_name} 분류별 보안수준", f"L{header_row1}",
+                header_row=header_row1, first_row=subcat_first_row, last_row=subcat_last_row,
+                value_col=10, cat_col=1,
+            )
+
+        # [2026-09 - "한눈에 보기 편하게" 위치 조정] 차트가 표 "옆"(L열)에 떠 있고
+        # 다음 섹션은 A열부터 시작하므로 열이 겹치지 않는다 - 차트 높이만큼
+        # 세로 공간을 비워둘 필요가 없어서(예전엔 15행씩 빈 공간이 생겼음) 최소
+        # 여백만 남긴다.
+        r_idx += 2
+
+        # --- ② 항목코드별 상세 통계 ---
+        ws[f'A{r_idx}'] = f"■ {cat_name} 항목코드별 상세 통계"
+        ws[f'A{r_idx}'].font = self.FONT_SECTION
+        r_idx += 1
+        headers2 = [
+            ("A", "분류", 14), ("B", "항목코드", 12), ("C", "항목명", 40),
+            ("D", "중요도", 8), ("E", "중요도값", 10),
+            ("F", "전체", 8), ("G", "점검", 8), ("H", "양호", 8),
+            ("I", "취약", 8), ("J", "부분만족", 10), ("K", "해당없음", 10),
+        ]
+        for col, title, width in headers2:
+            cell = ws[f'{col}{r_idx}']
+            cell.value = title
+            cell.fill = self.HEADER_FILL
+            cell.font = self.FONT_HEADER
+            cell.border = self.BORDER_ALL
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions[col].width = max(ws.column_dimensions[col].width or 0, width)
+        ws.row_dimensions[r_idx].height = 22
+        ws.freeze_panes = f'A{r_idx + 1}'
+        r_idx += 1
+
+        for code in code_order:
             code_rows = by_code[code]
             rule = self._rule_for(code)
             name = rule.get("name", code_rows[0]["vuln_name"]) if rule else code_rows[0]["vuln_name"]
@@ -562,51 +690,6 @@ class ExcelGenerator:
                 if c_idx == 3:
                     cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
             r_idx += 1
-
-    # ------------------------------------------------------------------
-    # 시트: {카테고리}.보안수준통계
-    # ------------------------------------------------------------------
-    def _create_category_security_sheet(self, wb, cat_name, rows):
-        sheet_name = self._unique_sheet_name(f"{cat_name}.보안수준통계")
-        ws = wb.create_sheet(sheet_name)
-        headers = [
-            ("A", "분류", 16), ("B", "전체항목", 10), ("C", "점검항목", 10),
-            ("D", "양호", 8), ("E", "취약", 8), ("F", "부분만족", 10), ("G", "해당없음", 10),
-            ("H", "전체점수", 10), ("I", "취약점수", 10), ("J", "보안수준", 10),
-        ]
-        for col, title, width in headers:
-            cell = ws[f'{col}1']
-            cell.value = title
-            cell.fill = self.HEADER_FILL
-            cell.font = self.FONT_HEADER
-            cell.border = self.BORDER_ALL
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            ws.column_dimensions[col].width = width
-        ws.row_dimensions[1].height = 22
-
-        by_subcat = {}
-        order = []
-        for r in rows:
-            rule = self._rule_for(r["code"])
-            subcat = rule.get("category", "기타") if rule else "기타"
-            importance = rule.get("importance", "중") if rule else "중"
-            if subcat not in by_subcat:
-                by_subcat[subcat] = []
-                order.append(subcat)
-            by_subcat[subcat].append((importance, self._final_status(r["status"], r["waiver_status"])))
-
-        r_idx = 2
-        all_items = []
-        for subcat in order:
-            items = by_subcat[subcat]
-            all_items.extend(items)
-            stats = self._score_group(items)
-            self._write_security_row(ws, r_idx, subcat, stats, bold=False)
-            r_idx += 1
-
-        # 전체 합계 행
-        total_stats = self._score_group(all_items)
-        self._write_security_row(ws, r_idx, "전체", total_stats, bold=True)
 
     def _write_security_row(self, ws, r_idx, label, stats, bold):
         level_pct = "N/A" if stats["보안수준"] is None else stats["보안수준"]
@@ -629,11 +712,13 @@ class ExcelGenerator:
     # 시트: {카테고리}.{호스트} (호스트 1대당 상세 시트)
     # ------------------------------------------------------------------
     def _create_host_sheets(self, wb, cat_name, rows):
-        """[2026-08-06 - 시트 통합] 예전엔 호스트 1대당 시트 1개(카테고리 x 호스트
-        조합만큼 시트가 늘어나서 호스트가 많으면 시트가 수십~수백 개가 됐다) - 이제는
-        카테고리당 시트 1개에 호스트별 블록을 이어붙인다("합칠 수 있는 시트는 합쳐서"
-        피드백 반영). 카테고리 구분(1개 카테고리=1시트)은 그대로 유지 - 완전히 하나로
-        합치면 서로 다른 성격의 점검(UNIX vs DBMS)이 뒤섞여 오히려 찾아보기 어려워진다."""
+        """[2026-09 - 호스트 기준으로 환원, 사용자 명시적 확인] 2026-08-06엔
+        "호스트가 많으면 시트가 수십~수백 개가 된다"는 이유로 카테고리당 시트
+        1개(호스트 블록을 이어붙이는 방식)로 합쳤었는데, 이번엔 반대로 "호스트
+        1개당 시트 1개, 그 안에 점검항목 여러 개"가 자산별로 따로 전달하기
+        편하다는 피드백을 받아 다시 호스트 기준으로 되돌렸다 - 호스트 수가 많은
+        현장에서는 시트 수가 다시 늘어난다는 트레이드오프를 사용자에게 명시적으로
+        확인받고 진행한 것."""
         by_asset = {}
         order = []
         for r in rows:
@@ -643,35 +728,23 @@ class ExcelGenerator:
                 order.append(aid)
             by_asset[aid].append(r)
 
-        if not order:
-            return
-
-        sheet_name = self._unique_sheet_name(f"{cat_name}.상세")
-        ws = wb.create_sheet(sheet_name)
-        ws.column_dimensions['A'].width = 14
-        ws.column_dimensions['B'].width = 12
-        ws.column_dimensions['C'].width = 40
-        ws.column_dimensions['D'].width = 10
-        ws.column_dimensions['E'].width = 10
-        ws.column_dimensions['F'].width = 10
-        ws.column_dimensions['G'].width = 12
-        ws.column_dimensions['H'].width = 45
-        ws.column_dimensions['I'].width = 45
-
-        row = 1
-        for idx, aid in enumerate(order):
+        for aid in order:
             host_rows = by_asset[aid]
             head = host_rows[0]
-            if idx > 0:
-                # 호스트 블록 사이 구분 - 다음 호스트명을 진하게 미리 보여주는 굵은 구분줄
-                row += 1
-                host_label = head["hostname"] or head["ip_addr"]
-                sep_cell = ws.cell(row=row, column=1)
-                sep_cell.value = f"▶ {host_label}"
-                sep_cell.font = self.FONT_TITLE
-                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
-                row += 2
-            row = self._fill_host_block(ws, row, head, host_rows)
+            host_label = head["hostname"] or head["ip_addr"]
+            sheet_name = self._unique_sheet_name(f"{cat_name}.{host_label}")
+            ws = wb.create_sheet(sheet_name)
+            ws.column_dimensions['A'].width = 14
+            ws.column_dimensions['B'].width = 12
+            ws.column_dimensions['C'].width = 40
+            ws.column_dimensions['D'].width = 10
+            ws.column_dimensions['E'].width = 10
+            ws.column_dimensions['F'].width = 10
+            ws.column_dimensions['G'].width = 12
+            ws.column_dimensions['H'].width = 45
+            ws.column_dimensions['I'].width = 45
+
+            self._fill_host_block(ws, 1, head, host_rows)
 
     def _fill_host_block(self, ws, r, head, host_rows):
         """호스트 1대분 상세 블록을 ws의 r행부터 그려 넣고, 다음 블록이 시작할 행 번호를 반환한다."""
@@ -726,6 +799,7 @@ class ExcelGenerator:
         ws[f'A{r}'] = "▣ 영역별 점검 결과"
         ws[f'A{r}'].font = self.FONT_SECTION
         r += 1
+        sec_header_row = r
         sec_headers = ["분류", "전체", "점검", "양호", "취약", "부분만족", "해당없음", "전체점수", "취약점수", "보안수준"]
         for col, h in enumerate(sec_headers, 1):
             cell = ws.cell(row=r, column=col)
@@ -752,6 +826,7 @@ class ExcelGenerator:
             by_subcat[subcat].append((importance, status))
             detail_rows.append((subcat, row["code"], name, importance, status, row, remediation))
 
+        subcat_first_row = r
         all_items = []
         for subcat in order:
             items = by_subcat[subcat]
@@ -759,9 +834,23 @@ class ExcelGenerator:
             stats = self._score_group(items)
             self._write_security_row(ws, r, subcat, stats, bold=False)
             r += 1
+        subcat_last_row = r - 1
         total_stats = self._score_group(all_items)
         self._write_security_row(ws, r, "전체", total_stats, bold=True)
         r += 3
+
+        # [그래프 추가 - 2026-09 "호스트 시트에도 차트 필요" 피드백] 이 호스트의
+        # 분류별 보안수준(%) 막대 차트 - "전체" 합계 행은 스케일이 안 맞아 제외.
+        if subcat_last_row >= subcat_first_row:
+            self._add_security_level_chart(
+                ws, "분류별 보안수준", f"L{sec_header_row}",
+                header_row=sec_header_row, first_row=subcat_first_row, last_row=subcat_last_row,
+                value_col=10, cat_col=1,
+            )
+            # [2026-09 - "한눈에 보기 편하게" 위치 조정] 차트가 표 옆(L열)에 떠
+            # 있고 다음 섹션은 A열부터라 열이 안 겹친다 - 세로 공간을 비워둘
+            # 필요 없이 최소 여백만 남긴다.
+            r += 2
 
         # 상세 점검 현황
         ws[f'A{r}'] = "▣ 상세 점검 현황"

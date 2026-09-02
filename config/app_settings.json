@@ -4,5 +4,10 @@
   "report_output_dir": "",
   "default_username": "",
   "show_log_panel": false,
-  "ruleset_auto_update": false
+  "ruleset_auto_update": false,
+  "report_company_name": "",
+  "report_title": "",
+  "report_filename": "",
+  "pc_check_output_dir": "",
+  "pc_check_script_filename": "Z-VulnScan_PC_Check.bat"
 }

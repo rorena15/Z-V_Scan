@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<!--
+Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+This software is proprietary and confidential.
+Unauthorized copying, modification, distribution, or reverse engineering
+of this file, via any medium, is strictly prohibited.
+
+[UI/UX 개선 - "보고서형" 대시보드, 2026-09] QWebEngineView가 로컬 파일로 그대로
+불러오는 페이지(file:// - 서버 없음). Python -> JS는 main_window.py가
+`page().runJavaScript()`로 직접 데이터를 밀어넣는 단방향 구조라 QWebChannel은
+안 쓴다(file:// 페이지에서 `qt.webChannelTransport`가 정의되지 않는 문제를
+실측으로 확인해서 뺐다 - dashboard.js 상단 주석 참고). chart.umd.min.js(Chart.js
+4.4.7)는 vendor/에 직접 내려받아 오프라인으로도 동작하게 번들했다(고객사 OT망은
+인터넷이 없는 경우가 흔해서 CDN 참조는 애초에 선택지가 아님).
+
+[정보 부족 피드백 반영, 2026-09] 처음엔 위험도 분포/카테고리 차트 3개뿐이었는데
+"정보가 너무 부족하다"는 피드백으로 Top 취약자산/Top 다발항목 테이블을 추가했다.
+
+[탭 역할 재분리, 2026-09] 처음엔 차트/랭킹을 클릭하면 이 페이지 안에 드릴다운
+상세 테이블이 떴는데, "대시보드는 한눈에 보는 현황만, 조치 가능한 상세 목록은
+자산 탭에" 원칙(main_window.py._build_dashboard_page() 주석)에 맞춰 그 상세
+테이블을 자산 탭으로 옮겼다 - 여기서는 클릭하면 dashboard.js가
+`zvulnscan://drill?...`로 네비게이션을 시도하고, main_window.py의
+_DashboardNavPage가 그걸 가로채 자산 탭으로 화면을 전환 + 필터링한다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Z-VulnScan Dashboard</title>
+<style>
+  :root {
+    --surface-2: #FFFFFF;
+    --border: #E3E7EE;
+    --text: #1B2430;
+    --text-secondary: #5B6675;
+    --text-muted: #8B94A3;
+    --accent: #2E6BE6;
+    --accent-bg: #E8EFFE;
+    --danger-text: #C0271F;
+    --danger-bg: #FDE7E7;
+    --warning-text: #8A6A00;
+    --warning-bg: #FFF6D6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  }
+  .row { display: flex; gap: 10px; align-items: stretch; margin-bottom: 10px; }
+  .row:last-child { margin-bottom: 0; }
+  .card {
+    flex: 1; min-width: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px 10px;
+    box-shadow: 0 3px 22px rgba(0, 0, 0, 0.06);
+    transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
+  }
+  /* [UI/UX 개선 - 2026-09 호버 이펙트] 네이티브 카드(HoverLiftFrame)의 "호버 시
+     그림자가 커지며 살짝 떠 보이는" 반응을 웹뷰 카드에도 동일하게 맞춘다 -
+     전부 클릭 가능한 카드라(차트/랭킹) 호버가 곧 "눌러볼 수 있다"는 신호. */
+  .card:hover {
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+  }
+  .card h3::before {
+    content: "\25CF";
+    color: var(--accent);
+    margin-right: 6px;
+    font-size: 10px;
+  }
+  .card h3 .hint {
+    margin-left: auto;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .chart-wrap { position: relative; height: 220px; }
+  .empty-state {
+    display: none;
+    height: 220px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    line-height: 1.5;
+    padding: 0 10px;
+    white-space: pre-line;
+  }
+
+  /* Top 랭킹 테이블 (자산/항목) */
+  .rank-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .rank-table th {
+    text-align: left; font-weight: 500; color: var(--text-muted);
+    font-size: 10.5px; padding: 4px 6px; border-bottom: 1px solid var(--border);
+  }
+  .rank-table th.num, .rank-table td.num { text-align: right; }
+  .rank-table td { padding: 6px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .rank-table tr:last-child td { border-bottom: none; }
+  .rank-table tr.clickable { cursor: pointer; transition: background 0.1s ease-out; }
+  .rank-table tr.clickable:hover { background: var(--accent-bg); }
+  .badge-importance {
+    display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px;
+    color: var(--danger-text); background: var(--danger-bg);
+  }
+  .badge-importance.mid { color: var(--warning-text); background: var(--warning-bg); }
+  .badge-importance.low { color: var(--text-secondary); background: var(--border); }
+  .rank-list-wrap { max-height: 260px; overflow-y: auto; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="card" id="donutCard">
+      <h3>위험도 분포<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
+      <div class="chart-wrap"><canvas id="donutChart"></canvas></div>
+      <div class="empty-state">아직 표시할 데이터가 없습니다.
+스캔을 한 번 이상 실행하면 채워집니다.</div>
+    </div>
+    <div class="card" id="barCard">
+      <h3>카테고리별 취약 현황<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
+      <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+      <div class="empty-state">취약/부분만족 항목이 없습니다.</div>
+    </div>
+    <div class="card" id="trendCard">
+      <h3>보안수준 추이</h3>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+      <div class="empty-state">2회 이상 재점검하면
+추이 그래프가 표시됩니다.</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card" id="topHostsCard">
+      <h3>취약 자산 Top 10<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
+      <div class="rank-list-wrap">
+        <table class="rank-table">
+          <thead><tr><th>#</th><th>호스트</th><th class="num">취약</th><th class="num">부분만족</th></tr></thead>
+          <tbody id="topHostsBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="topHostsEmpty">취약/부분만족 항목이 없습니다.</div>
+    </div>
+    <div class="card" id="topCodesCard">
+      <h3>다발 취약 항목 Top 10<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
+      <div class="rank-list-wrap">
+        <table class="rank-table">
+          <thead><tr><th>#</th><th>코드</th><th>항목명</th><th>중요도</th><th class="num">건수</th></tr></thead>
+          <tbody id="topCodesBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="topCodesEmpty">취약/부분만족 항목이 없습니다.</div>
+    </div>
+  </div>
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
