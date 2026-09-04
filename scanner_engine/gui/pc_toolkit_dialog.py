@@ -11,14 +11,20 @@
 
 교차검증(crosscheck_dialog.py)과 달리 "독립 대조"가 목적이 아니라 Z-VulnScan 자신의
 대체 스캔 경로이므로, 여기서 가져온 결과는 TBL_SCAN_RESULT에 그대로 쓰인다.
+
+[2026-09 UI 개선] 예전엔 QDialog(모달 팝업)이었는데, "새 창을 띄우지 않았으면
+좋겠다"는 사용자 요청으로 QWidget 기반 페이지로 바꿔 main_window.py의
+QStackedWidget에 다른 탭들과 나란히 임베드한다(_build_pc_toolkit_page() 참고).
+QDialog 의존은 원래 "닫기" 버튼의 self.accept() 하나뿐이라 그 버튼만 제거하면
+나머지 로직(파일 목록/스크립트 생성/가져오기/테이블)은 그대로 재사용된다.
 """
 import os
 import sys
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QFileDialog, QMessageBox, QGroupBox, QLineEdit
+    QFileDialog, QMessageBox, QGroupBox, QLineEdit, QCheckBox
 )
 from PySide6.QtGui import QColor
 
@@ -28,16 +34,19 @@ from core.crosscheck_engine import import_pc_results  # noqa: E402
 from utils.app_settings import (  # noqa: E402
     get_pc_check_output_dir, load_settings, save_settings, get_base_dir,
 )
+from utils.expert_profile import get_excluded_codes  # noqa: E402
 
 
-class PCToolkitDialog(QDialog):
-    def __init__(self, parent=None, db=None):
+class PCToolkitPage(QWidget):
+    def __init__(self, parent=None, db=None, on_imported=None):
         super().__init__(parent)
-        self.setWindowTitle("PC 진단 도구 (로컬 스크립트)")
-        self.resize(1000, 640)
 
         self.db = db
         self._selected_files = []
+        # [모달->페이지 전환] 예전엔 dlg.exec() 리턴 뒤(다이얼로그 닫힐 때) 딱 한 번
+        # main_window.refresh_dashboard()를 불렀는데, 페이지에는 "닫힘" 시점이 없으니
+        # DB에 실제로 반영된 직후(_run_import 성공 시) 바로 호출하도록 콜백을 받는다.
+        self._on_imported = on_imported
 
         layout = QVBoxLayout(self)
 
@@ -96,6 +105,18 @@ class PCToolkitDialog(QDialog):
         gen_hint.setWordWrap(True)
         gen_hint.setStyleSheet("color: #666666;")
         gen_box.addWidget(gen_hint)
+
+        # [PC 진단 - 세세한 설정, 2026-09] Expert Mode(자산 탭 Expert 버튼/설정 >
+        # 룰셋 탭)에서 이미 사전 배제해둔 PC-xx 코드가 있으면, 로컬 스크립트도
+        # 그 항목은 아예 빼고 생성할 수 있게 - 라이브 스캔과 동일한 범위로 맞추기 위함.
+        self.chk_apply_expert_exclude = QCheckBox("Expert Mode 제외 항목은 스크립트에서도 제외")
+        self.chk_apply_expert_exclude.setChecked(True)
+        self.chk_apply_expert_exclude.setToolTip(
+            "자산 탭 'Expert' 또는 설정 > 룰셋 탭에서 pc_rules.json 항목 중 사전 배제한 "
+            "코드가 있으면, 여기서 생성하는 로컬 스크립트에서도 그 항목을 뺍니다."
+        )
+        gen_box.addWidget(self.chk_apply_expert_exclude)
+
         layout.addLayout(gen_box)
 
         # ---- ② 결과 가져오기 ----
@@ -141,13 +162,6 @@ class PCToolkitDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
         layout.addWidget(self.table, 1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch()
-        btn_close = QPushButton("닫기")
-        btn_close.clicked.connect(self.accept)
-        bottom_row.addWidget(btn_close)
-        layout.addLayout(bottom_row)
-
     # ------------------------------------------------------------------
     def _browse_output_dir(self):
         path = QFileDialog.getExistingDirectory(
@@ -167,7 +181,8 @@ class PCToolkitDialog(QDialog):
     # ------------------------------------------------------------------
     def _generate_script(self):
         try:
-            script_text = generate_pc_script_bat()
+            excluded = get_excluded_codes("pc_rules.json") if self.chk_apply_expert_exclude.isChecked() else None
+            script_text = generate_pc_script_bat(excluded_codes=excluded)
         except Exception as e:
             QMessageBox.critical(self, "생성 실패", f"진단 스크립트 생성 중 오류가 발생했습니다:\n{e}")
             return
@@ -255,6 +270,8 @@ class PCToolkitDialog(QDialog):
                 f"{s.get('imported', 0)}건을 스캔 이력 DB에 반영했습니다. "
                 "대시보드/리포트에서 확인할 수 있습니다."
             )
+            if self._on_imported:
+                self._on_imported()
 
     def _populate_table(self, entries):
         self.table.setRowCount(0)

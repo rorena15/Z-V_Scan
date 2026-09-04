@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QSlider,
     QToolButton,
+    QListWidget,
+    QListWidgetItem,
 )
 # [PySide6 핵심 기능]
 from PySide6.QtCore import Qt, QTimer, QUrl, QSize
@@ -252,6 +254,7 @@ class ScannerApp(QMainWindow):
         self.content_stack.addWidget(self._build_scan_page())       # index 1: Scan
         self.content_stack.addWidget(self._build_assets_page())     # index 2: Assets
         self.content_stack.addWidget(self._build_reports_page())    # index 3: Reports
+        self.content_stack.addWidget(self._build_pc_toolkit_page()) # index 4: PC 진단
         outer_layout.addWidget(self.content_stack, 1)
 
         root_layout.addWidget(body, 1)
@@ -370,15 +373,21 @@ class ScannerApp(QMainWindow):
         self.nav_reports = make_nav_button("리포트", HELP_TEXTS["report"]["tooltip"], "doc")
         self.nav_reports.clicked.connect(lambda: self._on_nav_clicked("reports"))
 
-        self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", "compare", checkable=False)
-        self.nav_crosscheck.clicked.connect(self.open_cross_check)
+        # [2026-09 UI 정리] 교차검증은 일반 사용자에게 노출할 필요가 없어 사이드바에서
+        # 뺐다 - 삭제는 아니고 주석 처리만(사용자 지시). open_cross_check()/
+        # gui/crosscheck_dialog.py/core/crosscheck_engine.py는 그대로 남아있으니
+        # 필요해지면 아래 두 줄만 살리면 복원된다.
+        # self.nav_crosscheck = make_nav_button("교차검증", "스크립트 TXT 결과를 오프라인으로 재판정/대조합니다 (DB 미사용).", "compare", checkable=False)
+        # self.nav_crosscheck.clicked.connect(self.open_cross_check)
 
         # [2026-08-20] PC 진단 도구 재활성화 - 예전엔 기존에 쓰던 외부 엑셀 결과물
         # 형식과 호환성을 맞출 수 없다는 이유로 숨겨뒀으나, 배포용 진단 스크립트를
         # 단일 .bat 파일로 재구성(generate_pc_script_bat, pc_toolkit.py)하면서 다시
         # 노출한다. 기존 WinRM 기반 PC 점검 경로(worker.py)와는 별개의 대체 경로다.
-        self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", "folder", checkable=False)
-        self.nav_pc_toolkit.clicked.connect(self.open_pc_toolkit)
+        # [2026-09 UI 개선] "새 창을 띄우지 않았으면" 요청으로 모달 다이얼로그 대신
+        # 다른 탭들과 같은 방식(checkable 스택 페이지)으로 바꿨다.
+        self.nav_pc_toolkit = make_nav_button("PC 진단", "WinRM이 안 되는 PC용 로컬 진단 스크립트를 생성하고 결과를 가져옵니다.", "folder")
+        self.nav_pc_toolkit.clicked.connect(lambda: self._on_nav_clicked("pc_toolkit"))
 
         layout.addStretch()
 
@@ -391,17 +400,19 @@ class ScannerApp(QMainWindow):
         self.nav_settings.clicked.connect(self.open_settings)
 
         self._nav_buttons = {"dashboard": self.nav_dashboard, "scan": self.nav_scan,
-                              "assets": self.nav_assets, "reports": self.nav_reports}
+                              "assets": self.nav_assets, "reports": self.nav_reports,
+                              "pc_toolkit": self.nav_pc_toolkit}
         return sidebar
 
     def _on_nav_clicked(self, key):
         for name, btn in self._nav_buttons.items():
             btn.setChecked(name == key)
 
-        index_map = {"dashboard": 0, "scan": 1, "assets": 2, "reports": 3}
+        index_map = {"dashboard": 0, "scan": 1, "assets": 2, "reports": 3, "pc_toolkit": 4}
         self.content_stack.setCurrentIndex(index_map[key])
 
-        crumb_labels = {"dashboard": "대시보드", "scan": "스캔", "assets": "자산", "reports": "리포트"}
+        crumb_labels = {"dashboard": "대시보드", "scan": "스캔", "assets": "자산",
+                         "reports": "리포트", "pc_toolkit": "PC 진단"}
         if hasattr(self, 'lbl_breadcrumb'):
             self.lbl_breadcrumb.setText(crumb_labels.get(key, ""))
 
@@ -685,6 +696,7 @@ class ScannerApp(QMainWindow):
         self.oracle_service_input = self.scan_config.oracle_service_input
         self.slider_max_workers = self.scan_config.concurrency_slider
         self.spin_max_workers = self.scan_config.concurrency_slider  # 기존 코드 호환용 alias
+        self.spin_timeout = self.scan_config.timeout_spin
         self.chk_ot_mode = self.scan_config.ot_mode_check
         self.chk_demo_mode = self.scan_config.demo_mode_check
         self.btn_scan = self.scan_config.discovery_btn
@@ -819,7 +831,7 @@ class ScannerApp(QMainWindow):
 
         self.asset_table = QTableWidget()
         self.asset_table.setColumnCount(7)
-        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "출처", "OS / Type","MAC Addr", "Description", "Vender"])
+        self.asset_table.setHorizontalHeaderLabels(["IP Addr","hostname", "출처", "OS / Type","MAC Addr", "Description", "Vendor"])
         self.asset_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.asset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.asset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -941,13 +953,124 @@ class ScannerApp(QMainWindow):
         self.btn_report_txt = QPushButton("TXT 생성")
         self.btn_report_txt.setToolTip("호스트별 개별 파일, 고객사 매크로 호환 포맷입니다.")
         self.btn_report_txt.clicked.connect(self.generate_text_report)
+        # [자산관리대장, 2026-09 신규] 취약점 진단 결과와 별개인 자산 등록대장 -
+        # 아래 "리포트 범위"에서 자산을 선택해두면 그 자산만 담긴다(선택 없으면 전체).
+        self.btn_report_ledger = QPushButton("자산관리대장 생성")
+        self.btn_report_ledger.setToolTip("점검 결과가 아니라 자산 등록 정보(IP/OS/MAC/Vendor/CIA 등급 등)를 정리한 대장입니다.")
+        self.btn_report_ledger.clicked.connect(self.generate_asset_ledger)
         btn_row.addWidget(self.btn_report_pdf)
         btn_row.addWidget(self.btn_report_excel)
         btn_row.addWidget(self.btn_report_txt)
+        btn_row.addWidget(self.btn_report_ledger)
         btn_row.addStretch()
         outer.addLayout(btn_row)
 
-        return self._wrap_scrollable_page([header, card], trailing_stretch=True)
+        scope_card = self._build_report_scope_card()
+        return self._wrap_scrollable_page([header, card, scope_card], trailing_stretch=True)
+
+    def _build_report_scope_card(self):
+        """[리포트 탭 - 자산별/항목별 선택, 2026-09] 기본은 지금까지처럼 "전체"다 -
+        두 목록에서 아무 것도 체크하지 않으면 PDFGenerator/ExcelGenerator에
+        asset_ids=None, codes=None을 그대로 넘겨 하위호환을 유지한다. 하나라도
+        체크하면 그 항목들만 포함한다. TXT는 고객사 매크로 호환 포맷이라 파일명/
+        제목처럼 이 범위 선택도 적용하지 않는다(카드 위 안내문에 명시).
+        """
+        card = InfoCard()
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(22, 18, 22, 18)
+        outer.setSpacing(4)
+
+        title = QLabel(f"<span style='color:{COLORS['accent']};'>&#9679;</span> 리포트 범위 (선택)")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text']}; border:none;")
+        outer.addWidget(title)
+        subtitle = QLabel("아무 것도 선택하지 않으면 전체 자산/전체 항목이 포함됩니다. PDF/Excel에만 적용됩니다.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
+        outer.addWidget(subtitle)
+        outer.addSpacing(10)
+
+        lists_row = QHBoxLayout()
+        lists_row.setSpacing(16)
+
+        def make_scope_column(label_text):
+            col = QVBoxLayout()
+            header_row = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px; font-weight: 600; border:none;")
+            header_row.addWidget(lbl)
+            header_row.addStretch()
+            btn_all = QPushButton("전체")
+            btn_none = QPushButton("해제")
+            for b in (btn_all, btn_none):
+                b.setFixedSize(48, 22)
+            header_row.addWidget(btn_all)
+            header_row.addWidget(btn_none)
+            col.addLayout(header_row)
+            list_widget = QListWidget()
+            list_widget.setFixedHeight(160)
+            col.addWidget(list_widget)
+            return col, list_widget, btn_all, btn_none
+
+        asset_col, self.report_asset_list, btn_asset_all, btn_asset_none = make_scope_column("자산")
+        code_col, self.report_code_list, btn_code_all, btn_code_none = make_scope_column("항목 (KISA 코드)")
+
+        def _set_all_checked(list_widget, checked):
+            state = Qt.Checked if checked else Qt.Unchecked
+            for i in range(list_widget.count()):
+                list_widget.item(i).setCheckState(state)
+
+        btn_asset_all.clicked.connect(lambda: _set_all_checked(self.report_asset_list, True))
+        btn_asset_none.clicked.connect(lambda: _set_all_checked(self.report_asset_list, False))
+        btn_code_all.clicked.connect(lambda: _set_all_checked(self.report_code_list, True))
+        btn_code_none.clicked.connect(lambda: _set_all_checked(self.report_code_list, False))
+
+        lists_row.addLayout(asset_col)
+        lists_row.addLayout(code_col)
+        outer.addLayout(lists_row)
+
+        self._populate_report_scope_lists()
+        return card
+
+    def _populate_report_scope_lists(self):
+        """리포트 범위 체크리스트를 DB 현재 상태로 (다시) 채운다 - 스캔 직후 등
+        자산/항목 목록이 바뀔 수 있어 대시보드 새로고침 시 같이 호출한다."""
+        if not hasattr(self, 'report_asset_list'):
+            return
+        try:
+            self.report_asset_list.clear()
+            for asset_id, ip, hostname in self.db.get_asset_picker_list():
+                label = f"{ip} ({hostname})" if hostname and hostname != "-" else ip
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, asset_id)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+                self.report_asset_list.addItem(item)
+
+            self.report_code_list.clear()
+            for code, name in self.db.get_code_picker_list():
+                label = f"{code}  {name}" if name else code
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, code)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+                self.report_code_list.addItem(item)
+        except Exception as e:
+            AppLogger.log_error("[UI] Populate Report Scope Lists Failed", e)
+
+    def _get_report_scope_selection(self):
+        """체크된 항목이 하나도 없으면 (None, None) - 두 리포트 생성기 모두
+        None을 "전체"로 해석하므로 기본 동작(하위호환)이 그대로 유지된다."""
+        asset_ids = [
+            self.report_asset_list.item(i).data(Qt.UserRole)
+            for i in range(self.report_asset_list.count())
+            if self.report_asset_list.item(i).checkState() == Qt.Checked
+        ] or None
+        codes = [
+            self.report_code_list.item(i).data(Qt.UserRole)
+            for i in range(self.report_code_list.count())
+            if self.report_code_list.item(i).checkState() == Qt.Checked
+        ] or None
+        return asset_ids, codes
 
     def drill_down_session(self, session_id):
         """[UI/UX 개선 - 드릴다운] 대시보드 '최근 활동'에서 세션 행을 클릭했을 때 호출.
@@ -1511,7 +1634,7 @@ class ScannerApp(QMainWindow):
         oracle_service = self.oracle_service_input.text().strip()
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None, engine_token=AppConfig.ENGINE_ACCESS_TOKEN)
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None, engine_token=AppConfig.ENGINE_ACCESS_TOKEN, connect_timeout=self.spin_timeout.value() or None)
         self.connect_worker()
         self.worker.start()
 
@@ -1537,8 +1660,10 @@ class ScannerApp(QMainWindow):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             title, company, filename = self._current_report_customization()
+            asset_ids, codes = self._get_report_scope_selection()
             generator = PDFGenerator(remediation_level=self.license_mgr.remediation_level(),
-                                      report_title=title, company_name=company, custom_filename=filename)
+                                      report_title=title, company_name=company, custom_filename=filename,
+                                      asset_ids=asset_ids, codes=codes)
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
             self.report_exported = True
@@ -1577,16 +1702,39 @@ class ScannerApp(QMainWindow):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             title, company, filename = self._current_report_customization()
+            asset_ids, codes = self._get_report_scope_selection()
             generator = ExcelGenerator(
                 evidence_level=self.license_mgr.evidence_level(),
                 remediation_level=self.license_mgr.remediation_level(),
-                report_title=title, company_name=company, custom_filename=filename
+                report_title=title, company_name=company, custom_filename=filename,
+                asset_ids=asset_ids, codes=codes
             )
             filepath = generator.generate()
             QApplication.restoreOverrideCursor()
             self.report_exported = True
             self.log_message(f"[Success] Excel Saved: {filepath}")
             if QMessageBox.question(self, "Success", "Excel을 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
+                self.open_file_platform_safe(filepath)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", str(e))
+
+    def generate_asset_ledger(self):
+        """[자산관리대장, 2026-09 신규] generate_excel()과 같은 라이선스 등급
+        제한(Professional 이상)을 적용한다 - 별도 문서지만 여전히 Excel 산출물이다."""
+        if not self.license_mgr.can_export_excel():
+            QMessageBox.warning(self, "License Restricted", "이 기능은 Professional 라이선스 전용입니다.\n(데모: 툴바의 열쇠 버튼을 눌러보세요)")
+            return
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            _title, _company, filename = self._current_report_customization()
+            asset_ids, _codes = self._get_report_scope_selection()
+            generator = ExcelGenerator(custom_filename=filename, asset_ids=asset_ids)
+            filepath = generator.generate_asset_ledger()
+            QApplication.restoreOverrideCursor()
+            self.report_exported = True
+            self.log_message(f"[Success] Asset Ledger Saved: {filepath}")
+            if QMessageBox.question(self, "Success", "자산관리대장을 여시겠습니까?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
                 self.open_file_platform_safe(filepath)
         except Exception as e:
             QApplication.restoreOverrideCursor()
@@ -1665,11 +1813,12 @@ class ScannerApp(QMainWindow):
         
         # [버그 수정] get_all_assets()가 원래 hostname을 반환하지 않아 재시작/이력 로드
         # 때마다 Host 칸이 항상 빈칸이던 문제가 있었다 - 이제 hostname/hostname_source도
-        # 함께 조회해 채운다(vendor는 여전히 이 쿼리로 조회되지 않아 빈 값).
-        for ip, os_type, description, mac_addr, hostname, hostname_source in assets:
+        # 함께 조회해 채운다. [버그 수정 - 2026-09] vendor도 같은 이유로 빈칸이었다 -
+        # get_all_assets()가 이제 vendor까지 반환하므로 실제 값을 그대로 넘긴다.
+        for ip, os_type, description, mac_addr, hostname, hostname_source, vendor in assets:
             display_os = os_type
             if mac_addr: display_os = f"{os_type} | {mac_addr}"
-            self.add_asset_to_table(ip, hostname, display_os, mac_addr, "", hostname_source)
+            self.add_asset_to_table(ip, hostname, display_os, mac_addr, vendor or "", hostname_source)
 
         if assets:
             self.log_message(f"[System] Loaded {len(assets)} assets from history.")
@@ -1977,13 +2126,21 @@ class ScannerApp(QMainWindow):
         dlg = CrossCheckDialog(self, db=self.db)
         dlg.exec()
 
-    def open_pc_toolkit(self):
-        """[PC 진단 도구] 교차검증과 달리 이 경로로 가져온 결과는 TBL_SCAN_RESULT에
-        직접 반영되므로, 닫힌 뒤 대시보드를 갱신한다(open_db_manager와 동일한 이유)."""
-        from gui.pc_toolkit_dialog import PCToolkitDialog
-        dlg = PCToolkitDialog(self, db=self.db)
-        dlg.exec()
-        self.refresh_dashboard()
+    def _build_pc_toolkit_page(self):
+        """[UI/UX 개선 - 2026-09] PC 진단 도구를 모달 다이얼로그 대신 다른 탭들과
+        같은 방식의 스택 페이지로 임베드한다(_build_assets_page()와 같은 패턴 -
+        내부에 결과 테이블이 있어 스크롤 래퍼(_wrap_scrollable_page) 대신 전체
+        높이를 그대로 쓴다). 교차검증과 달리 이 경로로 가져온 결과는 TBL_SCAN_RESULT에
+        직접 반영되므로, DB 반영 성공 직후 대시보드를 갱신한다(on_imported 콜백 -
+        예전 모달 시절엔 dlg.exec() 리턴 뒤/닫힘 시점에 호출했지만 페이지에는
+        "닫힘" 시점이 없다)."""
+        from gui.pc_toolkit_dialog import PCToolkitPage
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(28, 28, 28, 28)
+        page_layout.addWidget(self._build_page_header("PC 진단"))
+        page_layout.addWidget(PCToolkitPage(page, db=self.db, on_imported=self.refresh_dashboard))
+        return page
 
     def open_settings(self):
         from gui.settings_dialog import SettingsDialog
@@ -2019,21 +2176,25 @@ class ScannerApp(QMainWindow):
 
         for data in assets:
             try:
-                ip, os_type, _description, mac_addr, hostname, hostname_source = data
+                ip, os_type, _description, mac_addr, hostname, hostname_source, vendor = data
 
                 # [데이터 세탁] DB에 '-'라고 저장된 것만 보기 좋게 빈칸으로 변경
                 # (실제 데이터가 있으면 그대로 유지됨)
                 os_type  = "" if str(os_type) == "-"  else os_type
                 mac_addr = "" if str(mac_addr) == "-" else mac_addr
 
-                self.add_asset_to_table(ip, hostname, os_type, mac_addr, "", hostname_source)
+                # [버그 수정 - 2026-09] vendor 자리에 빈 문자열 ""을 하드코딩해서
+                # 넘기고 있었다 - DB에 실제 vendor 값이 있어도 화면엔 항상 빈칸으로
+                # 보이던 진짜 원인. get_all_assets()가 이제 vendor까지 반환한다.
+                self.add_asset_to_table(ip, hostname, os_type, mac_addr, vendor or "", hostname_source)
 
             except Exception as e:
                 print(f"Error refreshing row: {e}")
-            
+
         self.asset_table.setUpdatesEnabled(True)
         self.asset_table.setSortingEnabled(True)
-        
+
+        self._populate_report_scope_lists()
         self.log_message(f"[System] Dashboard Refreshed. (Assets: {len(assets)})")
         
     def update_ui_by_license(self):
@@ -2147,9 +2308,10 @@ class ScannerApp(QMainWindow):
         for asset in assets:
             try:
                 # [버그 수정] hostname을 반환하지 않던 문제 고쳐서 시작 시 Host 칸이
-                # 항상 빈칸이던 걸 해결 - vendor는 여전히 이 쿼리로 조회되지 않아 빈 값
-                ip, os_type, _description, mac, hostname, hostname_source = asset
-                self.add_asset_to_table(ip, hostname, os_type, mac, "", hostname_source)
+                # 항상 빈칸이던 걸 해결. [버그 수정 - 2026-09] vendor도 같은 이유로
+                # 빈칸이었다 - get_all_assets()가 이제 vendor까지 반환한다.
+                ip, os_type, _description, mac, hostname, hostname_source, vendor = asset
+                self.add_asset_to_table(ip, hostname, os_type, mac, vendor or "", hostname_source)
                 count += 1
             except Exception as e:
                 print(f"Error loading asset: {e}")

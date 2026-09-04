@@ -18,11 +18,14 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, 
+    SimpleDocTemplate, Table, TableStyle, Paragraph,
     Spacer, PageBreak
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.charts.legends import Legend
 
 # 상위 모듈 참조
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -36,7 +39,7 @@ class PDFGenerator:
     PRIMARY_BLUE = colors.HexColor('#0066CC')
     DARK_BLUE = colors.HexColor('#003D7A')
     LIGHT_BLUE = colors.HexColor('#E6F2FF')
-    
+
     RISK_COLORS = {
         "Critical": colors.HexColor('#DC3545'),
         "High": colors.HexColor('#FD7E14'),
@@ -45,18 +48,55 @@ class PDFGenerator:
         "Info": colors.HexColor('#6C757D'),
         "Safe": colors.HexColor('#20C997')
     }
-    
-    RISK_ICONS = {
-        "Critical": "🔴", "High": "🟠", "Medium": "🟡",
-        "Low": "🟢", "Info": "⚪", "Safe": "✅"
+    # Paragraph <font color='..'> 마크업은 HexColor 객체가 아니라 문자열이 필요해서
+    # RISK_COLORS와 별개로 문자열 버전을 둔다(값은 동일).
+    # [버그 수정 - 2026-09] risk_level 실제 저장값이 룰 카테고리마다 다르다 - Windows/
+    # Linux 계열은 worker.py가 영문 5단계(Critical/High/Medium/Low/Info)로 변환해
+    # 저장하지만, DBMS/PC 계열은 KISA 원본 중요도(상/중/하)를 그대로 저장한다(실제
+    # DB 조회로 확인함). 원래 RISK_ICONS/RISK_COLORS는 영문 키만 있어서 상/중/하
+    # 행에서는 애초에 매칭이 안 돼 색(이모지)이 전혀 안 붙었다 - 두 표기 다 매핑.
+    RISK_HEX = {
+        "Critical": "#DC3545", "High": "#FD7E14", "Medium": "#FFC107",
+        "Low": "#28A745", "Info": "#6C757D", "Safe": "#20C997",
+        "상": "#DC3545", "중": "#FFC107", "하": "#28A745",
     }
 
-    def __init__(self, remediation_level="full", report_title=None, company_name=None, custom_filename=None):
+    # [PDF 개선 - 2026-09] RISK_ICONS(이모지)는 실제 렌더링 버그였다 - 아래 __init__에서
+    # 등록하는 한글 TTF(NanumGothic/맑은 고딕)는 컬러 이모지 글립이 없는 일반 한글용
+    # 폰트라 🔴🟠🟡🟢⚪✅는 깨진 네모(.notdef)로 나온다(reportlab은 이모지 폴백 합성을
+    # 아예 안 함). 이모지 대신 위 RISK_COLORS를 그대로 텍스트 색으로 쓰는
+    # "<font color='#..'><b>Critical</b></font>" 방식으로 교체 - 별도 글립 의존이
+    # 없어 항상 안전하게 렌더링된다.
+
+    # [PDF 개선 - 2026-09] 표지 요약 도넛차트용 - Excel 리포트(excel_report.py)가 쓰는
+    # Z-VulnScan 브랜드 팔레트(gui/dashboard_widgets.py STATUS_STYLE의 *_text 색상)와
+    # 맞춰서 포맷 간 톤을 통일한다. PDF는 STD 등급용 "간결한 요약 보고서"라는 원래
+    # 설계 의도를 지켜야 하므로(사용자 확인) Excel처럼 카테고리/호스트별 차트를
+    # 여러 개 넣지 않고, 표지에 전체 현황 도넛차트 1개만 추가한다.
+    STATUS_CHART_COLORS = {
+        "VULNERABLE": colors.HexColor('#C0271F'),
+        "PARTIAL": colors.HexColor('#8A6A00'),
+        "SAFE": colors.HexColor('#1B8A46'),
+        "MANUAL": colors.HexColor('#5B6675'),
+        "NA": colors.HexColor('#8B94A3'),
+    }
+    STATUS_CHART_LABELS = {
+        "VULNERABLE": "취약", "PARTIAL": "부분만족", "SAFE": "양호",
+        "MANUAL": "검토필요", "NA": "해당없음",
+    }
+
+    def __init__(self, remediation_level="full", report_title=None, company_name=None, custom_filename=None,
+                 asset_ids=None, codes=None):
         self.db = DBConnector() # DB 커넥터 재사용
         # [라이선스 등급별 리포트 차등] "full"(전체) | "partial"(중요도 상/중만) | "none"(미제공)
         # 기본값은 항상 "full"이라, 호출부에서 값을 넘기지 않으면 지금까지와 동일하게 동작한다.
         # (PDF는 원래 공간 제약상 raw_output 전체를 싣지 않으므로 evidence_level 구분은 없음)
         self.remediation_level = remediation_level
+        # [리포트 탭 - 자산별/항목별 선택, 2026-09] None(기본값)이면 지금까지처럼
+        # 전체 자산/전체 항목을 담는다 - 하위호환. 값을 넘기면 그 asset_id/코드만
+        # 리포트에 포함한다.
+        self.asset_ids = list(asset_ids) if asset_ids else None
+        self.codes = list(codes) if codes else None
         # [리포트 탭 - 커스터마이징] 표지 제목/브랜딩 문구/저장 파일명을 비워두면
         # 지금까지와 동일한 기본값을 그대로 쓴다(하위 호환).
         self.report_title = (report_title or "").strip() or "주요정보통신기반시설 취약점 분석 요약"
@@ -145,6 +185,48 @@ class PDFGenerator:
         ]))
         return table
 
+    def _build_status_pie(self, status_dist):
+        """[PDF 개선 - 2026-09] 표지용 전체 판정 분포 도넛(파이)차트 1개.
+        STD 등급 요약 보고서라는 원래 의도를 지키기 위해 Excel처럼 카테고리/호스트별로
+        여러 개 넣지 않고 표지 한 곳에만 둔다. 0건인 판정은 조각 자체를 빼서
+        범례가 실제 존재하는 항목만 보이게 한다."""
+        order = ["VULNERABLE", "PARTIAL", "SAFE", "MANUAL", "NA"]
+        entries = [(s, status_dist.get(s, 0)) for s in order if status_dist.get(s, 0) > 0]
+        if not entries:
+            return None
+
+        drawing = Drawing(420, 150)
+
+        pie = Pie()
+        pie.x, pie.y = 40, 10
+        pie.width = pie.height = 130
+        pie.innerRadiusFraction = 0.55  # 대시보드 도넛차트와 톤 맞춤
+        pie.data = [cnt for _, cnt in entries]
+        pie.labels = None
+        pie.simpleLabels = False
+        pie.sideLabels = False
+        for i, (status, _) in enumerate(entries):
+            pie.slices[i].fillColor = self.STATUS_CHART_COLORS.get(status, colors.HexColor('#999999'))
+            pie.slices[i].strokeColor = colors.white
+            pie.slices[i].strokeWidth = 1
+        drawing.add(pie)
+
+        legend = Legend()
+        legend.x, legend.y = 220, 110
+        legend.dy = 10
+        legend.dx = 10
+        legend.fontName = self.font_name
+        legend.fontSize = 9
+        legend.alignment = 'left'
+        total = sum(cnt for _, cnt in entries)
+        legend.colorNamePairs = [
+            (self.STATUS_CHART_COLORS.get(status, colors.HexColor('#999999')),
+             f"{self.STATUS_CHART_LABELS.get(status, status)}  {cnt}건 ({cnt*100//total}%)")
+            for status, cnt in entries
+        ]
+        drawing.add(legend)
+        return drawing
+
     def generate(self):
         doc = SimpleDocTemplate(
             self.filename, pagesize=A4, 
@@ -166,11 +248,35 @@ class PDFGenerator:
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
 
+        # [리포트 탭 - 자산별/항목별 선택] asset_ids/codes가 None이면 조건절 자체를
+        # 안 붙여 지금까지와 동일하게 전체를 대상으로 한다(하위호환).
+        asset_filter_sql = ""
+        asset_filter_params = []
+        if self.asset_ids:
+            placeholders = ",".join("?" * len(self.asset_ids))
+            asset_filter_sql = f" AND asset_id IN ({placeholders})"
+            asset_filter_params = list(self.asset_ids)
+
+        code_filter_sql = ""
+        code_filter_params = []
+        if self.codes:
+            placeholders = ",".join("?" * len(self.codes))
+            code_filter_sql = (
+                " AND (CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' "
+                f"THEN kisa_code ELSE vuln_code END) IN ({placeholders})"
+            )
+            code_filter_params = list(self.codes)
+
         try:
             # 자산 조회
-            cursor.execute("SELECT asset_id, ip_addr, os_type, hostname, mac_addr, description FROM TBL_ASSETS ORDER BY ip_addr ASC")
+            assets_sql = "SELECT asset_id, ip_addr, os_type, hostname, mac_addr, description FROM TBL_ASSETS"
+            if self.asset_ids:
+                placeholders = ",".join("?" * len(self.asset_ids))
+                assets_sql += f" WHERE asset_id IN ({placeholders})"
+            assets_sql += " ORDER BY ip_addr ASC"
+            cursor.execute(assets_sql, asset_filter_params if self.asset_ids else [])
             all_assets = cursor.fetchall()
-            
+
             if not all_assets:
                 raise Exception("No assets found.")
 
@@ -190,12 +296,13 @@ class PDFGenerator:
                 AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
                 AND vuln_code NOT LIKE 'TCP-%' AND vuln_code NOT LIKE 'UDP-%'
                 AND {DBConnector.latest_round_condition('R')}
+                {asset_filter_sql}{code_filter_sql}
                 ORDER BY asset_id ASC,
                     CASE risk_level
                         WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
                         WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
                         ELSE 5 END ASC
-            """)
+            """, asset_filter_params + code_filter_params)
             findings_by_asset = {}
             for row in cursor.fetchall():
                 findings_by_asset.setdefault(row[0], []).append(row[1:])
@@ -206,8 +313,9 @@ class PDFGenerator:
                 SELECT status, risk_level, COUNT(*) FROM TBL_SCAN_RESULT R
                 WHERE waiver_status=0 AND status IN ('VULNERABLE', 'PARTIAL')
                 AND {DBConnector.latest_round_condition('R')}
+                {asset_filter_sql}{code_filter_sql}
                 GROUP BY status, risk_level
-            """)
+            """, asset_filter_params + code_filter_params)
             vuln_risk_stats = {}
             partial_risk_stats = {}
             for status, risk, cnt in cursor.fetchall():
@@ -216,6 +324,20 @@ class PDFGenerator:
             total_vulns = sum(vuln_risk_stats.values())
             total_partial = sum(partial_risk_stats.values())
             critical_high = vuln_risk_stats.get('Critical', 0) + vuln_risk_stats.get('High', 0)
+
+            # [PDF 개선 - 2026-09] 표지 도넛차트용 전체 판정 분포(SAFE/MANUAL/NA 포함).
+            # 위 vuln_risk_stats/partial_risk_stats는 위험도별 집계라 차트에 바로 못
+            # 쓰고, 판정(status) 기준 전체 건수가 따로 필요하다.
+            cursor.execute(f"""
+                SELECT status, COUNT(*) FROM TBL_SCAN_RESULT R
+                WHERE waiver_status=0
+                AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
+                AND vuln_code NOT LIKE 'TCP-%' AND vuln_code NOT LIKE 'UDP-%'
+                AND {DBConnector.latest_round_condition('R')}
+                {asset_filter_sql}{code_filter_sql}
+                GROUP BY status
+            """, asset_filter_params + code_filter_params)
+            status_dist = dict(cursor.fetchall())
 
             # === 1. Executive Summary ===
             elements.append(Spacer(1, 1*cm))
@@ -238,13 +360,19 @@ class PDFGenerator:
                 self._create_kpi_box("조치 필요(상/중)", critical_high, colors.HexColor('#FFE5E5'))
             ]]
             elements.append(Table(kpi_data, colWidths=[110, 110, 110, 110], style=[('ALIGN',(0,0),(-1,-1),'CENTER')]))
+
+            status_pie = self._build_status_pie(status_dist)
+            if status_pie:
+                elements.append(Spacer(1, 0.8*cm))
+                elements.append(status_pie)
+
             elements.append(PageBreak())
 
             # === 2. 상세 리포트 ===
             for asset in all_assets:
                 asset_id, ip, os_type, hostname, _, _ = asset
-                
-                elements.append(Paragraph(f"🔍 자산 상세 분석: {ip} ({hostname})", title_style))
+
+                elements.append(Paragraph(f"자산 상세 분석: {ip} ({hostname})", title_style))
                 elements.append(Spacer(1, 0.3*cm))
 
                 # PDF에서는 공간 제약상 'raw_output' 전체를 출력하지 않고 'detected_value(요약)'를 출력함
@@ -270,13 +398,16 @@ class PDFGenerator:
                     detail = self._truncate(detail, 80) # 요약본만 표시
                     rem = self._truncate(rem, 60)
 
-                    risk_icon = self.RISK_ICONS.get(risk, '')
+                    risk_hex = self.RISK_HEX.get(risk, '#666666')
+                    risk_cell = Paragraph(
+                        f"<font color='{risk_hex}'><b>{html.escape(risk or '-')}</b></font>", cell_style
+                    )
 
                     table_data.append([
                         code,
                         Paragraph(html.escape(name), cell_style),
                         status_label.get(status, status or "-"),
-                        f"{risk_icon} {risk}",
+                        risk_cell,
                         Paragraph(html.escape(detail), cell_style),
                         Paragraph(html.escape(rem), cell_style)
                     ])

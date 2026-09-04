@@ -53,8 +53,14 @@ def load_pc_rules():
     return rule_crypto.load_ruleset(path)
 
 
-def generate_pc_script():
+def generate_pc_script(excluded_codes=None):
     """pc_rules.json 기반 로컬 진단 PowerShell 스크립트 문자열을 반환한다.
+
+    excluded_codes: [PC 진단 페이지 - 세세한 설정, 2026-09] Expert Mode(utils/
+    expert_profile.get_excluded_codes)에서 사전 배제한 코드 집합을 그대로 넘기면
+    그 항목들은 스크립트 자체에서 빼고 생성한다 - 라이브 스캔(ssh_inspector 등)이
+    이미 같은 프로필로 스캔 범위를 사전 배제하는 것과 동일한 동작을 로컬 스크립트
+    경로에도 맞춘 것. None/빈 집합이면 지금까지처럼 전체 항목을 그대로 생성한다.
 
     각 룰의 최상위 command뿐 아니라, criteria(세부기준) 중 자체 command가 있는
     항목도 각각 실제로 실행해 [CRIT:N] 블록으로 캡처한다(criteria 등장 순서 중
@@ -77,6 +83,8 @@ def generate_pc_script():
     분리해서 파싱함) - 그래서 이 증적을 추가해도 기존 판정 로직에 회귀가 없다.
     """
     rules = load_pc_rules()
+    if excluded_codes:
+        rules = [r for r in rules if r.get('code') not in excluded_codes]
 
     lines = [
         "# Z-VulnScan PC 로컬 진단 스크립트 (자동 생성됨 - 수정하지 마세요)",
@@ -201,7 +209,7 @@ def generate_pc_script():
     return "\r\n".join(lines)
 
 
-def generate_pc_script_bat():
+def generate_pc_script_bat(excluded_codes=None):
     """generate_pc_script()의 PowerShell 진단 로직을, 대상 PC에 파일 하나만 넘기면
     되도록 배치/PowerShell "폴리글랏" 단일 .bat 파일로 감싸서 반환한다.
 
@@ -225,7 +233,7 @@ def generate_pc_script_bat():
     한다 - 대상 PC 대부분이 한국어 Windows(cp949)이므로 cp949로 통일한다
     (호출부인 pc_toolkit_dialog.py에서 인코딩을 맞춰 저장한다).
     """
-    ps1_body = generate_pc_script()
+    ps1_body = generate_pc_script(excluded_codes=excluded_codes)
 
     header = [
         "<# :",

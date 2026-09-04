@@ -31,6 +31,7 @@ from core.vuln_matcher import VulnMatcher
 from utils.db_connector import DBConnector
 from utils.logger import AppLogger
 from utils.os_utils import OSUtils
+from utils.oui_lookup import OUILookup
 from core.discovery import HostDiscovery
 from core.config import AppConfig
 
@@ -43,7 +44,7 @@ class ScanWorker(QThread):
     # [UI/UX 개선 - hostname 출처 배지] IP, Host, OS, MAC, Vendor, hostname 출처(역DNS/매핑/추정)
     asset_found_signal = Signal(str, str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None, engine_token=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None, engine_token=None, connect_timeout=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -57,6 +58,12 @@ class ScanWorker(QThread):
         # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 때만 채워짐. 없으면(None)
         # DatabaseInspector가 지금까지처럼 OS 진단과 같은 계정을 그대로 재사용한다.
         self.default_db_user = db_user
+        # [스캔 설정 - 타임아웃 노출, 2026-09] Scan Configuration 카드의 타임아웃
+        # 입력값. None이면(사용자가 안 건드리면) 각 인스펙터(SSHInspector 20초/
+        # WindowsInspector 30초/DatabaseInspector 10초)의 기존 기본값을 그대로 쓴다 -
+        # 하위호환. 값을 넣으면 SSH/WinRM/DB 접속 타임아웃 전부에 동일하게 적용된다
+        # (레거시/OT 장비가 느려서 자주 타임아웃 나는 문제를 한 곳에서 조정하기 위함).
+        self.connect_timeout = connect_timeout
 
         if isinstance(user, dict):
             self.user_info = user
@@ -126,7 +133,7 @@ class ScanWorker(QThread):
                         discovery_workers = max(1, self.max_workers_override)
                     else:
                         discovery_workers = 3 if self.ot_mode else 50
-                    discovery = HostDiscovery(max_workers=discovery_workers)
+                    discovery = HostDiscovery(max_workers=discovery_workers, stop_check=lambda: self.stop_flag)
                     live_hosts = discovery.scan_network(real_targets)
                 
                 # 2. 시뮬레이션 IP는 무조건 생존 처리
@@ -214,6 +221,8 @@ class ScanWorker(QThread):
                     self._save_result_to_db(db, data)
                 elif msg_type == "HOSTNAME_UPDATE":
                     self._save_hostname_update_to_db(db, data)
+                elif msg_type == "MAC_UPDATE":
+                    self._save_mac_update_to_db(db, data)
                 elif msg_type == "SESSION_META":
                     session_id, target_input, mode = data
                     db.save_scan_session(session_id, target_input, mode)
@@ -241,6 +250,16 @@ class ScanWorker(QThread):
             db.update_asset_field(asset_id, "hostname", real_hostname)
             db.update_asset_field(asset_id, "hostname_source", "실측")
 
+    def _save_mac_update_to_db(self, db, data):
+        # [MAC/Vendor "Unknown" 버그 수정] hostname 승격(_save_hostname_update_to_db)과
+        # 같은 원리 - Discovery의 ARP 기반 추정(같은 서브넷 밖이면 항상 "Unknown")을
+        # 인증 접속으로 확인한 실제 MAC/Vendor로 교체한다.
+        ip, real_mac = data
+        asset_id = db.get_asset_id(ip)
+        if asset_id:
+            db.update_asset_field(asset_id, "mac_addr", real_mac)
+            db.update_asset_field(asset_id, "vendor", OUILookup.lookup(real_mac))
+
     @staticmethod
     def _extract_real_hostname(os_info):
         """SYS-OS_INFO 원문(uname -a 또는 systeminfo)에서 실제 hostname을 추출한다.
@@ -253,6 +272,31 @@ class ScanWorker(QThread):
         m = re.match(r'^\s*Linux\s+(\S+)', os_info)
         if m:
             return m.group(1)
+        return None
+
+    @staticmethod
+    def _extract_real_mac(ip_info):
+        """[MAC/Vendor "Unknown" 버그 수정 - 2026-09] Discovery 단계의 mac_addr은
+        스캐너 PC 자신의 로컬 ARP 테이블만 보고 채워지는데, ARP는 같은 L2 세그먼트
+        밖으로 못 나가므로 다른 서브넷/VLAN 대상(실제 감사 현장 대부분)은 항상
+        "Unknown"이 된다. 여기서는 SYS-IP_INFO(ip_info)에 이미 수집돼 있는 원격
+        호스트 자신의 네트워크 정보(SSH: `ip addr show`/`ifconfig -a`, WinRM:
+        `ipconfig /all` - get_system_detail() 참고)에서 원격 호스트 자신이 보고하는
+        진짜 MAC을 파싱한다 - 새 원격 명령이 필요 없다.
+        loopback(00:00:00:00:00:00)은 제외하고 첫 번째 유효한 MAC을 반환한다."""
+        if not ip_info:
+            return None
+        # Linux: "link/ether aa:bb:cc:dd:ee:ff brd ..." (ip addr show) 또는
+        # "ether aa:bb:cc:dd:ee:ff" (ifconfig -a)
+        for m in re.finditer(r'(?:link/ether|ether)\s+([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})', ip_info):
+            mac = m.group(1).upper()
+            if mac != "00:00:00:00:00:00":
+                return mac
+        # Windows: "Physical Address. . . . . . . . . : AA-BB-CC-DD-EE-FF" (ipconfig /all)
+        for m in re.finditer(r'Physical Address[.\s]*:\s*([0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})', ip_info):
+            mac = m.group(1).upper().replace("-", ":")
+            if mac != "00:00:00:00:00:00":
+                return mac
         return None
 
     def _save_result_to_db(self, db, data):
@@ -492,15 +536,28 @@ class ScanWorker(QThread):
             # IP별 계정이 없으면 기본 계정 사용
             username = self.user_info.get(ip, {}).get('user', self.default_user)
 
+        # [스캔 설정 - 타임아웃 노출] connect_timeout이 None이면(사용자가 안 건드리면)
+        # 각 인스펙터 생성자의 기존 기본값을 그대로 쓴다(하위호환) - kwargs를 아예
+        # 안 넘기는 것과 동일하게, 빈 dict를 언패킹한다.
+        ssh_timeout_kwargs = {"timeout": self.connect_timeout} if self.connect_timeout else {}
+        win_timeout_kwargs = ssh_timeout_kwargs
+        db_timeout_kwargs = ssh_timeout_kwargs
+
+        # [Stop 버그 수정] run_all_checks()의 룰 루프가 매 룰마다 이 콜백을 확인해서
+        # Stop 클릭 즉시(지금 실행 중인 명령 하나가 끝나는 대로) 빠져나가게 한다 -
+        # 예전엔 인스펙터 "사이"에서만 stop_flag를 봐서, 호스트 하나당 수십 개 명령을
+        # 다 돌려야 실제로 멈췄다.
+        stop_check = lambda: self.stop_flag
+
         os_inspector = None  # SYSTEM Detail 부록 수집 대상 (Windows/Linux 대표 1개만)
         inspectors = []
         # Windows 진단 조건
         if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
-            os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
+            os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **win_timeout_kwargs)
             inspectors.append(os_inspector)
         # Linux 진단 조건
         elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-            os_inspector = SSHInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode)
+            os_inspector = SSHInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **ssh_timeout_kwargs)
             inspectors.append(os_inspector)
 
         # DB 진단 조건 (OS 진단과 별개로, 열린 DB 포트가 있으면 추가 수행)
@@ -508,18 +565,18 @@ class ScanWorker(QThread):
         # 감사 계정), db_user가 지정된 경우에만 그 계정을 쓰고 아니면 기존처럼 OS 계정을 재사용한다.
         db_username = self.default_db_user or username
         if 3306 in open_ports:
-            inspectors.append(DatabaseInspector(ip, db_username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
         if 5432 in open_ports:
-            inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
         if 1433 in open_ports:
-            inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
         if 1521 in open_ports:
-            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode, service_name=self.oracle_service_name))
+            inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode, service_name=self.oracle_service_name, stop_check=stop_check, **db_timeout_kwargs))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
         if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
            22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
-            inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode, demo_mode=self.demo_mode))
+            inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **ssh_timeout_kwargs))
 
         for inspector in inspectors:
             if self.stop_flag: break
@@ -549,6 +606,12 @@ class ScanWorker(QThread):
                 real_hostname = self._extract_real_hostname(detail_info.get("os_info", ""))
                 if real_hostname:
                     self.db_queue.put(("HOSTNAME_UPDATE", (ip, real_hostname)))
+
+                # [MAC/Vendor "Unknown" 버그 수정] 같은 방식으로 Discovery의 ARP 기반
+                # 추정을 인증 접속으로 확인한 실제 MAC으로 교체 (실패 시 조용히 건너뜀)
+                real_mac = self._extract_real_mac(detail_info.get("ip_info", ""))
+                if real_mac:
+                    self.db_queue.put(("MAC_UPDATE", (ip, real_mac)))
 
                 # [PC vs Windows 서버 자동 분류] systeminfo의 OS 이름으로 룰셋 재선택
                 # ("Server"가 없으면 업무용 PC로 간주하여 PC-01~18 룰셋 적용)

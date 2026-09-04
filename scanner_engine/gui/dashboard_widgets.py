@@ -18,7 +18,7 @@ main_window.py의 다른 크롬(chrome) 요소도 이 값을 그대로 import해
 """
 from PySide6.QtWidgets import (
     QWidget, QFrame, QLabel, QLineEdit, QComboBox, QSlider, QCheckBox,
-    QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QSpinBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QGraphicsDropShadowEffect
 )
@@ -847,6 +847,29 @@ class ScanConfigCard(InfoCard):
         hint = QLabel("Lower = gentler on the network, slower scan. Recommended: 1-3 for OT networks.")
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; border:none;")
         outer.addWidget(hint)
+        outer.addSpacing(10)
+
+        # [스캔 설정 - 타임아웃 노출, 2026-09] SSH 접속(기존 20초)/WinRM 접속(30초)/
+        # DB 접속(10초) 타임아웃이 전부 코드에 고정돼 있어, 응답이 느린 레거시/OT
+        # 장비를 상대할 때 사용자가 조정할 방법이 없었다. 0은 "기본값 그대로 사용"
+        # 신호(worker.py의 connect_timeout=None과 동일하게 취급)라 기본 동작은
+        # 지금까지와 똑같다 - 값을 넣을 때만 SSH/WinRM/DB 접속 타임아웃 전부에
+        # 동일하게 적용된다.
+        timeout_row = QHBoxLayout()
+        timeout_row.addWidget(LabelWithHelp(
+            "Connect timeout",
+            "SSH/WinRM/DB 접속 타임아웃(초)을 한 번에 조정합니다. 0 = 기본값 그대로 사용"
+            "(SSH 20초/WinRM 30초/DB 10초). 응답이 느린 레거시·OT 장비 대상일 때 늘려보세요."
+        ))
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(0, 120)
+        self.timeout_spin.setValue(0)
+        self.timeout_spin.setSpecialValueText("Default")
+        self.timeout_spin.setSuffix(" sec")
+        self.timeout_spin.setFixedWidth(90)
+        timeout_row.addWidget(self.timeout_spin)
+        timeout_row.addStretch()
+        outer.addLayout(timeout_row)
         outer.addSpacing(10)
 
         divider2 = QFrame()

@@ -22,7 +22,7 @@ from utils import rule_crypto
 from core.config import AppConfig
 
 class SSHInspector:
-    def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False):
+    def __init__(self, ip, username, port=22, ruleset="linux_rules.json", throttle=False, demo_mode=False, timeout=20, stop_check=None):
         self.ip = ip
         self.username = username
         self.port = port
@@ -33,6 +33,20 @@ class SSHInspector:
         # [실전 안전장치] True일 때만 데모 IP/접속 실패 시 가상 데이터를 사용한다.
         # 기본값 False에서는 접속 실패를 절대 조용히 감추지 않고 정직하게 실패로 보고한다.
         self.demo_mode = demo_mode
+        # [Stop 버그 수정, 2026-09] run_all_checks()의 룰 루프(60~90개 명령)는 예전엔
+        # 중간에 멈출 방법이 전혀 없었다 - ScanWorker.stop_flag는 인스펙터 "사이"에서만
+        # 확인돼서, 사용자가 Stop을 눌러도 지금 실행 중인 인스펙터의 남은 명령을 전부
+        # 끝내야 실제로 멈췄다(호스트 하나당 수십 개 명령 × 타임아웃까지 걸릴 수 있어
+        # "Stop이 안 먹는다"로 체감됨). worker.py가 lambda: self.stop_flag를 넘겨주면
+        # 매 룰마다 확인해 즉시 빠져나간다 - None(기본값)이면 지금까지처럼 계속 실행
+        # (다른 곳에서 직접 생성하는 호출부는 하위호환).
+        self.stop_check = stop_check
+        # [스캔 설정 - 타임아웃 노출, 2026-09] 예전엔 접속 타임아웃(20초)이 고정이라
+        # 응답 느린 레거시/OT 장비는 사용자가 조정할 방법이 없었다 - Scan Configuration
+        # 카드에서 넘어온 값(기본값은 그대로 20이라 하위호환). execute_command()의
+        # 명령 타임아웃(기존 25초)은 이 값+5초로 계산해 기존 "접속보다 5초 여유"
+        # 관계를 그대로 유지한다.
+        self.timeout = timeout
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -131,7 +145,7 @@ class SSHInspector:
             # 최초 접속(known_hosts에 없는 IP)만 자동 등록하고, 이후 저장해둔 키와
             # 다른 키가 나오면 client.connect()가 BadHostKeyException으로 자동 거부한다.
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=20)
+            self.client.connect(self.ip, port=self.port, username=self.username, password=password, timeout=self.timeout)
             try:
                 self.client.save_host_keys(known_hosts_path)
             except Exception:
@@ -161,9 +175,11 @@ class SSHInspector:
             except: pass
             self.client = None
 
-    def execute_command(self, command, timeout=25, use_sudo=False):
+    def execute_command(self, command, timeout=None, use_sudo=False):
         # [주의] find / 등 전체 파일시스템 탐색 명령이 룰셋에 포함되어 있어
         # 타임아웃 없이는 응답 없는 호스트에서 스캔 스레드가 무한 대기할 수 있음
+        if timeout is None:
+            timeout = self.timeout + 5
         if self.client and not self.is_simulation:
             try:
                 actual_command = command
@@ -297,6 +313,8 @@ class SSHInspector:
         excluded_codes = get_excluded_codes(self.ruleset)
 
         for rule in rules:
+            if self.stop_check and self.stop_check():
+                break
             code = rule['code']
             if code in excluded_codes:
                 continue

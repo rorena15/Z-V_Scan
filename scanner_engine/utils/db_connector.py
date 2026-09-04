@@ -511,16 +511,21 @@ class DBConnector:
         return self.save_result(asset_id, vuln_code, vuln_name or vuln_code, "Info", status, detail, remediation)
 
     def get_all_assets(self):
-        """반환: [(ip_addr, os_type, description, mac_addr, hostname, hostname_source), ...]
+        """반환: [(ip_addr, os_type, description, mac_addr, hostname, hostname_source, vendor), ...]
         [버그 수정] hostname은 원래 이 쿼리로 조회되지 않아 앱 재시작/새로고침 때마다
         자산 목록의 Host 칸이 항상 빈칸으로 표시되던 문제가 있었다 - 실측으로 확인됨.
-        hostname_source는 UI/UX 개선(hostname 출처 배지)을 위해 함께 추가."""
+        hostname_source는 UI/UX 개선(hostname 출처 배지)을 위해 함께 추가.
+        [버그 수정 - 2026-09] vendor도 이 쿼리로 조회되지 않아서, DB에는 실제 값이
+        있어도 main_window.py의 세 호출부(load_saved_assets/load_saved_data/
+        refresh_dashboard)가 전부 add_asset_to_table()에 vendor 자리로 빈 문자열
+        ""을 하드코딩해서 넘기고 있었다 - 화면 Vendor 칸이 항상 빈칸이던 진짜 원인.
+        기존 튜플 순서를 바꾸면 기존 위치 기반 언패킹이 깨지므로 끝에 추가한다."""
         with self._db_lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT ip_addr, os_type, description, mac_addr, hostname, hostname_source
+                    SELECT ip_addr, os_type, description, mac_addr, hostname, hostname_source, vendor
                     FROM TBL_ASSETS ORDER BY last_seen DESC
                 """)
                 return cursor.fetchall()
@@ -544,6 +549,85 @@ class DBConnector:
                 return cursor.fetchall()
             except Exception as e:
                 AppLogger.log_error("[DB] Get All Assets For Export Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_asset_picker_list(self):
+        """[리포트 탭 - 자산별 선택, 2026-09] PDFGenerator/ExcelGenerator에 넘길
+        asset_id가 필요해서 get_all_assets_for_export()(다른 화면의 CSV/Excel
+        내보내기가 이미 그 반환 형태에 의존하고 있어 건드리지 않음)와 별개로 만든
+        전용 조회. 반환: [(asset_id, ip_addr, hostname), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT asset_id, ip_addr, hostname FROM TBL_ASSETS ORDER BY ip_addr ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Asset Picker List Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_asset_ledger_rows(self, asset_ids=None):
+        """[자산관리대장, 2026-09 신규] 자산 탭의 get_all_assets_for_export()(CSV/Excel
+        내보내기, 이미 다른 화면이 그 반환 형태에 의존)와 별개로, 리포트 탭의
+        자산관리대장 전용 조회 - C/I/A 점수까지 포함한다(export는 미포함).
+        등급은 여기서 계산하지 않고 호출부가 compute_asset_grade()로 그때그때 계산.
+        반환: [(asset_id, ip_addr, hostname, os_type, mac_addr, vendor, zone_tag,
+                asset_purpose, department, owner_name, conf_score, integ_score,
+                avail_score, description, last_seen), ...]"""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT asset_id, ip_addr, hostname, os_type, mac_addr, vendor, zone_tag,
+                           asset_purpose, department, owner_name, conf_score, integ_score,
+                           avail_score, description, last_seen
+                    FROM TBL_ASSETS
+                """
+                params = []
+                if asset_ids:
+                    placeholders = ",".join("?" * len(asset_ids))
+                    sql += f" WHERE asset_id IN ({placeholders})"
+                    params = list(asset_ids)
+                sql += " ORDER BY ip_addr ASC"
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Asset Ledger Rows Failed", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_code_picker_list(self):
+        """[리포트 탭 - 항목별 선택, 2026-09] 최신 회차에 실제로 존재하는 KISA 코드
+        목록(점검 항목명 포함) - pdf_report.py/excel_report.py의 기존 code_display
+        (kisa_code 우선, 없으면 vuln_code) 규칙과 SYS-/CONN-/TCP-/UDP- 제외 조건을
+        그대로 따른다. 반환: [(code, name), ...] 코드 오름차순."""
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"""
+                    SELECT
+                        CASE WHEN kisa_code IS NOT NULL AND kisa_code != '' THEN kisa_code ELSE vuln_code END as code_display,
+                        MIN(vuln_name)
+                    FROM TBL_SCAN_RESULT R
+                    WHERE waiver_status = 0
+                    AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
+                    AND vuln_code NOT LIKE 'TCP-%' AND vuln_code NOT LIKE 'UDP-%'
+                    AND {DBConnector.latest_round_condition('R')}
+                    GROUP BY code_display
+                    ORDER BY code_display ASC
+                """)
+                return cursor.fetchall()
+            except Exception as e:
+                AppLogger.log_error("[DB] Get Code Picker List Failed", e)
                 return []
             finally:
                 conn.close()
@@ -1140,7 +1224,7 @@ class DBConnector:
         # 부서/담당자 컬럼을 import 시점에 바로 반영하기 위함. update_asset_assessment()는
         # C/I/A 점수까지 한 번에 덮어써서 이미 입력된 평가값을 날릴 위험이 있어(import
         # 파일엔 보통 C/I/A가 없음), 그 필드들만 건드리지 않는 이 경로를 쓴다.
-        allowed_fields = ["hostname", "os_type", "mac_addr", "description", "zone_tag",
+        allowed_fields = ["hostname", "os_type", "mac_addr", "vendor", "description", "zone_tag",
                            "hostname_source", "department", "owner_name"]
         if field_name not in allowed_fields: return False
 

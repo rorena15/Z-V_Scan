@@ -32,7 +32,7 @@ ORACLE_DEFAULT_SERVICE_NAME = "ORCL"
 class DatabaseInspector:
     """MySQL / PostgreSQL / MSSQL 대상 KISA D-xx 항목 점검 (SSHInspector와 동일한 규칙 엔진 사용)"""
 
-    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False, service_name=None):
+    def __init__(self, ip, username, engine, port=None, throttle=False, demo_mode=False, service_name=None, timeout=10, stop_check=None):
         self.ip = ip
         self.username = username
         self.engine = engine  # "mysql" or "postgresql"
@@ -45,6 +45,13 @@ class DatabaseInspector:
         self.oracle_service_name = service_name
         # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
         self.demo_mode = demo_mode
+        # [스캔 설정 - 타임아웃 노출, 2026-09] 예전엔 4개 엔진 전부 connect_timeout=10
+        # 고정이라 응답 느린 레거시 DB는 사용자가 조정할 방법이 없었다 - Scan
+        # Configuration 카드에서 넘어온 값(기본값은 그대로 10이라 하위호환).
+        self.timeout = timeout
+        # [Stop 버그 수정, 2026-09] ssh_inspector.py/windows_inspector.py와 동일한
+        # 이유 - run_all_checks() 룰 루프를 worker.py의 stop_flag로 즉시 중단.
+        self.stop_check = stop_check
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -65,19 +72,19 @@ class DatabaseInspector:
                 import pymysql
                 self.conn = pymysql.connect(
                     host=self.ip, port=self.port, user=self.username,
-                    password=password, connect_timeout=10
+                    password=password, connect_timeout=self.timeout
                 )
             elif self.engine == "postgresql":
                 import psycopg2
                 self.conn = psycopg2.connect(
                     host=self.ip, port=self.port, user=self.username,
-                    password=password, dbname="postgres", connect_timeout=10
+                    password=password, dbname="postgres", connect_timeout=self.timeout
                 )
             elif self.engine == "mssql":
                 import pymssql
                 self.conn = pymssql.connect(
                     server=self.ip, port=self.port, user=self.username,
-                    password=password, timeout=10, login_timeout=10
+                    password=password, timeout=self.timeout, login_timeout=self.timeout
                 )
             elif self.engine == "oracle":
                 # [python-oracledb, thin 모드] Oracle Instant Client 번들 없이 순수
@@ -87,7 +94,7 @@ class DatabaseInspector:
                 service_name = self.oracle_service_name or ORACLE_DEFAULT_SERVICE_NAME
                 dsn = f"{self.ip}:{self.port}/{service_name}"
                 self.conn = oracledb.connect(
-                    user=self.username, password=password, dsn=dsn, tcp_connect_timeout=10
+                    user=self.username, password=password, dsn=dsn, tcp_connect_timeout=self.timeout
                 )
             else:
                 return False
@@ -205,6 +212,8 @@ class DatabaseInspector:
         excluded_codes = get_excluded_codes(f"{self.engine}_rules.json")
 
         for rule in rules:
+            if self.stop_check and self.stop_check():
+                break
             if rule['code'] in excluded_codes:
                 continue
             # [주의] MySQL/PostgreSQL 룰셋이 동일한 "D-xx" 코드를 공유하므로,

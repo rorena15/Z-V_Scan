@@ -11,7 +11,7 @@ import concurrent.futures
 from utils.logger import AppLogger
 
 class HostDiscovery:
-    def __init__(self, max_workers=50):
+    def __init__(self, max_workers=50, stop_check=None):
         # TCP SYN/ACK 스캔을 흉내내어 가장 흔한 포트만 빠르게 찌릅니다.
         # 우선순위 변경: 445(Win) -> 22(Linux) -> 80(Web) -> 135(RPC)
         # 이유: 445/22번이 열려있을 확률이 가장 높으므로 먼저 확인하여 루프 탈출 유도
@@ -19,10 +19,20 @@ class HostDiscovery:
         self.timeout = 1
         # [OT 모드 연동] 생존 확인 단계도 동시성을 낮출 수 있도록 외부에서 지정 가능
         self.max_workers = max_workers
+        # [Stop 버그 수정, 2026-09] 예전엔 scan_network()이 대상 IP 전부(예: /24
+        # 스캔이면 254개)를 스레드풀에 한꺼번에 제출하고 as_completed()로 전부 끝날
+        # 때까지 기다리기만 해서, 이 단계(스캔의 맨 처음 - 생존 호스트 찾기) 자체가
+        # ScanWorker.stop_flag와 아예 연결돼 있지 않았다 - Stop을 눌러도 대상 범위가
+        # 크면 전체 IP를 다 확인할 때까지 아무 반응이 없었다. worker.py가
+        # lambda: self.stop_flag를 넘겨주면 스캔network()이 즉시 남은 작업을
+        # 취소하고, check_host()도 포트 루프 중간에 바로 빠져나간다.
+        self.stop_check = stop_check
 
     def check_host(self, ip):
         #단일 호스트 생존 확인 (TCP Connect 방식 - Non-Root 가능)
         for port in self.check_ports:
+            if self.stop_check and self.stop_check():
+                return None
             try:
                 # Context Manager(with) 사용으로 소켓 자동 닫기 보장
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -55,8 +65,14 @@ class HostDiscovery:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # futures 딕셔너리 생성
             future_to_ip = {executor.submit(self.check_host, ip): ip for ip in ip_list}
-            
+
             for future in concurrent.futures.as_completed(future_to_ip):
+                # [Stop 버그 수정] 아직 시작 안 한 나머지 작업은 즉시 취소, 지금 막
+                # 끝난 것까지만 반영하고 루프를 빠져나온다(worker.py run()의
+                # executor.shutdown(wait=False, cancel_futures=True) 패턴과 동일).
+                if self.stop_check and self.stop_check():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
                 result = future.result()
                 if result:
                     active_hosts.append(result)

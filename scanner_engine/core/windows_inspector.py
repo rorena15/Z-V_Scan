@@ -28,7 +28,7 @@ class WindowsInspector:
     # 캐시 파일을 읽도록 공유한다.
     SECEDIT_CACHE_PATH = r"C:\zvulnscan_secpol_cache.cfg"
 
-    def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False, demo_mode=False):
+    def __init__(self, ip, username, ruleset="windows_rules.json", throttle=False, demo_mode=False, timeout=30, stop_check=None):
         self.ip = ip
         self.username = username
         self.session = None
@@ -38,6 +38,15 @@ class WindowsInspector:
         self.throttle = throttle  # OT/저속 모드: 응답이 느려지면 자동으로 명령 간격을 늘림
         # [실전 안전장치] True일 때만 데모 IP를 가상 데이터로 처리한다. 기본값 False.
         self.demo_mode = demo_mode
+        # [Stop 버그 수정, 2026-09] ssh_inspector.py와 동일한 이유 - run_all_checks()
+        # 룰 루프를 worker.py의 stop_flag로 즉시 중단할 수 있게 한다.
+        self.stop_check = stop_check
+        # [스캔 설정 - 타임아웃 노출, 2026-09] 예전엔 실제 점검용 세션 타임아웃
+        # (read 30/op 25초 고정)이라 응답 느린 레거시/OT 장비는 조정 불가였다 -
+        # Scan Configuration 카드에서 넘어온 값(기본값은 그대로 30이라 하위호환).
+        # HTTPS 가용성만 빠르게 확인하는 프로브 타임아웃(4/3초)은 장비 속도와
+        # 무관한 프로토콜 협상용이라 건드리지 않는다(connect() 주석 참고).
+        self.timeout = timeout
         self.rules_path = self._get_rules_path()
 
     def _get_rules_path(self):
@@ -85,8 +94,8 @@ class WindowsInspector:
                         url,
                         auth=(self.username, password),
                         transport='ntlm',
-                        read_timeout_sec=30,
-                        operation_timeout_sec=25,
+                        read_timeout_sec=self.timeout,
+                        operation_timeout_sec=max(self.timeout - 5, 5),
                         **extra_kwargs
                     )
                     self.is_connected = True
@@ -300,6 +309,8 @@ class WindowsInspector:
 
         try:
             for rule in rules:
+                if self.stop_check and self.stop_check():
+                    break
                 code = rule['code']
                 # [추가 1] KISA 코드
                 kisa_code = rule.get('kisa_code', rule.get('code', ''))

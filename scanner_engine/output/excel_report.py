@@ -103,12 +103,21 @@ class ExcelGenerator:
     }
 
     def __init__(self, evidence_level="full", remediation_level="full",
-                 report_title=None, company_name=None, custom_filename=None):
+                 report_title=None, company_name=None, custom_filename=None,
+                 asset_ids=None, codes=None):
         self.db = DBConnector()
         # [라이선스 등급별 리포트 차등] evidence_level: "full"|"vuln_only"
         # remediation_level: "full"|"partial"|"none" - 기존과 동일하게 유지
         self.evidence_level = evidence_level
         self.remediation_level = remediation_level
+        # [리포트 탭 - 자산별/항목별 선택, 2026-09] None(기본값)이면 지금까지처럼
+        # 전체 자산/전체 항목을 담는다 - 하위호환. _fetch_scan_result()/
+        # _fetch_asset_assessment_full()에서만 걸러서 카테고리/호스트 시트 등
+        # 이 둘에서 파생되는 모든 내용에 자동으로 반영되게 한다. 회차 비교(diff)/
+        # 점검대상 커버리지 시트는 이번 스캔 범위가 아니라 누적 이력 성격이라
+        # 의도적으로 필터를 적용하지 않는다.
+        self.asset_ids = list(asset_ids) if asset_ids else None
+        self.codes = list(codes) if codes else None
         # [리포트 탭 - 커스터마이징] 표지 제목/브랜딩 문구/저장 파일명 - 비워두면
         # 지금까지와 동일한 기본값(PDFGenerator와 동일한 정책).
         self.report_title = (report_title or "").strip() or "주요정보통신기반시설 기술적 취약점 분석 평가 결과"
@@ -288,6 +297,66 @@ class ExcelGenerator:
             AppLogger.log_error("Excel Generation Error", e)
             raise e
 
+    def generate_asset_ledger(self):
+        """[자산관리대장, 2026-09 신규] 취약점 진단 결과 워크북(generate())과는
+        별개의 독립 문서 - 자산 탭에 이미 있던 "내보내기"(get_all_assets_for_export,
+        CSV/Excel 원시 덤프, C/I/A·등급 미포함)와 달리 이 앱의 리포트 서식/색상을
+        입힌 정식 자산 등록대장이다. self.asset_ids가 지정돼 있으면(리포트 탭
+        범위 선택) 그 자산만 담는다 - self.codes(항목별 선택)는 자산 자체를
+        추리는 게 아니라 findings에만 의미가 있어 여기엔 적용하지 않는다."""
+        try:
+            wb = Workbook()
+            wb.remove(wb.active)
+            rows = self.db.get_asset_ledger_rows(asset_ids=self.asset_ids)
+            self._create_asset_ledger_sheet(wb, rows)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_name = f"{self.custom_filename}_자산관리대장_{timestamp}" if self.custom_filename else f"자산관리대장_{timestamp}"
+            filename = f"{base_name}.xlsx"
+            filepath = os.path.join(self.output_dir, filename)
+            wb.save(filepath)
+            return filepath
+        except Exception as e:
+            AppLogger.log_error("Asset Ledger Generation Error", e)
+            raise e
+
+    def _create_asset_ledger_sheet(self, wb, rows):
+        ws = wb.create_sheet("자산관리대장")
+        headers = [
+            ("A", "No", 5), ("B", "IP 주소", 15), ("C", "Hostname", 20), ("D", "OS", 18),
+            ("E", "MAC", 16), ("F", "Vendor", 16), ("G", "구역태그", 12),
+            ("H", "용도", 18), ("I", "부서", 14), ("J", "담당자", 12),
+            ("K", "C", 6), ("L", "I", 6), ("M", "A", 6), ("N", "등급", 8),
+            ("O", "설명", 24), ("P", "최종 확인", 18),
+        ]
+        for col, title, width in headers:
+            cell = ws[f'{col}1']
+            cell.value = title
+            cell.fill = self.HEADER_FILL
+            cell.font = self.FONT_HEADER
+            cell.border = self.BORDER_ALL
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions[col].width = width
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = 'A2'
+
+        for idx, (asset_id, ip, hostname, os_type, mac, vendor, zone_tag,
+                  purpose, dept, owner, c, i, a, description, last_seen) in enumerate(rows, 1):
+            grade = DBConnector.compute_asset_grade(c, i, a)
+            vals = [
+                idx, ip, hostname or "-", os_type or "-", mac or "-", vendor or "-", zone_tag or "-",
+                purpose or "-", dept or "-", owner or "-",
+                c if c is not None else "-", i if i is not None else "-", a if a is not None else "-", grade,
+                description or "-", last_seen or "-",
+            ]
+            r_idx = idx + 1
+            for c_idx, val in enumerate(vals, 1):
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.value = self.clean_text(val)
+                cell.font = self.FONT_NORMAL
+                cell.border = self.BORDER_ALL
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
     # ------------------------------------------------------------------
     # DB 조회
     # ------------------------------------------------------------------
@@ -296,6 +365,20 @@ class ExcelGenerator:
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         try:
+            filter_sql = ""
+            params = []
+            if self.asset_ids:
+                placeholders = ",".join("?" * len(self.asset_ids))
+                filter_sql += f" AND R.asset_id IN ({placeholders})"
+                params += list(self.asset_ids)
+            if self.codes:
+                placeholders = ",".join("?" * len(self.codes))
+                filter_sql += (
+                    " AND (CASE WHEN R.kisa_code IS NOT NULL AND R.kisa_code != '' "
+                    f"THEN R.kisa_code ELSE R.vuln_code END) IN ({placeholders})"
+                )
+                params += list(self.codes)
+
             query = f"""
                 SELECT
                     A.asset_id, A.ip_addr, A.hostname, A.os_type,
@@ -308,9 +391,10 @@ class ExcelGenerator:
                 JOIN TBL_ASSETS A ON R.asset_id = A.asset_id
                 WHERE R.vuln_code NOT LIKE 'SYS-%'
                 AND {DBConnector.latest_round_condition('R')}
+                {filter_sql}
                 ORDER BY A.ip_addr ASC, R.kisa_code ASC
             """
-            cursor.execute(query)
+            cursor.execute(query, params)
             cols = [d[0] for d in cursor.description]
             rows = []
             for raw in cursor.fetchall():
@@ -325,16 +409,25 @@ class ExcelGenerator:
             conn.close()
 
     def _fetch_asset_assessment_full(self):
-        """점검대상 시트용: 자산평가 필드를 포함한 자산 전체 목록(스캔 결과 유무와 무관)."""
+        """점검대상 시트용: 자산평가 필드를 포함한 자산 전체 목록(스캔 결과 유무와 무관).
+        [리포트 탭 - 자산별 선택] asset_ids가 있으면 그 자산만 - codes(항목별 선택)는
+        자산 자체를 빼지 않으므로 여기엔 적용하지 않는다(findings만 걸러짐)."""
         conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            sql = """
                 SELECT asset_id, ip_addr, hostname, os_type,
                        asset_purpose, department, owner_name,
                        conf_score, integ_score, avail_score
-                FROM TBL_ASSETS ORDER BY ip_addr ASC
-            """)
+                FROM TBL_ASSETS
+            """
+            params = []
+            if self.asset_ids:
+                placeholders = ",".join("?" * len(self.asset_ids))
+                sql += f" WHERE asset_id IN ({placeholders})"
+                params = list(self.asset_ids)
+            sql += " ORDER BY ip_addr ASC"
+            cursor.execute(sql, params)
             return cursor.fetchall()
         except Exception as e:
             AppLogger.log_error("Fetch Asset Assessment Error", e)
