@@ -1,0 +1,90 @@
+[
+  {
+    "name": "PC-03 복구 콘솔 자동 로그온: 키/값 없음 -> 취약 (룰 설명: 키 부재는 취약, NA 아님)",
+    "rule": "PC-03",
+    "expect": "VULNERABLE",
+    "detail_contains": [
+      "미설정"
+    ]
+  },
+  {
+    "name": "PC-03 SecurityLevel=0 -> 양호",
+    "rule": "PC-03",
+    "reg": {
+      "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Setup\\RecoveryConsole": {
+        "SecurityLevel": 0
+      }
+    },
+    "expect": "SAFE"
+  },
+  {
+    "name": "PC-03 SecurityLevel=1 -> 취약",
+    "rule": "PC-03",
+    "reg": {
+      "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Setup\\RecoveryConsole": {
+        "SecurityLevel": 1
+      }
+    },
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "W-10 마지막 사용자 이름 표시 안 함: 값 없음 -> 취약",
+    "rule": "W-10",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "W-15 개인키 사용 시 암호 입력: 값 없음 -> 취약",
+    "rule": "W-15",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "W-55 프린터 드라이버 설치 제한: 값 없음 -> 취약",
+    "rule": "W-55",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "PC-09 브라우저 종료 시 임시 파일 삭제: 값 없음 -> 취약",
+    "rule": "PC-09",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "PC-16 화면보호기 값 없음 -> 취약 (NA 아님)",
+    "rule": "PC-16",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "PC-17 자동실행 값 없음 -> 부분만족 (NA 아님, CD-ROM 기준만 충족)",
+    "rule": "PC-17",
+    "expect": "PARTIAL"
+  },
+  {
+    "name": "W-31 SNMP 서비스 미설치 -> 해당없음",
+    "rule": "W-31",
+    "expect": "NA"
+  },
+  {
+    "name": "W-13 값 없음 -> 기본값 사용(1) 양호",
+    "rule": "W-13",
+    "expect": "SAFE"
+  },
+  {
+    "name": "W-13 사용(1) -> 양호",
+    "rule": "W-13",
+    "reg": {
+      "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa": {
+        "LimitBlankPasswordUse": 1
+      }
+    },
+    "expect": "SAFE"
+  },
+  {
+    "name": "W-13 사용 안 함(0) -> 취약",
+    "rule": "W-13",
+    "reg": {
+      "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa": {
+        "LimitBlankPasswordUse": 0
+      }
+    },
+    "expect": "VULNERABLE"
+  }
+]

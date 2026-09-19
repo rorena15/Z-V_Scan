@@ -99,4 +99,7 @@ ROADMAP.md
 rules/HANDOVER_U-01_판정로직_검토.md
 PROJECT_MANIFEST.md
 config/known_hosts
+config/dashboard_accounts.json
+config/web_audit.log
+config/api_tokens.json
 scan_debug.log

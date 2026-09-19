@@ -46,6 +46,8 @@ RULE_FILES = {
     "mssql_rules.json": "MSSQL-",
     "oracle_rules.json": "ORACLE-",
     "web_rules.json": "",
+    "network_cisco_rules.json": "",
+    "network_juniper_rules.json": "",
 }
 
 IMPORTANCE_WEIGHT = {"상": 10, "중": 8, "하": 6}

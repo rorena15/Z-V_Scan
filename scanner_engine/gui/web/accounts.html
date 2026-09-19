@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!--
+Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+This software is proprietary and confidential.
+Unauthorized copying, modification, distribution, or reverse engineering
+of this file, via any medium, is strictly prohibited.
+
+[웹 대시보드 - 계정 관리] 웹 대시보드 로그인 전용 관리자 계정(utils/dashboard_accounts.py)을
+관리하는 화면 - 데스크톱 앱의 라이선스/계정과는 무관한, 이 서버에만 적용되는 계정이다.
+처음엔 설정 페이지 안의 카드 하나였는데 별도 상단 탭으로 분리했다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Z-VulnScan 계정 관리</title>
+<style>
+  :root {
+    --surface-1: #F5F7FA; --surface-2: #FFFFFF; --border: #E3E7EE;
+    --text: #1B2430; --text-secondary: #5B6675; --text-muted: #8B94A3;
+    --accent: #2E6BE6; --accent-bg: #E8EFFE;
+    --danger-bg: #FDE7E7; --danger-text: #C0271F;
+    --success-bg: #E2F5E7; --success-text: #1B8A46;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--surface-1); color: var(--text);
+    font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  }
+  .wrap { max-width: 640px; margin: 20px auto; padding: 0 16px 40px; }
+  .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 3px 22px rgba(0,0,0,0.05); }
+  .card h2 { margin: 0 0 4px; font-size: 13.5px; font-weight: 700; }
+  .hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 10.5px; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  .badge-self { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 8px; background: var(--accent-bg); color: var(--accent); font-weight: 600; margin-left: 6px; }
+  .badge-role { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 8px; font-weight: 600; background: var(--surface-1); color: var(--text-secondary); border: 1px solid var(--border); }
+  .badge-role.admin { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .btn { padding: 6px 12px; border: none; border-radius: 8px; font-weight: 600; font-size: 11.5px; cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #fff; padding: 9px 18px; font-size: 12.5px; }
+  .btn-danger { background: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-text); }
+  .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  label { display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+  input[type=text], input[type=password], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px;
+    background: var(--surface-1); color: var(--text);
+  }
+  .role-desc { font-size: 11px; color: var(--text-muted); margin: -8px 0 12px; }
+  .msg { font-size: 12px; margin-top: 10px; }
+  .msg.ok { color: var(--success-text); }
+  .msg.err { color: var(--danger-text); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>웹 대시보드 관리자 계정</h2>
+      <p class="hint">이 서버(127.0.0.1)에 로그인할 수 있는 계정 목록입니다. 데스크톱 앱의 라이선스/기본 계정과는 별개이며, 여러 명이 각자 계정으로 로그인할 수 있습니다. 최소 1개 계정, 최소 1개 관리자 계정은 항상 남아있어야 하며, 로그인 중인 본인 계정은 스스로 삭제할 수 없습니다.</p>
+      <table>
+        <thead><tr><th>아이디</th><th>역할</th><th>생성일</th><th></th></tr></thead>
+        <tbody id="accountsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>새 계정 추가</h2>
+      <div class="row">
+        <div><label>아이디</label><input type="text" id="newUsername" autocomplete="off"></div>
+        <div><label>비밀번호 (8자 이상)</label><input type="password" id="newPassword"></div>
+        <div><label>비밀번호 확인</label><input type="password" id="newPasswordConfirm"></div>
+        <div><label>역할</label><select id="newRole"></select></div>
+      </div>
+      <p class="role-desc">관리자: 전부 가능(설정·계정 관리 포함) · 운영자: 스캔 실행/자산·예외처리/리포트 생성 · 조회자: 조회만 가능</p>
+      <button class="btn btn-primary" id="btnAddAccount">계정 추가</button>
+      <div id="accountsMsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <h2 style="margin:0;">접속 중인 세션</h2>
+        <button class="btn" id="btnRefreshSessions" style="background:var(--surface-1); border:1px solid var(--border); color:var(--text);">새로고침</button>
+      </div>
+      <p class="hint" style="margin-top:6px;">지금 로그인 상태인 브라우저 세션입니다. "강제 로그아웃"을 누르면 그 세션은 즉시 무효가 되고, 열려있는 실시간 스트림도 끊깁니다. 12시간 동안 아무 활동이 없는 세션은 자동으로 만료됩니다.</p>
+      <table>
+        <thead><tr><th>아이디</th><th>역할</th><th>IP</th><th>브라우저</th><th>로그인</th><th>마지막 활동</th><th></th></tr></thead>
+        <tbody id="sessionsBody"></tbody>
+      </table>
+      <div id="sessionsMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <script src="/topbar.js"></script>
+  <script src="/accounts.js"></script>
+</body>
+</html>

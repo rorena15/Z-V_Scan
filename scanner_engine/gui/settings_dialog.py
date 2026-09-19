@@ -15,14 +15,17 @@ import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
-    QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget,
+    QMessageBox, QFileDialog, QGroupBox, QCheckBox, QListWidget, QListWidgetItem,
     QStackedWidget
 )
+from PySide6.QtCore import Qt
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from utils.app_settings import load_settings, save_settings, get_base_dir
 from utils.secure_storage import SecureStorage
 from core.ssh_inspector import SSHInspector
+from utils import dashboard_accounts
+from gui.dialogs import DashboardAccountSetupDialog
 
 
 class SettingsDialog(QDialog):
@@ -56,6 +59,7 @@ class SettingsDialog(QDialog):
             ("룰셋/전문가 프로필", self._build_ruleset_tab()),
             ("기본 계정/자격증명", self._build_credential_tab()),
             ("호스트 키(known_hosts)", self._build_known_hosts_tab()),
+            ("웹 대시보드 계정", self._build_dashboard_accounts_tab()),
             ("라이선스", self._build_license_tab()),
         ]
         for label, page in pages:
@@ -423,6 +427,83 @@ class SettingsDialog(QDialog):
         else:
             QMessageBox.critical(self, "Error", "호스트 키 초기화 중 오류가 발생했습니다.")
         self._refresh_known_hosts()
+
+    # ------------------------------------------------------------------
+    # 탭: 웹 대시보드 계정 (여러 관리자 계정 - 데스크톱 앱과 별개, main.py의
+    # LaunchModeDialog에서 "웹"을 선택했을 때 로그인에 쓰인다)
+    # ------------------------------------------------------------------
+    def _build_dashboard_accounts_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        box = QGroupBox("웹 대시보드 로그인 계정")
+        box_layout = QVBoxLayout(box)
+        box_layout.addWidget(QLabel(
+            "프로그램을 '웹 대시보드'로 시작했을 때(127.0.0.1 로컬 전용) 로그인할 수 있는\n"
+            "계정 목록입니다. 데스크톱 앱 로그인/라이선스와는 무관하며, 여러 명이 각자\n"
+            "계정으로 로그인할 수 있습니다. 계정마다 역할(관리자/운영자/조회자)이 있어\n"
+            "설정·계정 관리는 관리자만, 스캔·자산 편집은 운영자 이상만 할 수 있습니다.\n"
+            "최소 1개 계정, 최소 1개 관리자 계정은 항상 남아있어야 합니다."
+        ))
+
+        self.dashboard_accounts_list = QListWidget()
+        box_layout.addWidget(self.dashboard_accounts_list)
+
+        row = QHBoxLayout()
+        btn_add = QPushButton("계정 추가")
+        btn_add.clicked.connect(self._add_dashboard_account)
+        btn_remove = QPushButton("선택 계정 삭제")
+        btn_remove.clicked.connect(self._remove_selected_dashboard_account)
+        row.addWidget(btn_add)
+        row.addWidget(btn_remove)
+        box_layout.addLayout(row)
+
+        v.addWidget(box)
+        v.addStretch()
+
+        self._refresh_dashboard_accounts()
+        return w
+
+    def _refresh_dashboard_accounts(self):
+        self.dashboard_accounts_list.clear()
+        accounts = dashboard_accounts.load_accounts()
+        if not accounts:
+            self.dashboard_accounts_list.addItem("(등록된 계정 없음 - 웹 대시보드로 처음 시작할 때 생성)")
+            self.dashboard_accounts_list.setEnabled(False)
+            return
+        self.dashboard_accounts_list.setEnabled(True)
+        for account in accounts:
+            role_label = dashboard_accounts.ROLE_LABELS.get(account.get('role'), account.get('role', '-'))
+            item = QListWidgetItem(f"{account['username']}  [{role_label}]  (생성: {account.get('created_at', '-')})")
+            # [버그 방지] 텍스트를 다시 파싱해서 아이디를 뽑으면 표시 형식이
+            # 바뀔 때마다(역할 태그 추가 등) 파싱 로직도 같이 깨진다 - 아이디
+            # 원본을 UserRole에 별도로 저장해 삭제 시 그대로 꺼내 쓴다.
+            item.setData(Qt.UserRole, account['username'])
+            self.dashboard_accounts_list.addItem(item)
+
+    def _add_dashboard_account(self):
+        dialog = DashboardAccountSetupDialog(self, allow_cancel=True, title="웹 대시보드 계정 추가")
+        if dialog.exec() == QDialog.Accepted:
+            QMessageBox.information(self, "완료", f"'{dialog.created_username}' 계정을 추가했습니다.")
+        self._refresh_dashboard_accounts()
+
+    def _remove_selected_dashboard_account(self):
+        item = self.dashboard_accounts_list.currentItem()
+        if not item or not self.dashboard_accounts_list.isEnabled():
+            QMessageBox.warning(self, "선택 필요", "삭제할 계정을 목록에서 선택하세요.")
+            return
+        username = item.data(Qt.UserRole)
+        reply = QMessageBox.question(
+            self, "삭제 확인",
+            f"'{username}' 계정을 삭제합니다. 계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        ok, error = dashboard_accounts.delete_account(username)
+        if not ok:
+            QMessageBox.warning(self, "삭제 불가", error)
+        self._refresh_dashboard_accounts()
 
     # ------------------------------------------------------------------
     # 탭 7: 라이선스 정보

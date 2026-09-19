@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<!--
+Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+This software is proprietary and confidential.
+Unauthorized copying, modification, distribution, or reverse engineering
+of this file, via any medium, is strictly prohibited.
+
+[웹 대시보드 - 엔진 구동] dashboard.html과 달리 이 페이지는 Qt(QWebEngineView)
+안에서는 절대 열리지 않는다 - web_dashboard_server.py가 웹 모드일 때만 서빙하는
+전용 화면이라, dashboard.html처럼 "file:// 안 열어도 되나" 하는 이중 경로 고민 없이
+fetch()를 바로 쓴다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Z-VulnScan 스캔 실행</title>
+<style>
+  :root {
+    --surface-1: #F5F7FA; --surface-2: #FFFFFF; --border: #E3E7EE;
+    --text: #1B2430; --text-secondary: #5B6675; --text-muted: #8B94A3;
+    --accent: #2E6BE6; --accent-bg: #E8EFFE;
+    --danger-bg: #FDE7E7; --danger-text: #C0271F;
+    --warning-bg: #FFF6D6; --warning-text: #8A6A00;
+    --success-bg: #E2F5E7; --success-text: #1B8A46;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--surface-1); color: var(--text);
+    font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 700; font-size: 13.5px; }
+  .topbar a { color: var(--text-secondary); text-decoration: none; font-size: 12.5px; }
+  .topbar a:hover { color: var(--accent); }
+  .topbar .spacer { flex: 1; }
+  .wrap { max-width: 920px; margin: 20px auto; padding: 0 16px 40px; }
+  .card {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 3px 22px rgba(0,0,0,0.05);
+  }
+  .card h2 { margin: 0 0 12px; font-size: 13.5px; font-weight: 700; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  label { display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 12.5px; background: var(--surface-1); color: var(--text);
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .checkline { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .mode-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .mode-tabs button {
+    flex: 1; padding: 9px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-1); color: var(--text-secondary); font-weight: 600;
+    font-size: 12.5px; cursor: pointer;
+  }
+  .mode-tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .hidden { display: none !important; }
+  .btn {
+    padding: 9px 18px; border: none; border-radius: 8px; font-weight: 600;
+    font-size: 12.5px; cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #2860D6; }
+  .btn-primary:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; }
+  .btn-danger { background: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-text); }
+  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: var(--surface-1); color: var(--text); border: 1px solid var(--border); }
+  .status-line { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+  .status-badge { padding: 2px 8px; border-radius: 8px; font-weight: 600; font-size: 11px; }
+  .status-badge.idle { background: var(--border); color: var(--text-secondary); }
+  .status-badge.running { background: var(--accent-bg); color: var(--accent); }
+  .status-badge.done { background: var(--success-bg); color: var(--success-text); }
+  .progress-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 8px 0; }
+  .progress-bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+  #logConsole {
+    background: #12161C; color: #D7DEE8; font-family: 'Consolas', monospace; font-size: 11.5px;
+    padding: 12px; border-radius: 8px; height: 260px; overflow-y: auto; white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .report-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  #reportResult { margin-top: 10px; font-size: 12px; }
+  #reportResult a { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>스캔 실행</h2>
+      <div class="mode-tabs">
+        <button id="tabNetwork" class="active" data-mode="NETWORK_SCAN">Network Scan (자산 탐색)</button>
+        <button id="tabAudit" data-mode="AUDIT_VULN">Audit (정밀 진단, 단일 IP)</button>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>대상 (IP / CIDR / 범위, Audit은 단일 IP만)</label>
+          <input type="text" id="target" placeholder="예: 192.168.56.0/24 또는 192.168.56.5">
+        </div>
+        <div>
+          <label>운영자 태그</label>
+          <input type="text" id="operator" placeholder="선택 - 비우면 로그인 아이디 사용">
+        </div>
+      </div>
+
+      <div id="networkFields">
+        <div class="row">
+          <div>
+            <label>포트 범위</label>
+            <select id="portMode">
+              <option value="quick">빠른 스캔 (기본 포트)</option>
+              <option value="custom">사용자 지정</option>
+              <option value="full">전체 포트 (1-65535, 느림)</option>
+            </select>
+          </div>
+          <div id="customPortsWrap" class="hidden">
+            <label>사용자 지정 포트 (예: 80,443,8000-8100)</label>
+            <input type="text" id="customPorts" placeholder="80,443,8000-8100">
+          </div>
+        </div>
+      </div>
+
+      <div id="auditFields" class="hidden">
+        <div class="row">
+          <div>
+            <label>SSH/WinRM 아이디</label>
+            <input type="text" id="username" placeholder="root / Administrator 등">
+          </div>
+          <div>
+            <label>SSH/WinRM 비밀번호</label>
+            <input type="password" id="password">
+          </div>
+          <div>
+            <label>접속 타임아웃(초, 선택)</label>
+            <input type="number" id="connectTimeout" min="1">
+          </div>
+          <div>
+            <label>대상 유형</label>
+            <select id="deviceType">
+              <option value="">자동 (서버/PC)</option>
+              <option value="network">네트워크 장비 (벤더 자동 감지)</option>
+              <option value="cisco">네트워크 장비 - Cisco IOS</option>
+              <option value="juniper">네트워크 장비 - Juniper Junos</option>
+              <option value="configfile">네트워크 장비 설정 파일 (접속 없이 점검)</option>
+            </select>
+          </div>
+        </div>
+        <div id="configFileBox" class="hidden">
+          <label>장비 설정/출력 텍스트 (대상 칸에는 자산 이름을 영문/숫자/. : - 로 입력)</label>
+          <input type="file" id="configFile" accept=".txt,.cfg,.conf,.log">
+          <textarea id="configText" rows="8" placeholder="show running-config 결과를 붙여넣거나 파일을 선택하세요. show ip interface 등 추가 출력은 'SW1#show ip interface' 같은 프롬프트 줄로 구분해 이어 붙이면 됩니다." style="width:100%;font-family:monospace"></textarea>
+        </div>
+        <div class="row">
+          <div>
+            <label>DB 전용 아이디 (선택 - 비우면 위 계정 재사용)</label>
+            <input type="text" id="dbUsername">
+          </div>
+          <div>
+            <label>DB 전용 비밀번호</label>
+            <input type="password" id="dbPassword">
+          </div>
+          <div>
+            <label>Oracle 서비스명 (선택)</label>
+            <input type="text" id="oracleService" placeholder="ORCL">
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="checkline"><input type="checkbox" id="otMode"> <label style="margin:0;">OT/저속 모드</label></div>
+        <div class="checkline"><input type="checkbox" id="demoMode"> <label style="margin:0;">데모 모드 (허용된 IP만)</label></div>
+        <div>
+          <label>동시 처리량 (선택)</label>
+          <input type="number" id="maxWorkers" min="1">
+        </div>
+      </div>
+
+      <div class="status-line">
+        <span class="status-badge idle" id="statusBadge">대기 중</span>
+        <span id="statusText"></span>
+      </div>
+      <div class="progress-bar"><div id="progressFill"></div></div>
+
+      <div class="row">
+        <button class="btn btn-primary" id="btnStart">스캔 시작</button>
+        <button class="btn btn-danger" id="btnStop" disabled>중지</button>
+      </div>
+
+      <div id="logConsole"></div>
+    </div>
+
+    <div class="card">
+      <h2>리포트 생성</h2>
+      <p style="font-size:12px; color:var(--text-secondary); margin-top:0;">
+        최신 회차 점검 결과 전체를 기준으로 생성합니다(자산/항목별 부분 선택은 데스크톱 앱에서만 가능).
+      </p>
+      <div class="report-buttons">
+        <button class="btn btn-secondary" data-report="pdf">PDF 생성</button>
+        <button class="btn btn-secondary" data-report="excel">Excel 생성 (Professional+)</button>
+        <button class="btn btn-secondary" data-report="txt">TXT 생성 (호스트별, zip)</button>
+      </div>
+      <div id="reportResult"></div>
+      <p style="font-size:11.5px; color:var(--text-muted); margin:10px 0 0;">
+        정식 리포트 대신 스프레드시트에서 바로 피벗해보고 싶다면
+        <a href="/api/export/findings.csv" style="color:var(--accent); font-weight:600;">최신 findings 원본 CSV 내려받기</a>
+      </p>
+
+      <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:14px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <strong style="font-size:12.5px;">생성된 리포트</strong>
+          <button class="btn btn-secondary" id="btnRefreshReports" style="padding:5px 12px; font-size:11.5px;">새로고침</button>
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead><tr>
+            <th style="text-align:left; font-weight:600; color:var(--text-muted); font-size:10.5px; padding:5px; border-bottom:1px solid var(--border);">파일명</th>
+            <th style="text-align:left; font-weight:600; color:var(--text-muted); font-size:10.5px; padding:5px; border-bottom:1px solid var(--border);">크기</th>
+            <th style="text-align:left; font-weight:600; color:var(--text-muted); font-size:10.5px; padding:5px; border-bottom:1px solid var(--border);">생성 시각</th>
+          </tr></thead>
+          <tbody id="reportListBody"></tbody>
+        </table>
+        <div id="reportListEmpty" style="color:var(--text-muted); font-size:12px; padding:8px 0; display:none;">생성된 리포트가 없습니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/topbar.js"></script>
+  <script src="/scan.js"></script>
+</body>
+</html>

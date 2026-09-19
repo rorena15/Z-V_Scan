@@ -53,6 +53,7 @@
     "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Setup\\RecoveryConsole\" /v SecurityLevel",
     "safe_keyword": "0x0",
     "description": "복구 콘솔에서 자동 로그온을 금지하도록 설정 (기존 방식은 레지스트리 키가 없을 때 기본값을 양호로 오판했습니다. 명시적으로 0x0으로 설정된 경우에만 양호, 키 부재/기타 값은 취약으로 판정합니다)",
+    "missing_is_vulnerable": true,
     "remediation": "SecurityLevel 값을 0(사용 안 함)으로 설정"
   },
   {
@@ -150,6 +151,7 @@
     "safe_keyword": "0x1",
     "evidence_command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\" /v ClearBrowsingDataOnExit 2>&1; reg query \"HKLM\\SOFTWARE\\Policies\\Google\\Chrome\" /v ClearBrowsingDataOnExit 2>&1",
     "description": "브라우저 종료 시 임시 인터넷 파일 폴더의 내용을 삭제하도록 설정 (레거시 Internet Explorer 키는 최신 Win10/11에서 사실상 사용되지 않으므로, 실제 설치된 Chromium 기반 Edge의 GPO 값을 점검합니다)",
+    "missing_is_vulnerable": true,
     "remediation": "ClearBrowsingDataOnExit 값을 1로 설정 (GPO: Microsoft Edge - 종료 시 브라우징 데이터 지우기 사용)"
   },
   {
@@ -217,6 +219,7 @@
     "name": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
     "category": "보안 관리",
     "importance": "중",
+    "missing_is_vulnerable": true,
     "command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive",
     "safe_keyword": "1",
     "description": "화면보호기 대기 시간 설정 및 재시작 시 암호 보호 설정",
@@ -244,6 +247,7 @@
     "name": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립",
     "category": "보안 관리",
     "importance": "중",
+    "missing_is_vulnerable": true,
     "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\" /v NoDriveTypeAutoRun",
     "safe_keyword": "0xff",
     "description": "CD, DVD, USB 메모리 등과 같은 미디어의 자동실행 방지 등 이동식 미디어에 대한 보안대책 수립 (NoDriveTypeAutoRun만으로는 CD-ROM 자동실행이 별도로 켜져 있는 경우를 놓치므로 DisableAutoplay, cdrom AutoRun도 함께 점검합니다)",

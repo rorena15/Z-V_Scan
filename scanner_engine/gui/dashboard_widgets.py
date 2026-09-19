@@ -872,6 +872,25 @@ class ScanConfigCard(InfoCard):
         outer.addLayout(timeout_row)
         outer.addSpacing(10)
 
+        # 네트워크 장비(스위치/라우터)는 OS 자동 판별로 구분할 수 없어 사용자가 지정한 때만
+        # 장비 전용 점검(Cisco/Juniper 룰셋)을 쓴다. 기본값은 지금까지와 같은 "자동(서버/PC)".
+        device_row = QHBoxLayout()
+        device_row.addWidget(LabelWithHelp(
+            "Target type",
+            "점검 대상이 스위치/라우터 같은 네트워크 장비면 선택하세요. 계정은 Cisco는 privilege 15, "
+            "Juniper는 설정 조회 권한이 필요합니다. '자동'은 기존처럼 서버/PC(Linux, Windows, DB, 웹)로 판별합니다."
+        ))
+        self.device_type_combo = QComboBox()
+        self.device_type_combo.addItem("Auto (server / PC)", None)
+        self.device_type_combo.addItem("Network device (detect vendor)", "network")
+        self.device_type_combo.addItem("Network device - Cisco IOS", "cisco")
+        self.device_type_combo.addItem("Network device - Juniper Junos", "juniper")
+        self.device_type_combo.addItem("Network config file (offline, no login)", "configfile")
+        device_row.addWidget(self.device_type_combo)
+        device_row.addStretch()
+        outer.addLayout(device_row)
+        outer.addSpacing(10)
+
         divider2 = QFrame()
         divider2.setFrameShape(QFrame.HLine)
         divider2.setStyleSheet(f"color: {COLORS['border']}; background-color: {COLORS['border']}; max-height: 1px;")

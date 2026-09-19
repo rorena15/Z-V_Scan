@@ -10,7 +10,6 @@ import os
 import csv
 import re
 import json
-import requests
 import threading
 
 from PySide6.QtWidgets import (
@@ -49,13 +48,13 @@ def resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 # 엔진 모듈 연동
-from core.worker import ScanWorker              
+# [부팅 속도, 2026-09] 아래 무거운 모듈(paramiko/pywinrm을 끄는 core.worker, openpyxl, reportlab,
+# requests)은 스캔 시작/리포트 생성/미들웨어 보고 때만 필요해서 사용처 함수 안에서 import한다 -
+# 창이 뜨기 전에 매번 ~1초씩 로드하던 것을 뺐다. main.py가 창을 띄운 직후 백그라운드 스레드로
+# 미리 로드해 두므로 첫 스캔/리포트 클릭 때 체감 지연도 거의 없다.
 from core.advanced_scanner import AdvancedScanner
 from core.license_validator import LicenseValidator
 from core.config import AppConfig
-from output.pdf_report import PDFGenerator
-from output.excel_report import ExcelGenerator
-from output.text_report import TextReportGenerator
 from utils.os_utils import OSUtils
 from utils.secure_storage import SecureStorage
 from utils.db_connector import DBConnector
@@ -1535,6 +1534,7 @@ class ScannerApp(QMainWindow):
         url = "http://127.0.0.1:8089/api/v1/vuln_report"
         payload = {"target_ip": ip, "vuln_count": vuln_count}
         try:
+            import requests
             requests.post(url, json=payload, timeout=3)
         except:
             pass
@@ -1588,6 +1588,7 @@ class ScannerApp(QMainWindow):
         self.set_ui_busy(True)
         try:
             # None을 넘기면 Worker가 "Full Scan"으로 인식하게 됩니다.
+            from core.worker import ScanWorker
             self.worker = ScanWorker("NETWORK_SCAN", ip, ports=target_ports, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, engine_token=AppConfig.ENGINE_ACCESS_TOKEN)
             self.connect_worker()
             self.worker.start()
@@ -1602,6 +1603,10 @@ class ScannerApp(QMainWindow):
             return
         if "/" in ip:
             QMessageBox.warning(self, "Notice", "Audit은 단일 IP만 지원합니다.")
+            return
+
+        if self.scan_config.device_type_combo.currentData() == "configfile":
+            self._start_config_audit(ip)
             return
 
         is_sim = ip in ["127.0.0.1", "localhost", "0.0.0.0"]
@@ -1634,7 +1639,31 @@ class ScannerApp(QMainWindow):
         oracle_service = self.oracle_service_input.text().strip()
 
         self.set_ui_busy(True)
-        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None, engine_token=AppConfig.ENGINE_ACCESS_TOKEN, connect_timeout=self.spin_timeout.value() or None)
+        from core.worker import ScanWorker
+        self.worker = ScanWorker("AUDIT_VULN", ip, user, db_user=db_user or None, ot_mode=self.chk_ot_mode.isChecked(), demo_mode=self.chk_demo_mode.isChecked(), operator=self.operator_input.text().strip(), max_workers=self.spin_max_workers.value(), imported_hostname_map=self.imported_asset_map, oracle_service_name=oracle_service or None, engine_token=AppConfig.ENGINE_ACCESS_TOKEN, connect_timeout=self.spin_timeout.value() or None, device_type=self.scan_config.device_type_combo.currentData())
+        self.connect_worker()
+        self.worker.start()
+
+    def _start_config_audit(self, label):
+        """장비에서 저장해 온 설정/출력 텍스트 파일로 네트워크 장비 룰을 점검한다(접속/계정 불필요).
+        Target 칸의 값은 자산 이름(영문/숫자/. : - 만)으로 쓰인다."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "장비 설정 파일 선택 (show running-config 등)", "", "Text files (*.txt *.cfg *.conf *.log);;All files (*)")
+        if not filepath:
+            return
+        try:
+            with open(filepath, "rb") as f:
+                raw = f.read(5 * 1024 * 1024 + 1)
+        except OSError as e:
+            QMessageBox.critical(self, "Error", f"파일을 읽지 못했습니다: {e}")
+            return
+        if len(raw) > 5 * 1024 * 1024:
+            QMessageBox.warning(self, "Error", "설정 파일이 너무 큽니다(최대 5MB).")
+            return
+        text = raw.decode("utf-8", errors="replace")
+        self.set_ui_busy(True)
+        from core.worker import ScanWorker
+        self.worker = ScanWorker("AUDIT_VULN", label, operator=self.operator_input.text().strip(), demo_mode=False, engine_token=AppConfig.ENGINE_ACCESS_TOKEN, config_text=text)
         self.connect_worker()
         self.worker.start()
 
@@ -1661,6 +1690,7 @@ class ScannerApp(QMainWindow):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             title, company, filename = self._current_report_customization()
             asset_ids, codes = self._get_report_scope_selection()
+            from output.pdf_report import PDFGenerator
             generator = PDFGenerator(remediation_level=self.license_mgr.remediation_level(),
                                       report_title=title, company_name=company, custom_filename=filename,
                                       asset_ids=asset_ids, codes=codes)
@@ -1679,6 +1709,7 @@ class ScannerApp(QMainWindow):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             # [버그 수정] Excel/PDF와 동일하게 라이선스 등급을 전달 - 예전엔 안 넘겨서
             # TXT로 내보내면 등급과 무관하게 증적/조치방안이 항상 전체 노출됐다.
+            from output.text_report import TextReportGenerator
             generator = TextReportGenerator(
                 evidence_level=self.license_mgr.evidence_level(),
                 remediation_level=self.license_mgr.remediation_level(),
@@ -1703,6 +1734,7 @@ class ScannerApp(QMainWindow):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             title, company, filename = self._current_report_customization()
             asset_ids, codes = self._get_report_scope_selection()
+            from output.excel_report import ExcelGenerator
             generator = ExcelGenerator(
                 evidence_level=self.license_mgr.evidence_level(),
                 remediation_level=self.license_mgr.remediation_level(),
@@ -1729,6 +1761,7 @@ class ScannerApp(QMainWindow):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             _title, _company, filename = self._current_report_customization()
             asset_ids, _codes = self._get_report_scope_selection()
+            from output.excel_report import ExcelGenerator
             generator = ExcelGenerator(custom_filename=filename, asset_ids=asset_ids)
             filepath = generator.generate_asset_ledger()
             QApplication.restoreOverrideCursor()

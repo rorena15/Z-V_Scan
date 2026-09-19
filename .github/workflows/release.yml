@@ -63,6 +63,15 @@ jobs:
           # 빌드 시점에 assets/splash.png를 처리하는 데 필요 - 앱 런타임 의존성은 아님.
           pip install cython pyarmor pyinstaller setuptools pillow
 
+      - name: 테스트 (룰 무결성 / 판정 엔진 / 룰 로컬 픽스처 / 웹 대시보드)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: "utf-8"
+        run: |
+          # 소스 기준 회귀 검사 - 빌드(수 분)에 들어가기 전에 룰/판정/웹 서버 문제를 먼저 잡는다.
+          # 룰 로컬 픽스처는 이 러너의 PowerShell(임시 레지스트리 키)과 Git Bash(임시 폴더)로 돈다.
+          python -m unittest discover -s tests -v
+
       - name: 버전 삽입 - AppConfig.VERSION을 릴리즈 태그로 교체
         shell: pwsh
         run: |
@@ -133,6 +142,18 @@ jobs:
           $distDir = "Z-VulnScan_Professional_${version}_Final"
           $appName = "Z-VulnScan_Professional_Edition_$version"
           "exe_path=$distDir\$appName.exe" >> $env:GITHUB_OUTPUT
+
+      - name: 빌드 검증 - exe 자가진단 (--selftest)
+        shell: pwsh
+        run: |
+          # 방금 만든 exe가 실제로 동작 가능한 상태인지(모듈/hidden import/룰셋 복호화/웹 정적 파일/Flask)
+          # GUI 없이 확인한다. 소스에서는 통과하던 코드가 패키징 과정에서 깨진 경우를 릴리즈 전에 막는다.
+          $exe = "${{ steps.package.outputs.exe_path }}"
+          $out = Join-Path (Get-Location) "selftest.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--selftest", "--selftest-out", "`"$out`"" `
+              -Wait -PassThru -NoNewWindow
+          if (Test-Path $out) { Get-Content $out -Encoding utf8 } else { Write-Host "(selftest 결과 파일 없음)" }
+          if ($p.ExitCode -ne 0) { throw "exe 자가진단 실패 (exit $($p.ExitCode))" }
 
       - name: 릴리즈 노트(코멘터리) 생성 - 직전 태그 이후 커밋 로그
         id: notes

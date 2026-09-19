@@ -8,6 +8,7 @@
 import paramiko
 import json
 import os
+import re
 import shlex
 import sys
 import time
@@ -395,4 +396,223 @@ class SSHInspector:
             "service_info": self.execute_command(
                 "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null"
             ) or "",
+        }
+
+class NetworkInspector(SSHInspector):
+    """네트워크 장비(Cisco IOS/IOS-XE, Juniper Junos) 점검용 SSH 인스펙터.
+
+    리눅스 셸이 없는 장비라 exec 채널로 장비 CLI 명령(show ...)을 그대로 실행하고, 벤더별 룰셋
+    (network_cisco_rules.json / network_juniper_rules.json)으로 판정한다. vendor="auto"면
+    접속 후 `show version` 출력으로 벤더를 감지한다.
+    Cisco는 show running-config가 필요하므로 privilege 15 계정이어야 한다(아니면 점검을 수행하지 않고 수동확인으로 남김).
+    """
+    VENDOR_RULESETS = {
+        "cisco": "network_cisco_rules.json",
+        "juniper": "network_juniper_rules.json",
+    }
+
+    def __init__(self, ip, username, vendor="auto", **kwargs):
+        self.vendor = vendor if vendor in self.VENDOR_RULESETS else "auto"
+        kwargs.pop("ruleset", None)
+        super().__init__(ip, username, ruleset=self.VENDOR_RULESETS.get(self.vendor, "network_cisco_rules.json"), **kwargs)
+        self._version_text = ""
+
+    def _apply_vendor(self, vendor):
+        self.vendor = vendor
+        self.ruleset = self.VENDOR_RULESETS[vendor]
+        self.rules_path = self._get_rules_path()
+
+    def detect_vendor(self):
+        out = self.execute_command("show version") or ""
+        self._version_text = out
+        if re.search(r"JUNOS|Juniper", out, re.IGNORECASE):
+            return "juniper"
+        if re.search(r"Cisco", out, re.IGNORECASE):
+            return "cisco"
+        return None
+
+    def connect(self):
+        if not super().connect():
+            return False
+        if self.vendor == "auto" and not self.is_simulation:
+            detected = self.detect_vendor()
+            if detected:
+                self._apply_vendor(detected)
+        return True
+
+    def get_mock_data(self, command):
+        return ""
+
+    def run_all_checks(self):
+        def _single(code, status, detail, name, raw=""):
+            return {code: (status, detail, name, "", raw, "-", "중")}
+
+        if self.vendor == "auto":
+            return _single("NET-DETECT", "MANUAL",
+                           "장비 유형(Cisco/Juniper)을 자동으로 확인하지 못해 점검하지 못했습니다 - 스캔 설정에서 장비 유형을 직접 선택하세요",
+                           "네트워크 장비 유형 감지", self._version_text)
+        if self.vendor == "cisco":
+            priv = self.execute_command("show privilege") or ""
+            m = re.search(r"privilege level is\s+(\d+)", priv, re.IGNORECASE)
+            if m and int(m.group(1)) < 15:
+                return _single("NET-PRIV", "MANUAL",
+                               f"접속 계정 권한이 {m.group(1)}라 running-config를 조회할 수 없어 점검하지 못했습니다 - privilege 15 계정으로 다시 점검하세요",
+                               "네트워크 장비 계정 권한 확인", priv)
+        return super().run_all_checks()
+
+    def get_system_detail(self):
+        if self.is_simulation:
+            return {"os_info": "Network device (Simulation)", "ip_info": "", "port_info": "", "service_info": ""}
+        if self.vendor == "juniper":
+            ip_cmd = "show interfaces terse"
+        else:
+            ip_cmd = "show ip interface brief"
+        return {
+            "os_info": self._version_text or self.execute_command("show version") or "",
+            "ip_info": self.execute_command(ip_cmd) or "",
+            "port_info": "",
+            "service_info": "",
+        }
+
+
+def _junos_hierarchy_to_set(text):
+    """Junos `show configuration` 기본(중괄호) 형식을 `set ...` 한 줄 형식으로 변환한다."""
+    stack, out = [], []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("/*"):
+            continue
+        if line.endswith("{"):
+            stack.append(line[:-1].strip())
+        elif line == "}":
+            if stack:
+                stack.pop()
+        elif line.endswith(";"):
+            out.append("set " + " ".join(stack + [line[:-1].strip()]))
+    return "\n".join(out)
+
+
+_CAPTURE_PROMPT = re.compile(r"^(?:[\w.\-]+@)?[\w.\-]+(?:\([\w\-/]+\))?[#>%]\s*(show\s+.+?)\s*$", re.IGNORECASE)
+
+
+def parse_device_capture(text):
+    """장비에서 캡처한 텍스트를 {정규화된 show 명령: 출력}으로 나눈다.
+    `SW1#show version` / `user@host> show configuration | display set` 같은 프롬프트 줄이 없으면
+    통째로 설정 파일 하나로 취급해 {"": 전체 텍스트}를 돌려준다."""
+    sections, current, buf = {}, None, []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        m = _CAPTURE_PROMPT.match(line)
+        if m:
+            if current is not None:
+                sections[current] = "\n".join(buf).strip("\n")
+            current, buf = " ".join(m.group(1).lower().split()), []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buf).strip("\n")
+    if not sections:
+        return {"": text.replace("\r\n", "\n")}
+    return sections
+
+
+class OfflineConfigInspector(NetworkInspector):
+    """장비에 접속하지 않고, 사용자가 가져온 설정/출력 텍스트로 네트워크 장비 룰을 판정한다.
+
+    Cisco는 running-config(필요하면 show ip interface 등 추가 출력), Juniper는 설정(set 형식 또는
+    중괄호 형식) 텍스트를 받는다. 룰이 요구하는 출력이 파일에 없으면 그 항목은 양호로 처리하지 않고
+    수동확인으로 남긴다.
+    """
+
+    def __init__(self, label, text, vendor="auto", **kwargs):
+        super().__init__(label, "offline", vendor=vendor, **kwargs)
+        self.is_simulation = False
+        self.sections = parse_device_capture(text)
+        self.config_text = self._pick_config()
+        self.missing = set()
+        if self.vendor == "auto":
+            detected = self._detect_from_text(text)
+            if detected:
+                self._apply_vendor(detected)
+        if self.vendor == "juniper" and self.config_text and not re.search(r"^set ", self.config_text, re.MULTILINE):
+            self.config_text = _junos_hierarchy_to_set(self.config_text)
+
+    def _pick_config(self):
+        if "" in self.sections:
+            return self.sections[""]
+        for cmd, out in self.sections.items():
+            if cmd.startswith(("show running-config", "show run", "show startup-config", "show configuration")):
+                return out
+        return ""
+
+    @staticmethod
+    def _detect_from_text(text):
+        if re.search(r"JUNOS|Juniper|^set (?:system|interfaces|snmp|protocols)\b|^system \{", text, re.IGNORECASE | re.MULTILINE):
+            return "juniper"
+        if re.search(r"Cisco|^hostname\s+\S+|^interface\s+\S+|^line vty", text, re.IGNORECASE | re.MULTILINE):
+            return "cisco"
+        return None
+
+    def connect(self):
+        return True
+
+    def close(self):
+        pass
+
+    @staticmethod
+    def _apply_pipes(text, pipes):
+        for pipe in pipes:
+            m = re.match(r'(include|match|section|exclude|except)\s+"?(.+?)"?\s*$', pipe.strip(), re.IGNORECASE)
+            if not m:
+                continue  # display set 등 표시 옵션은 무시
+            kind, pattern = m.group(1).lower(), m.group(2)
+            lines = text.split("\n")
+            if kind in ("include", "match"):
+                lines = [l for l in lines if re.search(pattern, l)]
+            elif kind in ("exclude", "except"):
+                lines = [l for l in lines if not re.search(pattern, l)]
+            else:  # section
+                out, keep = [], False
+                for l in lines:
+                    if l and not l[0].isspace():
+                        keep = re.search(pattern, l) is not None
+                    if keep:
+                        out.append(l)
+                lines = out
+            text = "\n".join(lines)
+        return text
+
+    def execute_command(self, command, timeout=None, use_sudo=False):
+        parts = [p for p in re.split(r"\s\|\s", command.strip())]
+        base = " ".join(parts[0].lower().split())
+        pipes = parts[1:]
+        if base in ("show running-config", "show configuration"):
+            return self._apply_pipes(self.config_text, pipes) if self.config_text else self._missing(base)
+        if base in self.sections:
+            return self._apply_pipes(self.sections[base], pipes)
+        return self._missing(base)
+
+    def _missing(self, base):
+        self.missing.add(base)
+        return None
+
+    def run_all_checks(self):
+        results = super().run_all_checks()
+        if not self.missing or self.vendor == "auto":
+            return results
+        try:
+            rules = {r["code"]: r for r in rule_crypto.load_ruleset(self.rules_path)}
+        except Exception:
+            return results
+        for code, value in list(results.items()):
+            status, detail = value[0], value[1]
+            if status == "MANUAL" and detail.startswith("점검 명령/쿼리 실행 실패") and code in rules:
+                base = " ".join(re.split(r"\s\|\s", rules[code]["command"])[0].lower().split())
+                results[code] = (status, f"제공된 파일에 필요한 출력이 없어 판정하지 못함 (필요: {base}) - 해당 출력을 추가하거나 수동 확인",) + value[2:]
+        return results
+
+    def get_system_detail(self):
+        return {
+            "os_info": self.sections.get("show version", "") or "",
+            "ip_info": self.sections.get("show ip interface brief", "") or self.sections.get("show interfaces terse", "") or "",
+            "port_info": "", "service_info": "",
         }

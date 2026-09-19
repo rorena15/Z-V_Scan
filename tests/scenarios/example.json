@@ -1,0 +1,39 @@
+[
+  {
+    "name": "W-47 화면보호기: 암호 보호만 빠짐 -> 부분만족",
+    "rule": "W-47",
+    "reg": {
+      "HKCU\\Control Panel\\Desktop": {"ScreenSaveActive": 1, "ScreenSaveTimeOut": 300}
+    },
+    "expect": "PARTIAL",
+    "detail_contains": ["ScreenSaverIsSecure", "미설정"]
+  },
+  {
+    "name": "W-04 계정 잠금 임계값 3 -> 양호",
+    "rule": "W-04",
+    "secpol": "LockoutBadCount = 3\n",
+    "expect": "SAFE"
+  },
+  {
+    "name": "W-04 계정 잠금 임계값 0(무제한) -> 취약",
+    "rule": "W-04",
+    "secpol": "LockoutBadCount = 0\n",
+    "expect": "VULNERABLE"
+  },
+  {
+    "name": "U-12 TMOUT 300 -> 양호",
+    "rule": "U-12",
+    "files": {"etc/profile": "TMOUT=300\nexport TMOUT\n"},
+    "expect": "SAFE"
+  },
+  {
+    "name": "U-02 비밀번호 정책: 길이/사용기간만 설정 -> 부분만족",
+    "rule": "U-02",
+    "files": {
+      "etc/security/pwquality.conf": "minlen = 10\n",
+      "etc/login.defs": "PASS_MAX_DAYS 90\nPASS_MIN_DAYS 1\n"
+    },
+    "expect": "PARTIAL",
+    "detail_contains": ["/5", "복잡성"]
+  }
+]

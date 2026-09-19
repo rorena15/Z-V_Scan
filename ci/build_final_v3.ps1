@@ -87,6 +87,15 @@ foreach ($folder in $modules_to_copy) {
     }
 }
 
+# [웹 대시보드 모드, 2026-09] scanner_engine/ 루트의 web_dashboard_server.py는 위 네 폴더(core/utils/
+# output/gui) 어디에도 속하지 않아서, Cython(.pyd)에도 PyArmor에도 안 잡히고 이 병합 단계에서도
+# 빠져 있었다 - 그대로 두면 exe에서 웹 모드를 골랐을 때 `from web_dashboard_server import ...`가
+# ModuleNotFoundError로 죽는다. main.py 옆에 평문 .py로 복사해 PyInstaller가 import로 수집하게 한다
+# (PyArmor 무료 한도의 파일 개수 상한을 더 갉아먹지 않으려고 난독화 대상에는 넣지 않았다 -
+# 필요하면 이 파일도 난독화 대상에 넣을지 별도로 결정).
+Copy-Item "scanner_engine\web_dashboard_server.py" -Destination "$SRC_DIR\scanner_engine" -Force
+Write-Host "   -> Copied web_dashboard_server.py next to main.py" -ForegroundColor Gray
+
 # ---------------------------------------------------------------------
 # [3/4] PyArmor 런타임 폴더 자동 감지
 # ---------------------------------------------------------------------

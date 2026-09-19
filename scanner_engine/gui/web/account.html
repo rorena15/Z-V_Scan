@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<!--
+Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+This software is proprietary and confidential.
+Unauthorized copying, modification, distribution, or reverse engineering
+of this file, via any medium, is strictly prohibited.
+
+[웹 대시보드 - 내 계정] 로그인한 본인 계정의 비밀번호를 바꾸는 화면. /accounts
+(다른 계정 추가/삭제)는 admin 전용이지만, 이 화면은 조회자를 포함해 누구나
+자기 자신에 한해서만 열 수 있다 - "관리자가 계정을 지웠다 새로 만들어야만
+비밀번호를 바꿀 수 있는" 불편을 없앴다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Z-VulnScan 내 계정</title>
+<style>
+  :root {
+    --surface-1: #F5F7FA; --surface-2: #FFFFFF; --border: #E3E7EE;
+    --text: #1B2430; --text-secondary: #5B6675; --text-muted: #8B94A3;
+    --accent: #2E6BE6; --accent-bg: #E8EFFE;
+    --success-bg: #E2F5E7; --success-text: #1B8A46;
+    --danger-text: #C0271F;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--surface-1); color: var(--text);
+    font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  }
+  .wrap { max-width: 480px; margin: 20px auto; padding: 0 16px 40px; }
+  .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 3px 22px rgba(0,0,0,0.05); }
+  .card h2 { margin: 0 0 4px; font-size: 13.5px; font-weight: 700; }
+  .hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 14px; }
+  label { display: block; font-size: 11px; color: var(--text-secondary); margin: 10px 0 4px; }
+  input[type=password], input[type=text] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px;
+    background: var(--surface-1); color: var(--text);
+  }
+  .btn { padding: 9px 18px; border: none; border-radius: 8px; font-weight: 600; font-size: 12.5px; cursor: pointer; margin-top: 14px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .msg { font-size: 12px; margin-top: 10px; }
+  .msg.ok { color: var(--success-text); }
+  .msg.err { color: var(--danger-text); }
+  #whoBox { font-size: 12.5px; color: var(--text-secondary); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 10.5px; padding: 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px; border-bottom: 1px solid var(--border); }
+  select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; background: var(--surface-1); color: var(--text); }
+  .tokrow { display: flex; gap: 10px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap; }
+  .tokrow > div { flex: 1; min-width: 140px; }
+  .tokrow > div:last-child { flex: 0 0 auto; }
+  pre { background: #12161C; color: #D7DEE8; padding: 10px 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 0; word-break: break-all; white-space: pre-wrap; }
+  code { font-family: Consolas, monospace; font-size: 11.5px; }
+  .btn-danger { background: var(--danger-bg, #FDE7E7); color: var(--danger-text); border: 1px solid var(--danger-text); padding: 4px 10px; font-size: 11px; margin-top: 0; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>내 계정</h2>
+      <p id="whoBox"></p>
+    </div>
+
+    <div class="card">
+      <h2>비밀번호 변경</h2>
+      <p class="hint">현재 비밀번호를 한 번 더 확인합니다. 세션을 탈취당한 것만으로는 비밀번호를 바꿀 수 없도록 하기 위함입니다.</p>
+      <label>현재 비밀번호</label>
+      <input type="password" id="currentPassword" autocomplete="current-password">
+      <label>새 비밀번호 (8자 이상)</label>
+      <input type="password" id="newPassword" autocomplete="new-password">
+      <label>새 비밀번호 확인</label>
+      <input type="password" id="confirmPassword" autocomplete="new-password">
+      <div><button class="btn btn-primary" id="btnChangePassword">비밀번호 변경</button></div>
+      <div id="pwMsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>API 토큰</h2>
+      <p class="hint">브라우저 로그인 없이 크론/CI 같은 외부 스크립트가 이 서버의 API를 쓸 수 있게 하는 개인 토큰입니다(<code>Authorization: Bearer 토큰</code>). 토큰은 발급 직후 한 번만 보여주며, 서버에는 해시만 저장됩니다. 운영자까지만 발급할 수 있고 본인 역할보다 높은 권한은 못 받으며, 설정·계정 관리·비밀번호 변경은 토큰으로 할 수 없습니다.</p>
+      <table>
+        <thead><tr><th>이름</th><th>소유자</th><th>역할</th><th>발급일</th><th>마지막 사용</th><th></th></tr></thead>
+        <tbody id="tokenBody"></tbody>
+      </table>
+      <div id="tokenEmpty" class="hint" style="display:none; margin-top:8px;">발급된 토큰이 없습니다.</div>
+      <div class="tokrow">
+        <div><label>토큰 이름</label><input type="text" id="tokenName" placeholder="예: nightly-ci" maxlength="40"></div>
+        <div><label>역할</label><select id="tokenRole"></select></div>
+        <div><button class="btn btn-primary" id="btnCreateToken" style="margin-top:0;">토큰 발급</button></div>
+      </div>
+      <div id="tokenMsg" class="msg"></div>
+      <div id="tokenReveal" style="display:none;">
+        <p class="hint" style="margin:10px 0 4px; color:var(--danger-text);">이 토큰은 지금 한 번만 표시됩니다. 지금 복사해서 안전한 곳에 보관하세요.</p>
+        <pre id="tokenValue"></pre>
+        <p class="hint" style="margin:4px 0 0;">사용 예: <code id="tokenExample"></code></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/topbar.js"></script>
+  <script src="/account.js"></script>
+</body>
+</html>

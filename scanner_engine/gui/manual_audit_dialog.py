@@ -43,6 +43,8 @@ RULESETS = {
     "Windows": ("windows_rules.json", ""),
     "PC": ("pc_rules.json", ""),
     "Web/WAS": ("web_rules.json", ""),
+    "Network (Cisco)": ("network_cisco_rules.json", ""),
+    "Network (Juniper)": ("network_juniper_rules.json", ""),
     "MySQL": ("mysql_rules.json", "MYSQL-"),
     "PostgreSQL": ("postgresql_rules.json", "POSTGRESQL-"),
 }

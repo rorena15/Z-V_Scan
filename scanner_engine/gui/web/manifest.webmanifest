@@ -1,0 +1,10 @@
+{
+  "name": "Z-VulnScan 웹 대시보드",
+  "short_name": "Z-VulnScan",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F5F7FA",
+  "theme_color": "#2E6BE6",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

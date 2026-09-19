@@ -6,12 +6,16 @@
 # of this file, via any medium, is strictly prohibited.
 # --------------------------------------------------------------------------
 
+import re
+
 # 명령 실행 결과에 이런 문구가 있으면 "그 기능/서비스 자체가 대상 시스템에 없다"는 신호로 보고
 # 취약/양호가 아니라 "해당없음"으로 분류한다.
 NA_SIGNALS = [
     "command not found", "not found", "No such file or directory",
-    "찾을 수 없습니다", "존재하지 않음", "not recognized as",
+    "찾을 수 없습니다", "존재하지 않음", "not recognized as", "인식되지 않습니다",
     "레지스트리 키 또는 값이 존재하지 않음", "Cannot find",
+    # 네트워크 장비 CLI가 그 명령/기능 자체를 지원하지 않을 때의 응답(Cisco IOS 계열)
+    "Invalid input detected",
     # [영문 로케일] "reg query"가 키/값을 못 찾을 때의 실제 영문 메시지는
     # "ERROR: The system was unable to find the specified registry key or
     # value."이다 - "not found"/"Cannot find"와 문구가 달라 기존 목록(한국어 로케일
@@ -37,6 +41,21 @@ PERMISSION_DENIED_SIGNALS = [
 ]
 
 
+# [값 부재 = 취약, 2026-09] reg query가 "그 키/값이 없다"고 답하는 문구만 따로 모은 목록(NA_SIGNALS의 부분집합).
+# NA_SIGNALS는 이 문구를 "대상 기능/서비스가 없다"로 보고 해당없음(NA)으로 분류하는데, 어떤 룰은 "명시적으로 그
+# 값이 설정돼 있어야 양호"라 값이 없다는 것 자체가 곧 취약(미설정)이다(예: PC-03 - 룰 설명에 "키 부재/기타 값은
+# 취약"이라 명시). 그런 룰은 JSON에 "missing_is_vulnerable": true를 두면 이 문구를 NA가 아니라 취약으로 판정한다.
+# (SNMP처럼 서비스가 아예 없으면 키도 없는 룰은 플래그를 두지 않아 그대로 NA)
+REGISTRY_MISSING_SIGNALS = [
+    "레지스트리 키 또는 값을 찾을 수 없습니다", "레지스트리 키 또는 값이 존재하지 않음",
+    "unable to find the specified registry key or value",
+]
+
+
+def _is_registry_missing(output_stripped):
+    return bool(output_stripped) and any(sig in output_stripped for sig in REGISTRY_MISSING_SIGNALS)
+
+
 def _is_na(output_stripped):
     return bool(output_stripped) and any(sig in output_stripped for sig in NA_SIGNALS)
 
@@ -45,18 +64,54 @@ def _is_permission_denied(output_stripped):
     return bool(output_stripped) and any(sig in output_stripped for sig in PERMISSION_DENIED_SIGNALS)
 
 
+def _regex_found(pattern, text):
+    # 네트워크 장비 설정처럼 줄 단위 텍스트를 다루는 룰용 - 대소문자 무시, ^/$는 줄 경계
+    return re.search(pattern, text or "", re.IGNORECASE | re.MULTILINE) is not None
+
+
+def has_condition(item):
+    return any(k in item for k in ("vulnerable_keyword", "vulnerable_regex", "safe_keyword", "safe_regex"))
+
+
 def _single_condition_result(rule, full_output):
-    """기존 방식: vulnerable_keyword 또는 safe_keyword 단일 조건 판정"""
-    if "vulnerable_keyword" in rule:
-        if rule["vulnerable_keyword"] in full_output:
-            return "VULNERABLE", f"취약 설정 발견: {full_output[:40]}..."
+    """단일 조건 판정: vulnerable_keyword/vulnerable_regex(발견되면 취약) 또는 safe_keyword/safe_regex(없으면 취약)"""
+    if "vulnerable_keyword" in rule or "vulnerable_regex" in rule:
+        hit = ("vulnerable_keyword" in rule and rule["vulnerable_keyword"] in full_output) or               ("vulnerable_regex" in rule and _regex_found(rule["vulnerable_regex"], full_output))
+        if hit:
+            return "VULNERABLE", f"취약 설정 발견: {full_output.strip()[:40]}..."
         return "SAFE", "양호 (점검 완료)"
-    elif "safe_keyword" in rule:
-        if not full_output or rule["safe_keyword"] not in full_output:
-            return "VULNERABLE", f"필수 설정 미흡: {rule['safe_keyword']} 누락"
+    elif "safe_keyword" in rule or "safe_regex" in rule:
+        ok = bool(full_output) and (
+            ("safe_keyword" in rule and rule["safe_keyword"] in full_output) or
+            ("safe_regex" in rule and _regex_found(rule["safe_regex"], full_output)))
+        if not ok:
+            if "safe_keyword" in rule:
+                return "VULNERABLE", f"필수 설정 미흡: {rule['safe_keyword']} 누락"
+            return "VULNERABLE", f"필수 설정 미흡: 기준에 맞는 설정이 없음 (권장: {rule.get('remediation', '')})"
         return "SAFE", "양호 (점검 완료)"
     else:
         return "MANUAL", "수동 검토 필요 (증적 확인)"
+
+
+_CLI_REJECTED = ("Invalid input", "Incomplete command", "Ambiguous command", "% Unknown command")
+
+
+def _judge_checks(checks, execute_fn):
+    tried = []
+    for ck in checks:
+        cmd = ck["command"]
+        tried.append(cmd)
+        out = execute_fn(cmd) if execute_fn else None
+        if out is None:
+            continue
+        text = out.strip()
+        if not text or any(sig in text for sig in _CLI_REJECTED) or _is_permission_denied(text):
+            continue
+        if "vulnerable_regex" in ck and _regex_found(ck["vulnerable_regex"], text):
+            return "VULNERABLE", f"취약 설정 발견 (근거: {cmd}): {text[:40]}"
+        if "safe_regex" in ck and _regex_found(ck["safe_regex"], text):
+            return "SAFE", f"양호 (근거: {cmd})"
+    return "MANUAL", "판정에 필요한 출력을 얻지 못해 수동 확인 필요 (다음 중 하나의 출력 필요: " + " / ".join(tried) + ")"
 
 
 def judge_rule(rule, full_output, execute_fn=None):
@@ -77,20 +132,49 @@ def judge_rule(rule, full_output, execute_fn=None):
     # 예외 발생 시) - "결과가 없어서 안전"과 절대 혼동하면 안 되므로 여기서 먼저
     # 걸러 수동확인으로 돌린다. 빈 문자열("")은 "정상 실행됐지만 결과 0건"이라는
     # 뜻이라 기존처럼 그대로 판정 로직을 탄다.
+    # 벤더/플랫폼이 그 기능 자체를 제공하지 않는 항목(예: Junos에는 identd가 없음)은 명령 결과와 무관하게 해당없음
+    if rule.get("not_applicable_reason"):
+        return "NA", f"해당없음 ({rule['not_applicable_reason']})"
+
+    # 근거가 여러 곳인 룰(상태 명령 -> show running-config all -> running-config 명시 줄 순): 결론을 낼 수 있는
+    # 첫 근거로 판정하고, 어느 근거로도 결론을 못 내면 양호로 추정하지 않고 수동확인으로 남긴다.
+    if rule.get("checks"):
+        return _judge_checks(rule["checks"], execute_fn)
+
     if full_output is None:
         return "MANUAL", "점검 명령/쿼리 실행 실패(권한 부족 또는 연결 문제로 추정) - 수동 확인 필요"
 
     full_output = full_output or ""
     stripped = full_output.strip()
 
+    # 설정 조회 결과가 비어 있는 것 자체가 의미인 룰(예: SNMP 설정이 하나도 없음 = 미사용)
+    empty_status = rule.get("empty_status")
+    if empty_status and not stripped:
+        if empty_status == "NA":
+            return "NA", "해당없음 (관련 설정이 없음)"
+        if empty_status == "SAFE":
+            return "SAFE", "양호 (관련 설정 없음 - 해당 기능 미사용)"
+
     criteria = rule.get("criteria")
     if criteria and isinstance(criteria, list):
         if _is_permission_denied(stripped):
             return "VULNERABLE", "권한 부족으로 정확한 확인 불가 - 수동 확인 필요 (보수적으로 취약 처리)"
-        if _is_na(stripped):
+        # missing_is_vulnerable 룰은 레지스트리 값 부재가 곧 미설정(취약)이므로 NA로 조기 종료하지 않고 세부기준을 평가한다.
+        miss_vuln = bool(rule.get("missing_is_vulnerable")) and _is_registry_missing(stripped)
+        if not miss_vuln and _is_na(stripped):
             return "NA", "해당없음 (대상 기능/서비스 없음)"
 
-        passed, total, unmet_labels = 0, len(criteria), []
+        # [세부기준 상태 정밀화, 2026-09] 예전엔 충족/미충족 두 가지뿐이라 "값이 아예 없음(미설정)",
+        # "값은 있는데 기준에 못 미침", "권한이 없어 못 읽음", "명령 자체가 실패"가 전부 똑같이
+        # "미충족"으로 뭉개졌다. 판정 상태(양호/부분만족/취약)는 그대로 충족 개수로 정하되(하위호환),
+        # 어떤 기준이 왜 못 채워졌는지를 사유별로 나눠 detail에 남겨서 조치 담당자가 바로 알게 한다.
+        #   - 기준 미달   : 값은 확인됐으나(예: FAIL 출력) 기준에 못 미침
+        #   - 미설정      : 설정값이 없음(빈 출력 또는 명령이 NOTSET을 출력)
+        #   - 권한 부족   : 세부기준 명령이 권한 거부로 실패 -> 수동 확인 필요
+        #   - 실행 실패   : 명령 실행 자체가 실패 -> 수동 확인 필요
+        # 명령이 NOTAPPLICABLE을 출력하면(예: 대상 파일/서비스가 아예 없음) 그 기준은 분모에서 뺀다.
+        passed, total = 0, 0
+        unmet, unset, denied, failed = [], [], [], []
         for c in criteria:
             c_output = full_output
             c_exec_failed = False
@@ -108,32 +192,75 @@ def judge_rule(rule, full_output, execute_fn=None):
                 else:
                     c_output = c_result
 
-            if c_exec_failed:
-                ok = False
-            elif "vulnerable_keyword" in c:
-                ok = c["vulnerable_keyword"] not in c_output
-            elif "safe_keyword" in c:
-                ok = bool(c_output) and c["safe_keyword"] in c_output
-            else:
-                ok = True  # 판정 불가능한 기준은 통과로 간주(스킵)
+            label = c.get("label", "세부기준")
+            c_stripped = (c_output or "").strip()
 
-            if ok:
+            if not c_exec_failed and "NOTAPPLICABLE" in c_stripped:
+                continue  # 이 기준은 대상 자체가 없어 판정 대상이 아님(분모 제외)
+            total += 1
+
+            reason = None  # None이면 충족
+            if c_exec_failed:
+                reason = "failed"
+            elif _is_permission_denied(c_stripped):
+                reason = "denied"
+            elif "vulnerable_keyword" in c or "vulnerable_regex" in c:
+                if ("vulnerable_keyword" in c and c["vulnerable_keyword"] in c_output) or                         ("vulnerable_regex" in c and _regex_found(c["vulnerable_regex"], c_output)):
+                    reason = "unmet"
+            elif "safe_keyword" in c or "safe_regex" in c:
+                if not c_stripped or "NOTSET" in c_stripped or _is_registry_missing(c_stripped):
+                    reason = "unset"
+                elif "safe_regex" in c and "safe_keyword" not in c:
+                    if not _regex_found(c["safe_regex"], c_output):
+                        reason = "unmet"
+                elif c["safe_keyword"] not in c_output:
+                    # safe_keyword가 OK인 세부기준은 명령이 OK/FAIL을 직접 출력한다.
+                    # FAIL이면 값은 있는데 기준 미달, 그 외 출력(오류 문구 등)이면 값을
+                    # 확인하지 못한 것이라 "미설정/확인 불가"로 구분한다.
+                    reason = "unmet" if ("FAIL" in c_stripped or c["safe_keyword"] != "OK") else "unset"
+            # 판정 불가능한 기준(vulnerable/safe_keyword 둘 다 없음)은 통과로 간주(스킵)
+
+            if reason is None:
                 passed += 1
+            elif reason == "failed":
+                failed.append(label)
+            elif reason == "denied":
+                denied.append(label)
+            elif reason == "unset":
+                unset.append(label)
             else:
-                label = c.get("label", "세부기준")
-                if c_exec_failed:
-                    label += " (실행 실패 - 수동 확인 필요)"
-                unmet_labels.append(label)
+                unmet.append(label)
+
+        if total == 0:
+            return "NA", "해당없음 (모든 세부기준의 대상 기능/파일이 없음)"
+
+        if failed and len(failed) == total:
+            return "MANUAL", "세부기준 명령 실행 실패(권한 부족 또는 연결 문제로 추정) - 수동 확인 필요"
+
+        def _reasons():
+            parts = []
+            if unmet:
+                parts.append("기준 미달: " + ", ".join(unmet))
+            if unset:
+                parts.append("미설정/확인 불가: " + ", ".join(unset))
+            if denied:
+                parts.append("권한 부족(수동 확인 필요): " + ", ".join(denied))
+            if failed:
+                parts.append("실행 실패(수동 확인 필요): " + ", ".join(failed))
+            return "; ".join(parts)
 
         if passed == total:
             return "SAFE", f"양호 (세부기준 {passed}/{total} 충족)"
         elif passed == 0:
-            return "VULNERABLE", f"취약 (세부기준 {passed}/{total} 충족)"
+            return "VULNERABLE", f"취약 (세부기준 {passed}/{total} 충족 - {_reasons()})"
         else:
-            return "PARTIAL", f"부분만족 (세부기준 {passed}/{total} 충족, 미충족: {', '.join(unmet_labels)})"
+            return "PARTIAL", f"부분만족 (세부기준 {passed}/{total} 충족, {_reasons()})"
 
     if _is_permission_denied(stripped):
         return "VULNERABLE", "권한 부족으로 정확한 확인 불가 - 수동 확인 필요 (보수적으로 취약 처리)"
+
+    if rule.get("missing_is_vulnerable") and _is_registry_missing(stripped):
+        return "VULNERABLE", "필수 설정 미흡: 레지스트리 키/값이 없음(미설정) - 명시적으로 설정해야 양호"
 
     if _is_na(stripped):
         return "NA", "해당없음 (대상 기능/서비스 없음)"

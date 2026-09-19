@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<!--
+Copyright © 2025 Z-VulnScan Team. All Rights Reserved.
+This software is proprietary and confidential.
+Unauthorized copying, modification, distribution, or reverse engineering
+of this file, via any medium, is strictly prohibited.
+
+[웹 대시보드 - 자산 관리] gui/db_manager.py(자산 편집/삭제) + gui/waiver_dialog.py
+(예외처리)를 한 화면으로 합쳤다 - 둘 다 "자산 선택 -> 그 자산에 대해 뭔가 한다"는
+같은 흐름이라 데스크톱처럼 별도 다이얼로그로 나눌 필요가 없었다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Z-VulnScan 자산 관리</title>
+<style>
+  :root {
+    --surface-1: #F5F7FA; --surface-2: #FFFFFF; --border: #E3E7EE;
+    --text: #1B2430; --text-secondary: #5B6675; --text-muted: #8B94A3;
+    --accent: #2E6BE6; --accent-bg: #E8EFFE;
+    --danger-bg: #FDE7E7; --danger-text: #C0271F;
+    --warning-bg: #FFF6D6; --warning-text: #8A6A00;
+    --success-bg: #E2F5E7; --success-text: #1B8A46;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--surface-1); color: var(--text);
+    font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 700; font-size: 13.5px; }
+  .topbar a { color: var(--text-secondary); text-decoration: none; font-size: 12.5px; }
+  .topbar a:hover { color: var(--accent); }
+  .topbar .spacer { flex: 1; }
+  .wrap { max-width: 1080px; margin: 20px auto; padding: 0 16px 40px; }
+  .card {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 3px 22px rgba(0,0,0,0.05);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 13.5px; font-weight: 700; }
+  .hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 12px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  select, input[type=text] {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 12px; background: var(--surface-1); color: var(--text);
+  }
+  .btn { padding: 7px 14px; border: none; border-radius: 8px; font-weight: 600; font-size: 12px; cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-danger { background: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-text); }
+  .btn-secondary { background: var(--surface-1); color: var(--text); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 10.5px; padding: 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px; border-bottom: 1px solid var(--border); }
+  td[contenteditable="true"] { cursor: text; border-radius: 4px; }
+  td[contenteditable="true"]:focus { outline: 1px solid var(--accent); background: var(--accent-bg); }
+  tr.selected { background: var(--accent-bg); }
+  .badge { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
+  .badge.VULNERABLE { background: var(--danger-bg); color: var(--danger-text); }
+  .badge.PARTIAL { background: var(--warning-bg); color: var(--warning-text); }
+  .badge.SAFE { background: var(--success-bg); color: var(--success-text); }
+  .badge.MANUAL, .badge.NA, .badge.ERROR { background: var(--border); color: var(--text-secondary); }
+  #resultsCard { display: none; }
+  .rowbtn { padding: 4px 10px; font-size: 11px; }
+  #assetsEmpty, #resultsEmpty { color: var(--text-muted); font-size: 12px; padding: 10px 0; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>자산 목록</h2>
+      <p class="hint">셀을 클릭하면 바로 수정할 수 있습니다(IP/포트/최종 확인 시각 제외). 행의 "점검 결과"를 누르면 아래에서 예외처리를 관리할 수 있습니다.</p>
+      <div class="toolbar">
+        <label style="font-size:11px;color:var(--text-secondary);">구역 필터</label>
+        <select id="zoneFilter"><option value="">전체 구역</option></select>
+        <button class="btn btn-secondary" id="btnRefresh">새로고침</button>
+        <button class="btn btn-danger" id="btnDeleteSelected">선택 삭제</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th><input type="checkbox" id="checkAll"></th>
+          <th>IP</th><th>Hostname</th><th>OS Type</th><th>MAC</th><th>Ports</th>
+          <th>Last Seen</th><th>Description</th><th>Zone Tag</th><th></th>
+        </tr></thead>
+        <tbody id="assetsBody"></tbody>
+      </table>
+      <div id="assetsEmpty" style="display:none;">등록된 자산이 없습니다. 스캔을 먼저 실행하세요.</div>
+    </div>
+
+    <div class="card" id="resultsCard">
+      <h2 id="resultsTitle">점검 결과</h2>
+      <p class="hint">예외처리(Waiver)는 사유와 승인자가 모두 필요합니다 - 감사 추적 요건입니다.</p>
+      <table>
+        <thead><tr><th>코드</th><th>항목명</th><th>위험도</th><th>상태</th><th>예외처리</th><th></th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+      <div id="resultsEmpty" style="display:none;">점검 결과가 없습니다.</div>
+    </div>
+  </div>
+
+  <script src="/topbar.js"></script>
+  <script src="/assets.js"></script>
+</body>
+</html>

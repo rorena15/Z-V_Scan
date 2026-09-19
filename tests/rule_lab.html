@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Z-VulnScan 룰 랩</title>
+<style>
+  :root { --bg:#F5F7FA; --card:#fff; --border:#E3E7EE; --text:#1B2430; --muted:#8B94A3; --sub:#5B6675; --accent:#2E6BE6; --accent-bg:#E8EFFE;
+          --ok:#1B8A46; --ok-bg:#E2F5E7; --bad:#C0271F; --bad-bg:#FDE7E7; --warn:#8A6A00; --warn-bg:#FFF6D6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Malgun Gothic','Segoe UI',sans-serif; font-size:13px; }
+  header { padding:12px 20px; background:var(--card); border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:14px; }
+  header h1 { font-size:15px; margin:0; }
+  header span { color:var(--muted); font-size:12px; }
+  .layout { display:flex; gap:16px; padding:16px 20px; align-items:flex-start; }
+  .side { width:300px; flex-shrink:0; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; position:sticky; top:12px;
+          max-height:calc(100vh - 90px); display:flex; flex-direction:column; }
+  .main { flex:1; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .card h2 { font-size:13px; margin:0 0 10px; }
+  input[type=text], textarea, select { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:8px; font:inherit; background:#fff; color:var(--text); }
+  textarea { font-family:Consolas,monospace; font-size:12px; min-height:70px; resize:vertical; }
+  #ruleList { overflow-y:auto; margin-top:8px; flex:1; }
+  .grp { font-size:11px; color:var(--muted); font-weight:700; margin:10px 4px 4px; }
+  .rule { padding:6px 8px; border-radius:8px; cursor:pointer; display:flex; gap:6px; align-items:center; }
+  .rule:hover { background:var(--accent-bg); }
+  .rule.active { background:var(--accent); color:#fff; }
+  .rule .code { font-weight:700; width:52px; flex-shrink:0; }
+  .rule .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tag { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--accent-bg); color:var(--accent); flex-shrink:0; }
+  .rule.active .tag { background:rgba(255,255,255,.25); color:#fff; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10.5px; color:var(--muted); padding:4px 6px; border-bottom:1px solid var(--border); }
+  td { padding:4px 4px; vertical-align:top; }
+  td input { font-size:12px; }
+  .btn { padding:8px 16px; border:none; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; }
+  .primary { background:var(--accent); color:#fff; }
+  .primary:disabled { opacity:.5; cursor:wait; }
+  .ghost { background:var(--bg); border:1px solid var(--border); color:var(--text); }
+  .small { padding:4px 10px; font-size:11.5px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .hint { font-size:11.5px; color:var(--muted); margin:4px 0 8px; }
+  .badge { display:inline-block; padding:3px 12px; border-radius:10px; font-weight:700; font-size:13px; }
+  .SAFE { background:var(--ok-bg); color:var(--ok); }
+  .VULNERABLE { background:var(--bad-bg); color:var(--bad); }
+  .PARTIAL, .MANUAL, .NA, .ERROR { background:var(--warn-bg); color:var(--warn); }
+  .chip { font-family:Consolas,monospace; font-size:11.5px; padding:1px 7px; border-radius:6px; background:var(--bg); }
+  .chip.OK { background:var(--ok-bg); color:var(--ok); } .chip.FAIL { background:var(--bad-bg); color:var(--bad); }
+  .chip.NOTSET { background:var(--warn-bg); color:var(--warn); }
+  pre { background:#12161C; color:#D7DEE8; padding:10px 12px; border-radius:8px; font-size:11.5px; overflow-x:auto; white-space:pre-wrap; word-break:break-all; margin:6px 0; }
+  details summary { cursor:pointer; color:var(--sub); font-size:12px; margin-top:6px; }
+  .err { color:var(--bad); font-weight:600; }
+  .keychip { cursor:pointer; margin:0 4px 4px 0; }
+  .muted { color:var(--muted); }
+  .pass { color:var(--ok); font-weight:700; } .fail { color:var(--bad); font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Z-VulnScan 룰 랩</h1>
+  <span>개발/검수용 · 이 PC의 임시 환경에서만 룰 명령을 실행합니다(실제 레지스트리·시스템 파일은 건드리지 않음) · 값을 비우면 '미설정'</span>
+</header>
+
+<div class="layout">
+  <div class="side">
+    <input type="text" id="search" placeholder="룰 검색 (코드/이름)">
+    <div id="ruleList"></div>
+  </div>
+
+  <div class="main">
+    <div class="card" id="emptyCard"><span class="muted">왼쪽에서 룰을 고르세요.</span></div>
+
+    <div id="workArea" style="display:none;">
+      <div class="card">
+        <h2 id="ruleTitle"></h2>
+        <div id="ruleMeta" class="hint"></div>
+        <div id="ruleDesc"></div>
+        <details><summary>이 룰이 실행하는 명령 보기</summary><div id="ruleCmds"></div></details>
+      </div>
+
+      <div class="card">
+        <h2>환경 값 입력 <span class="muted" style="font-weight:400;">— 비워 둔 항목은 '미설정' 상태로 실행됩니다</span></h2>
+
+        <div id="regSection" style="display:none;">
+          <div class="hint">레지스트리 값 (룰이 읽는 진짜 경로 그대로. 숫자는 DWord, 그 외는 문자열)</div>
+          <table><thead><tr><th style="width:55%">경로</th><th style="width:20%">값 이름</th><th style="width:18%">값</th><th></th></tr></thead>
+            <tbody id="regBody"></tbody></table>
+          <button class="btn ghost small" id="addReg">+ 행 추가</button>
+        </div>
+
+        <div id="secpolSection" style="display:none; margin-top:12px;">
+          <div class="hint">보안 정책(secedit) 텍스트 — 한 줄에 <code>키 = 값</code>. 이 룰이 읽는 키(클릭하면 추가): <span id="secpolKeys"></span></div>
+          <textarea id="secpol" placeholder="예)&#10;LockoutBadCount = 3"></textarea>
+        </div>
+
+        <div id="fileSection" style="display:none;">
+          <div class="hint">파일 내용 (<code>etc/…</code> 처럼 앞의 / 없이. 내용을 비우면 파일이 없는 상태)</div>
+          <div id="fileBody"></div>
+          <button class="btn ghost small" id="addFile">+ 파일 추가</button>
+        </div>
+
+        <div class="row" style="margin-top:14px;">
+          <button class="btn primary" id="runBtn">▶ 실행</button>
+          <button class="btn ghost" id="clearBtn">모든 값 비우기 (전부 미설정)</button>
+          <span id="runErr" class="err"></span>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" style="display:none;">
+        <h2>결과</h2>
+        <div class="row"><span id="statusBadge" class="badge"></span><span id="statusDetail"></span></div>
+        <div id="critTable"></div>
+        <div id="topOut"></div>
+        <div class="row" style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
+          <input type="text" id="scName" placeholder="시나리오 이름 (예: W-47 암호 보호만 빠짐)" style="width:320px;">
+          <label>기대 판정
+            <select id="scExpect" style="width:130px; display:inline-block;">
+              <option>SAFE</option><option>PARTIAL</option><option>VULNERABLE</option><option>MANUAL</option><option>NA</option></select></label>
+          <button class="btn ghost" id="saveSc">이 조건을 시나리오로 저장</button>
+          <span id="saveMsg" class="muted"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row"><h2 style="margin:0;">저장된 시나리오</h2>
+        <button class="btn ghost small" id="runAll">전체 실행</button>
+        <button class="btn ghost small" id="reloadSc">새로고침</button>
+        <span id="scSummary" class="muted"></span></div>
+      <div class="hint">tests/scenarios/*.json — <code>run_tests.bat</code>에도 자동 포함됩니다. 아래 저장 항목은 custom.json에 쌓입니다.</div>
+      <table><thead><tr><th>파일</th><th>이름</th><th>룰</th><th>기대</th><th>실행 결과</th><th></th></tr></thead><tbody id="scBody"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const api = (url, body) => fetch(url, body === undefined ? {} : {
+  method: 'POST', headers: {'Content-Type': 'application/json', 'X-ZVS-Lab': '1'}, body: JSON.stringify(body)
+}).then(r => r.json().then(j => ({ok: r.ok, data: j})));
+
+let rules = [], current = null, lastResult = null;
+
+function renderRules() {
+  const q = $('search').value.trim().toLowerCase();
+  const groups = {windows: 'Windows (W-, PC-)', linux: 'Linux / Web (U-, WEB-)'};
+  let html = '';
+  for (const os of ['windows', 'linux']) {
+    const list = rules.filter(r => r.os === os && (r.code + ' ' + r.name).toLowerCase().includes(q));
+    if (!list.length) continue;
+    html += '<div class="grp">' + groups[os] + '</div>';
+    html += list.map(r => '<div class="rule' + (current && current.code === r.code ? ' active' : '') + '" data-code="' + esc(r.code) + '">' +
+      '<span class="code">' + esc(r.code) + '</span><span class="nm" title="' + esc(r.name) + '">' + esc(r.name) + '</span>' +
+      (r.has_criteria ? '<span class="tag">세부기준</span>' : '') + '</div>').join('');
+  }
+  $('ruleList').innerHTML = html || '<div class="muted" style="padding:8px;">일치하는 룰 없음</div>';
+  $('ruleList').querySelectorAll('.rule').forEach(el => el.onclick = () => selectRule(el.dataset.code));
+}
+
+function regRow(path, name, value) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" class="rp" value="' + esc(path) + '"></td><td><input type="text" class="rn" value="' + esc(name) + '"></td>' +
+    '<td><input type="text" class="rv" value="' + esc(value) + '" placeholder="(미설정)"></td><td><button class="btn ghost small">✕</button></td>';
+  tr.querySelector('button').onclick = () => tr.remove();
+  $('regBody').appendChild(tr);
+}
+
+function fileRow(path, content) {
+  const d = document.createElement('div');
+  d.style.marginBottom = '8px';
+  d.innerHTML = '<div class="row"><input type="text" class="fp" value="' + esc(path) + '" style="flex:1;"><button class="btn ghost small">✕</button></div>' +
+    '<textarea class="fc" placeholder="(비워 두면 파일 없음)">' + esc(content) + '</textarea>';
+  d.querySelector('button').onclick = () => d.remove();
+  $('fileBody').appendChild(d);
+}
+
+async function selectRule(code) {
+  const {data} = await api('/api/rule?code=' + encodeURIComponent(code));
+  current = data; lastResult = null;
+  renderRules();
+  $('emptyCard').style.display = 'none'; $('workArea').style.display = 'block'; $('resultCard').style.display = 'none';
+  $('runErr').textContent = '';
+  $('ruleTitle').textContent = data.code + '  ' + data.name;
+  $('ruleMeta').textContent = '중요도 ' + data.importance + ' · ' + data.category + (data.criteria.length ? ' · 세부기준 ' + data.criteria.length + '개' : ' · 단일 조건');
+  $('ruleDesc').textContent = data.description;
+  let cmds = '<div class="hint">최상위 명령</div><pre>' + esc(data.command || '(없음)') + '</pre>';
+  data.criteria.forEach(c => cmds += '<div class="hint">세부기준: ' + esc(c.label) + '</div><pre>' + esc(c.command || '(최상위 출력 재사용)') + '</pre>');
+  $('ruleCmds').innerHTML = cmds;
+
+  const win = data.os === 'windows';
+  $('regSection').style.display = win ? 'block' : 'none';
+  $('secpolSection').style.display = win && data.suggest.secpol_keys.length ? 'block' : 'none';
+  $('fileSection').style.display = win ? 'none' : 'block';
+  $('regBody').innerHTML = ''; $('fileBody').innerHTML = ''; $('secpol').value = '';
+  if (win) {
+    data.suggest.registry.forEach(r => regRow(r.path, r.name, ''));
+    if (!data.suggest.registry.length && !data.suggest.secpol_keys.length) regRow('', '', '');
+    $('secpolKeys').innerHTML = data.suggest.secpol_keys.map(k => '<span class="chip keychip" data-k="' + esc(k) + '">' + esc(k) + '</span>').join('');
+    $('secpolKeys').querySelectorAll('.keychip').forEach(el => el.onclick = () => {
+      const t = $('secpol'); t.value += (t.value && !t.value.endsWith('\n') ? '\n' : '') + el.dataset.k + ' = ';
+      t.focus();
+    });
+  } else {
+    (data.suggest.files.length ? data.suggest.files : ['etc/']).forEach(p => fileRow(p, ''));
+  }
+}
+
+function collect() {
+  return {
+    rule: current.code,
+    reg: [...$('regBody').querySelectorAll('tr')].map(tr => ({path: tr.querySelector('.rp').value.trim(), name: tr.querySelector('.rn').value.trim(),
+                                                              value: tr.querySelector('.rv').value})).filter(r => r.path && r.name),
+    secpol: $('secpol').value,
+    files: [...$('fileBody').children].map(d => ({path: d.querySelector('.fp').value.trim(), content: d.querySelector('.fc').value})).filter(f => f.path),
+  };
+}
+
+$('runBtn').onclick = async () => {
+  $('runErr').textContent = ''; $('runBtn').disabled = true; $('runBtn').textContent = '실행 중...';
+  const {ok, data} = await api('/api/run', collect());
+  $('runBtn').disabled = false; $('runBtn').textContent = '▶ 실행';
+  if (!ok) { $('runErr').textContent = data.error || '실행 실패'; return; }
+  lastResult = data;
+  $('resultCard').style.display = 'block';
+  $('statusBadge').textContent = data.status; $('statusBadge').className = 'badge ' + data.status;
+  $('statusDetail').textContent = data.detail;
+  $('scExpect').value = data.status;
+  const chip = o => { const t = (o || '').trim(); const k = t === 'OK' ? 'OK' : (t === 'FAIL' ? 'FAIL' : (t === 'NOTSET' ? 'NOTSET' : ''));
+                      return '<span class="chip ' + k + '">' + esc(t || '(빈 출력)') + '</span>'; };
+  $('critTable').innerHTML = data.criteria.length
+    ? '<table style="margin-top:10px;"><thead><tr><th>세부기준</th><th style="width:40%">명령 출력</th></tr></thead><tbody>' +
+      data.criteria.map(c => '<tr><td>' + esc(c.label) + '</td><td>' + chip(c.output) + '</td></tr>').join('') + '</tbody></table>' : '';
+  $('topOut').innerHTML = data.criteria.length ? '' : '<div class="hint" style="margin-top:8px;">명령 출력</div><pre>' + esc(data.top_output || '(빈 출력)') + '</pre>';
+  $('saveMsg').textContent = '';
+};
+
+$('clearBtn').onclick = () => {
+  $('regBody').querySelectorAll('.rv').forEach(i => i.value = ''); $('secpol').value = '';
+  $('fileBody').querySelectorAll('.fc').forEach(t => t.value = '');
+};
+$('addReg').onclick = () => regRow('', '', '');
+$('addFile').onclick = () => fileRow('etc/', '');
+
+$('saveSc').onclick = async () => {
+  if (!lastResult) return;
+  const body = Object.assign(collect(), {name: $('scName').value.trim() || (current.code + ' ' + $('scExpect').value), expect: $('scExpect').value});
+  const {ok, data} = await api('/api/scenarios/save', body);
+  $('saveMsg').textContent = ok ? ('저장했습니다 (custom.json, 총 ' + data.count + '개)') : (data.error || '저장 실패');
+  if (ok) loadScenarios();
+};
+
+let scResults = {};
+async function loadScenarios() {
+  const {data} = await api('/api/scenarios');
+  $('scBody').innerHTML = data.map(it => {
+    const key = it.file + '#' + it.index, r = scResults[key];
+    const res = r ? (r.ok ? '<span class="pass">통과</span> ' + esc(r.status)
+                          : '<span class="fail">실패</span> 기대 ' + esc(r.expected) + ' / 실제 ' + esc(r.status) +
+                            '<div class="muted" style="font-size:11px;">' + esc(r.detail) + (r.missing && r.missing.length ? ' · 누락 문구: ' + esc(r.missing.join(', ')) : '') + '</div>')
+                  : '<span class="muted">-</span>';
+    return '<tr><td>' + esc(it.file) + '</td><td>' + esc(it.scenario.name || '') + '</td><td>' + esc(it.scenario.rule) + '</td><td>' + esc(it.scenario.expect) +
+      '</td><td>' + res + '</td><td>' + (it.file === 'custom.json' ? '<button class="btn ghost small" data-del="' + it.index + '">삭제</button>' : '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">저장된 시나리오가 없습니다.</td></tr>';
+  $('scBody').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('이 시나리오를 삭제할까요?')) return;
+    await api('/api/scenarios/delete', {index: +b.dataset.del}); scResults = {}; loadScenarios();
+  });
+}
+$('reloadSc').onclick = () => { scResults = {}; $('scSummary').textContent = ''; loadScenarios(); };
+$('runAll').onclick = async () => {
+  $('runAll').disabled = true; $('scSummary').textContent = '실행 중...';
+  const {data} = await api('/api/scenarios/run-all', {});
+  scResults = {}; data.forEach(r => scResults[r.file + '#' + r.index] = r);
+  const pass = data.filter(r => r.ok).length;
+  $('scSummary').innerHTML = '<span class="' + (pass === data.length ? 'pass' : 'fail') + '">' + pass + ' / ' + data.length + ' 통과</span>';
+  $('runAll').disabled = false; loadScenarios();
+};
+
+$('search').oninput = renderRules;
+// 딥링크: rule_lab 주소 뒤에 #rule=W-47 (또는 #rule=W-47&run=1 - 값 없이 바로 실행)
+(async () => {
+  const {data} = await api('/api/rules'); rules = data; renderRules(); loadScenarios();
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('rule')) { await selectRule(h.get('rule')); if (h.get('run') === '1') $('runBtn').click(); }
+})();
+</script>
+</body>
+</html>

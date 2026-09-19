@@ -24,7 +24,7 @@ sys.path.append(parent_dir)
 
 # 모듈 Import
 from core.advanced_scanner import AdvancedScanner
-from core.ssh_inspector import SSHInspector
+from core.ssh_inspector import SSHInspector, NetworkInspector, OfflineConfigInspector
 from core.windows_inspector import WindowsInspector
 from core.database_inspector import DatabaseInspector
 from core.vuln_matcher import VulnMatcher
@@ -44,7 +44,7 @@ class ScanWorker(QThread):
     # [UI/UX 개선 - hostname 출처 배지] IP, Host, OS, MAC, Vendor, hostname 출처(역DNS/매핑/추정)
     asset_found_signal = Signal(str, str, str, str, str, str)
 
-    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None, engine_token=None, connect_timeout=None):
+    def __init__(self, mode, target_input, user=None, db_user=None, ports=None, db_queue=None, ot_mode=False, demo_mode=False, operator="", max_workers=None, imported_hostname_map=None, oracle_service_name=None, engine_token=None, connect_timeout=None, device_type=None, config_text=None):
         super().__init__()
         self.mode = mode
         self.target_input = target_input
@@ -64,6 +64,12 @@ class ScanWorker(QThread):
         # 하위호환. 값을 넣으면 SSH/WinRM/DB 접속 타임아웃 전부에 동일하게 적용된다
         # (레거시/OT 장비가 느려서 자주 타임아웃 나는 문제를 한 곳에서 조정하기 위함).
         self.connect_timeout = connect_timeout
+        # 대상 장비 유형: None(기본, OS 자동 판별) / "network"(장비 벤더 자동 감지) / "cisco" / "juniper".
+        # 네트워크 장비는 포트/TTL만으로 벤더를 구분할 수 없어 사용자가 지정한 경우에만 그 인스펙터를 쓴다.
+        self.device_type = device_type if device_type in ("network", "cisco", "juniper") else None
+        # 장비 설정 파일 점검: 값이 있으면 네트워크 접속/포트스캔 없이 이 텍스트로만 판정한다
+        # (target_input은 자산 이름/IP 라벨로만 쓰인다)
+        self.config_text = config_text
 
         if isinstance(user, dict):
             self.user_info = user
@@ -123,7 +129,7 @@ class ScanWorker(QThread):
             # 정상적으로 살아있는지 확인을 거친다 (강제로 살아있다고 처리하지 않음)
             sim_ips = AppConfig.DEMO_SIMULATION_IPS if self.demo_mode else []
 
-            if self.mode != "CUSTOM":
+            if self.mode != "CUSTOM" and self.config_text is None:
                 # 1. 실제 스캔 (시뮬레이션 IP 제외)
                 real_targets = [ip for ip in target_ips if ip not in sim_ips]
                 if real_targets:
@@ -272,6 +278,12 @@ class ScanWorker(QThread):
         m = re.match(r'^\s*Linux\s+(\S+)', os_info)
         if m:
             return m.group(1)
+        m = re.search(r'^Hostname:\s*(\S+)', os_info, re.MULTILINE)  # Junos show version
+        if m:
+            return m.group(1)
+        m = re.search(r'^(\S+) uptime is', os_info, re.MULTILINE)  # Cisco show version
+        if m:
+            return m.group(1)
         return None
 
     @staticmethod
@@ -324,6 +336,13 @@ class ScanWorker(QThread):
     # [Module 2] Target Parsing Logic
     # ----------------------------------------------------------------------
     def parse_targets(self):
+        if self.config_text is not None:
+            # 설정 파일 점검: 대상 문자열은 IP 범위가 아니라 자산 이름 라벨 하나로만 쓴다("SW-1" 같은 하이픈을 범위로 해석하지 않음)
+            label = self.target_input.strip()
+            if not OSUtils.is_safe_host(label):
+                self.log_signal.emit(f"[!] Rejected invalid asset label: {label}")
+                return []
+            return [label]
         targets = []
         try:
             raw_list = self.target_input.split(',')
@@ -500,6 +519,9 @@ class ScanWorker(QThread):
         """
         if self.stop_flag: return
 
+        if self.config_text is not None:
+            return self._audit_config_text(ip)
+
         is_sim = self.demo_mode and (ip in AppConfig.DEMO_SIMULATION_IPS)
 
         cached = None
@@ -551,12 +573,18 @@ class ScanWorker(QThread):
 
         os_inspector = None  # SYSTEM Detail 부록 수집 대상 (Windows/Linux 대표 1개만)
         inspectors = []
+        if self.device_type:
+            # 네트워크 장비 모드: OS/DB/웹 인스펙터는 만들지 않고 장비 전용 인스펙터 하나만 쓴다
+            vendor = "auto" if self.device_type == "network" else self.device_type
+            os_inspector = NetworkInspector(ip, username, vendor=vendor, throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **ssh_timeout_kwargs)
+            inspectors.append(os_inspector)
+        host_mode = not self.device_type  # 네트워크 장비 모드에서는 아래 OS/DB/웹 조건을 건너뛴다
         # Windows 진단 조건
-        if (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
+        if host_mode and (445 in open_ports or 135 in open_ports) and "Windows" in os_type:
             os_inspector = WindowsInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **win_timeout_kwargs)
             inspectors.append(os_inspector)
         # Linux 진단 조건
-        elif 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
+        elif host_mode and 22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
             os_inspector = SSHInspector(ip, username, throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **ssh_timeout_kwargs)
             inspectors.append(os_inspector)
 
@@ -564,20 +592,33 @@ class ScanWorker(QThread):
         # [DB 전용 계정] SSH/WinRM 계정과 DB 계정이 다를 수 있어(예: DBA가 별도 관리하는
         # 감사 계정), db_user가 지정된 경우에만 그 계정을 쓰고 아니면 기존처럼 OS 계정을 재사용한다.
         db_username = self.default_db_user or username
-        if 3306 in open_ports:
+        if host_mode and 3306 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "mysql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
-        if 5432 in open_ports:
+        if host_mode and 5432 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "postgresql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
-        if 1433 in open_ports:
+        if host_mode and 1433 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "mssql", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **db_timeout_kwargs))
-        if 1521 in open_ports:
+        if host_mode and 1521 in open_ports:
             inspectors.append(DatabaseInspector(ip, db_username, "oracle", throttle=self.ot_mode, demo_mode=self.demo_mode, service_name=self.oracle_service_name, stop_check=stop_check, **db_timeout_kwargs))
 
         # 웹 서비스 진단 조건 (Apache/Nginx 설정 점검, SSH 접속 가능한 Linux 대상만)
-        if (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
+        if host_mode and (80 in open_ports or 443 in open_ports or 8080 in open_ports) and \
            22 in open_ports and ("Linux" in os_type or "Unix" in os_type or os_type == "Unknown"):
             inspectors.append(SSHInspector(ip, username, ruleset="web_rules.json", throttle=self.ot_mode, demo_mode=self.demo_mode, stop_check=stop_check, **ssh_timeout_kwargs))
 
+        self._run_inspectors(ip, inspectors, os_inspector)
+
+    def _audit_config_text(self, label):
+        """설정 파일 점검: 접속 없이 텍스트로 판정하고 결과를 일반 스캔과 같은 경로로 저장한다."""
+        vendor = self.device_type if self.device_type in ("cisco", "juniper") else "auto"
+        inspector = OfflineConfigInspector(label, self.config_text, vendor=vendor, throttle=False)
+        hostname = self._extract_real_hostname(inspector.sections.get("show version", "")) or label
+        os_type = "Network Device (설정 파일)"
+        self.asset_found_signal.emit(label, hostname, os_type, "", "Unknown", "설정파일")
+        self.db_queue.put(("ASSET", (label, hostname, os_type, "", "", "Unknown", "설정파일")))
+        self._run_inspectors(label, [inspector], inspector)
+
+    def _run_inspectors(self, ip, inspectors, os_inspector):
         for inspector in inspectors:
             if self.stop_flag: break
             if not inspector.connect():

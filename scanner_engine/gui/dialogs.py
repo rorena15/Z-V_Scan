@@ -15,12 +15,13 @@ import re
 from datetime import datetime
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QTextEdit, QCheckBox, QPushButton, QMessageBox, QLineEdit, QScrollArea, QWidget, QFrame
+    QTextEdit, QCheckBox, QPushButton, QMessageBox, QLineEdit, QScrollArea, QWidget, QFrame, QComboBox
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
 from core.license_validator import LicenseValidator
 from gui.dashboard_widgets import COLORS
+from utils import dashboard_accounts
 
 class LegalDisclaimerDialog(QDialog):
     def __init__(self):
@@ -417,3 +418,166 @@ class PortSelectorDialog(QDialog):
         if custom:
             parts.extend(t.strip() for t in custom.split(",") if t.strip())
         return ",".join(parts)
+
+
+class LaunchModeDialog(QDialog):
+    """[웹 대시보드 모드] 법적 고지 동의 직후, 매번 "데스크톱 앱으로 열지 / 웹
+    대시보드(로컬 전용 서버)로 열지" 묻는다 - 사용자가 매번 물어보는 쪽을 선택함
+    (기억해서 건너뛰지 않음). 결과는 self.chosen_mode에 'app' 또는 'web'로 담긴다."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.chosen_mode = None
+        self.setWindowTitle("Z-VulnScan 시작 모드 선택")
+        self.setFixedSize(460, 260)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {COLORS['surface_1']}; color: {COLORS['text']}; }}
+            QLabel {{ color: {COLORS['text_secondary']}; border:none; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(26, 24, 26, 24)
+        layout.setSpacing(14)
+
+        title = QLabel("어떻게 시작할까요?")
+        title.setStyleSheet(f"font-size: 14pt; font-weight: 700; color: {COLORS['text']}; border:none;")
+        layout.addWidget(title)
+
+        def make_option(label_text, desc_text, mode):
+            btn = QPushButton(label_text)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(46)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface_2']}; color: {COLORS['text']};
+                    border: 1px solid {COLORS['border']}; border-radius: 10px;
+                    font-weight: 700; font-size: 11.5pt; text-align: left; padding-left: 16px;
+                }}
+                QPushButton:hover {{ border: 1px solid {COLORS['accent']}; background-color: {COLORS['accent_bg']}; }}
+            """)
+            btn.clicked.connect(lambda: self._choose(mode))
+            layout.addWidget(btn)
+            desc = QLabel(desc_text)
+            desc.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 9.5pt; border:none; padding-left: 4px;")
+            desc.setWordWrap(True)
+            layout.addWidget(desc)
+
+        make_option("데스크톱 앱으로 시작", "지금까지 쓰던 PySide6 창 - 스캔/설정 등 전체 기능.", 'app')
+        make_option("웹 대시보드로 시작 (로컬 전용)", "브라우저로 대시보드만 조회 - 127.0.0.1에서만 접속 가능, 로그인 필요.", 'web')
+
+        layout.addStretch()
+
+    def _choose(self, mode):
+        self.chosen_mode = mode
+        self.accept()
+
+
+class DashboardAccountSetupDialog(QDialog):
+    """[웹 대시보드 모드] 최초 계정이 하나도 없을 때(dashboard_accounts.has_any_account()
+    False) 첫 계정을 만들게 한다 - 이 경우 role 선택 없이 항상 admin으로 만들어진다
+    (dashboard_accounts.create_account()가 강제함). settings_dialog.py의 계정 관리
+    탭에서 두 번째 이후 계정을 추가할 때도 재사용하며, 이때는 role 선택 콤보를 보여준다."""
+
+    def __init__(self, parent=None, allow_cancel=True, title="웹 대시보드 관리자 계정 생성"):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self._is_first_account = not dashboard_accounts.has_any_account()
+        self.setFixedSize(400, 340 if not self._is_first_account else 300)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {COLORS['surface_1']}; color: {COLORS['text']}; }}
+            QLabel {{ color: {COLORS['text_secondary']}; border:none; }}
+            QLineEdit, QComboBox {{
+                background-color: {COLORS['surface_2']}; color: {COLORS['text']};
+                border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 9px 10px;
+            }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid {COLORS['accent']}; }}
+            QPushButton {{
+                background-color: {COLORS['muted_bg']}; color: {COLORS['text']};
+                border: 1px solid {COLORS['border']}; padding: 9px 18px;
+                font-weight: 600; border-radius: 8px;
+            }}
+            QPushButton:hover {{ background-color: {COLORS['border']}; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(10)
+
+        info = QLabel("이 계정으로 웹 대시보드에 로그인합니다.\n최소 8자 이상 비밀번호를 사용하세요.")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.input_username = QLineEdit()
+        self.input_username.setPlaceholderText("아이디")
+        layout.addWidget(self.input_username)
+
+        self.input_password = QLineEdit()
+        self.input_password.setPlaceholderText("비밀번호 (8자 이상)")
+        self.input_password.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.input_password)
+
+        self.input_password_confirm = QLineEdit()
+        self.input_password_confirm.setPlaceholderText("비밀번호 확인")
+        self.input_password_confirm.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.input_password_confirm)
+
+        # [최초 계정은 항상 admin] 계정이 하나도 없는 상태에서는 role 선택을 아예
+        # 보여주지 않는다 - 고를 필요가 없고(무조건 admin), 고를 수 있는 것처럼
+        # 보이면 실수로 낮은 권한을 골라 설정/계정 관리에 아무도 못 들어가는
+        # 상태로 서버를 시작할 위험이 있다.
+        self.role_combo = None
+        if not self._is_first_account:
+            role_label = QLabel("역할")
+            layout.addWidget(role_label)
+            self.role_combo = QComboBox()
+            for role in dashboard_accounts.ROLES:
+                self.role_combo.addItem(dashboard_accounts.ROLE_LABELS[role], role)
+            self.role_combo.setCurrentIndex(list(dashboard_accounts.ROLES).index(dashboard_accounts.DEFAULT_ROLE))
+            layout.addWidget(self.role_combo)
+            role_hint = QLabel("관리자: 전부 가능 · 운영자: 스캔/자산/리포트 · 조회자: 조회만")
+            role_hint.setWordWrap(True)
+            role_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 9pt; border:none;")
+            layout.addWidget(role_hint)
+
+        layout.addStretch()
+
+        btn_row = QHBoxLayout()
+        if allow_cancel:
+            btn_cancel = QPushButton("취소")
+            btn_cancel.clicked.connect(self.reject)
+            btn_row.addWidget(btn_cancel)
+        btn_row.addStretch()
+        btn_create = QPushButton("계정 생성")
+        btn_create.setCursor(Qt.PointingHandCursor)
+        btn_create.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['accent']}; color: white; border: none;
+                padding: 9px 18px; font-weight: 600; border-radius: 8px;
+            }}
+            QPushButton:hover {{ background-color: #2860D6; }}
+        """)
+        btn_create.clicked.connect(self._create)
+        btn_row.addWidget(btn_create)
+        layout.addLayout(btn_row)
+
+        self.created_username = None
+
+    def _create(self):
+        username = self.input_username.text().strip()
+        password = self.input_password.text()
+        confirm = self.input_password_confirm.text()
+
+        if password != confirm:
+            QMessageBox.warning(self, "확인 필요", "비밀번호가 서로 일치하지 않습니다.")
+            return
+
+        role = self.role_combo.currentData() if self.role_combo else "admin"
+        ok, error = dashboard_accounts.create_account(username, password, role=role)
+        if not ok:
+            QMessageBox.warning(self, "계정 생성 실패", error)
+            return
+
+        self.created_username = username
+        self.accept()

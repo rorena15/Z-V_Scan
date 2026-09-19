@@ -19,6 +19,11 @@ keyring
 cryptography
 requests
 
+# 웹 대시보드 모드(main.py의 LaunchModeDialog에서 "웹"을 선택했을 때만 씀) -
+# web_dashboard_server.py의 로컬 전용(127.0.0.1) 서버. Werkzeug는 Flask의
+# 전이 의존성으로 같이 설치되며, 서버 graceful shutdown(make_server)에 직접 쓴다.
+Flask
+
 # core/database_inspector.py가 엔진별로 조건부 import한다(pymysql/psycopg2는
 # 이전부터 쓰였으나 이 파일엔 등록이 안 돼 있었음 - builing.ps1의 --collect-all로만
 # 빌드에 포함되고 있었음. pymssql/oracledb는 MSSQL/Oracle(D-xx) 지원 추가로 새로

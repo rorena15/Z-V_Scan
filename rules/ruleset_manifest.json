@@ -43,6 +43,18 @@
       "item_count": 21,
       "last_updated": "2026-07-22",
       "_비고": "2026-08-05 라이브 스캔 배선 완료(database_inspector.py/worker.py/text_report.py 등). 실 SQL Server 검증 전"
+    },
+    "network_juniper_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (네트워크 장비, N-01~N-38) - Juniper Junos 명령 기준",
+      "item_count": 38,
+      "last_updated": "2026-09-19",
+      "_비고": "실장비 검증 전. Junos에 없는 기능(N-28/35/36/37/38)은 해당없음으로 처리. 일부 항목(N-32 등)은 수동 확인"
+    },
+    "network_cisco_rules.json": {
+      "kisa_guide_ref": "주요정보통신기반시설 기술적 취약점 분석·평가 방법 상세가이드 (네트워크 장비, N-01~N-38) - Cisco IOS/IOS-XE 계열 명령 기준",
+      "item_count": 38,
+      "last_updated": "2026-09-19",
+      "_비고": "룰 작성 및 판정 로직 테스트(설정 텍스트 입력 방식)만 완료. 스캔 화면/워커 배선, 실장비 검증 전. 벤더별(Juniper 등) 룰셋은 별도 파일로 추가 예정"
     }
   }
 }

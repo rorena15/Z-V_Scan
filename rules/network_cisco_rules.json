@@ -1,0 +1,500 @@
+[
+  {
+    "code": "N-01",
+    "name": "비밀번호 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show running-config | section ^line con",
+    "criteria": [
+      {
+        "label": "콘솔 회선 인증 설정",
+        "safe_regex": "^\\s*(password\\s+\\S|login local|login authentication)"
+      },
+      {
+        "label": "VTY 회선 인증 설정",
+        "command": "show running-config | section ^line vty",
+        "safe_regex": "^\\s*(password\\s+\\S|login local|login authentication)"
+      }
+    ],
+    "description": "콘솔/VTY 접속 시 인증(비밀번호, 로컬 계정 또는 AAA)이 설정돼 있는지 점검합니다. 인증 없이 접속되면 누구나 장비를 제어할 수 있습니다.",
+    "remediation": "line con 0 / line vty 0 4 에서 password 설정 후 login, 또는 login local(+username) / login authentication(AAA) 설정"
+  },
+  {
+    "code": "N-02",
+    "name": "비밀번호 복잡성 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show running-config | include ^security passwords",
+    "safe_regex": "^security passwords min-length\\s+(?:[89]|[1-9]\\d)\\b",
+    "description": "장비 로컬 비밀번호의 최소 길이 정책이 8자 이상으로 설정돼 있는지 점검합니다.",
+    "remediation": "security passwords min-length 8 설정 (외부 AAA 서버로 복잡성을 강제하는 경우 수동 확인)"
+  },
+  {
+    "code": "N-03",
+    "name": "암호화된 비밀번호 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show running-config | include ^service password-encryption",
+    "criteria": [
+      {
+        "label": "service password-encryption 활성화",
+        "safe_regex": "^service password-encryption"
+      },
+      {
+        "label": "enable secret 사용",
+        "command": "show running-config | include ^enable ",
+        "safe_regex": "^enable (secret|algorithm-type)"
+      },
+      {
+        "label": "평문 enable password 미사용",
+        "command": "show running-config | include ^enable ",
+        "vulnerable_regex": "^enable password"
+      }
+    ],
+    "description": "설정 파일에 비밀번호가 평문으로 노출되지 않도록 암호화 설정과 enable secret 사용 여부를 점검합니다.",
+    "remediation": "service password-encryption 활성화, enable password 대신 enable secret(또는 algorithm-type scrypt) 사용"
+  },
+  {
+    "code": "N-04",
+    "name": "계정 잠금 임계값 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show running-config | include login block-for|max-fail",
+    "safe_regex": "^login block-for\\s+\\d+\\s+attempts\\s+[1-5]\\b|^aaa local authentication attempts max-fail\\s+[1-5]\\b",
+    "description": "로그인 실패가 누적되면 접속을 잠그는 설정(임계값 5회 이하)이 있는지 점검합니다.",
+    "remediation": "login block-for 120 attempts 5 within 60 또는 aaa local authentication attempts max-fail 5 설정"
+  },
+  {
+    "code": "N-05",
+    "name": "사용자, 명령어별 권한 수준 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "show running-config | include ^username|^privilege|^aaa authorization",
+    "description": "계정과 명령어에 최소 권한 원칙이 적용됐는지는 운영 정책에 따라 다르므로, 설정 현황을 증적으로 남기고 담당자가 확인합니다.",
+    "remediation": "일반 운영 계정은 privilege 1~7 수준으로 제한하고 관리자 권한(15)은 필요한 계정에만 부여"
+  },
+  {
+    "code": "N-06",
+    "name": "VTY 접근(ACL) 설정",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "show running-config | section ^line vty",
+    "criteria": [
+      {
+        "label": "VTY access-class 설정 존재",
+        "safe_regex": "^\\s*access-class\\s+\\S+\\s+in\\b"
+      },
+      {
+        "label": "access-class가 없는 VTY 회선 블록 없음",
+        "vulnerable_regex": "^line vty[^\\n]*(?:\\n|\\Z)(?:(?![ \\t]*access-class\\s+\\S+\\s+in[ \\t]*$)[ \\t]+[^\\n]*(?:\\n|$))*(?=^\\S|\\Z)"
+      }
+    ],
+    "description": "원격 접속(VTY) 회선 전부(line vty 0 4, 5 15 등)에 허용된 관리 대역만 접속하도록 access-class가 적용돼 있는지 점검합니다.",
+    "remediation": "허용할 관리 IP만 permit 하는 ACL 작성 후 모든 line vty 블록에서 access-class <ACL> in 적용"
+  },
+  {
+    "code": "N-07",
+    "name": "세션 종료 시간 설정",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "show running-config | section ^line con",
+    "criteria": [
+      {
+        "label": "콘솔 exec-timeout 5분 이하",
+        "safe_regex": "^\\s*exec-timeout\\s+(?:[1-4]\\s+\\d+|5\\s+0|0\\s+(?!0\\b)\\d+)\\s*$"
+      },
+      {
+        "label": "모든 VTY 블록 exec-timeout 5분 이하",
+        "command": "show running-config | section ^line vty",
+        "vulnerable_regex": "^line vty[^\\n]*(?:\\n|\\Z)(?:(?![ \\t]*exec-timeout\\s+(?:[1-4]\\s+\\d+|5\\s+0|0\\s+(?!0\\b)\\d+)[ \\t]*$)[ \\t]+[^\\n]*(?:\\n|$))*(?=^\\S|\\Z)"
+      }
+    ],
+    "description": "콘솔/VTY 유휴 세션이 5분 이내에 종료되도록 exec-timeout이 설정돼 있는지 점검합니다(미설정 시 기본 10분, 0 0은 무제한).",
+    "remediation": "line con 0 / line vty 0 4 에서 exec-timeout 5 0 (5분 이하) 설정"
+  },
+  {
+    "code": "N-08",
+    "name": "VTY 접속 시 안전한 프로토콜 사용",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show running-config | section ^line vty",
+    "criteria": [
+      {
+        "label": "VTY transport input ssh 설정 존재",
+        "safe_regex": "^\\s*transport input\\s+ssh\\s*$"
+      },
+      {
+        "label": "SSH 전용이 아닌 VTY 회선 블록 없음",
+        "vulnerable_regex": "^line vty[^\\n]*(?:\\n|\\Z)(?:(?![ \\t]*transport input\\s+ssh[ \\t]*$)[ \\t]+[^\\n]*(?:\\n|$))*(?=^\\S|\\Z)"
+      }
+    ],
+    "description": "모든 VTY 회선(line vty 0 4, 5 15 등)에서 Telnet이 막히고 SSH만 허용되는지 점검합니다(transport input 미설정 시 모든 프로토콜 허용).",
+    "remediation": "모든 line vty 블록에서 transport input ssh 설정, ip ssh version 2 및 crypto key generate rsa 수행"
+  },
+  {
+    "code": "N-09",
+    "name": "불필요한 보조 입출력 포트 사용 금지",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show running-config | section ^line aux",
+    "empty_status": "NA",
+    "safe_regex": "^\\s*(no exec|transport input none)\\s*$",
+    "description": "보조(AUX) 포트가 있는 장비에서 사용하지 않는 AUX 포트가 비활성화돼 있는지 점검합니다. AUX 포트가 없는 장비는 해당없음입니다.",
+    "remediation": "line aux 0 에서 no exec 및 transport input none 설정"
+  },
+  {
+    "code": "N-10",
+    "name": "로그온 시 경고 메시지 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show running-config | include ^banner (login|motd|exec)",
+    "safe_regex": "^banner\\s+(login|motd|exec)\\b",
+    "description": "접속 시 비인가 접근 금지 경고 배너가 설정돼 있는지 점검합니다.",
+    "remediation": "banner login ^C 비인가 접근 금지 경고 문구 ^C 설정"
+  },
+  {
+    "code": "N-11",
+    "name": "원격 로그서버 사용",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show running-config | include ^logging",
+    "safe_regex": "^logging\\s+(?:host\\s+\\S+|(?:\\d{1,3}\\.){3}\\d{1,3})",
+    "description": "장비 로그가 원격 로그서버(syslog)로 전송되도록 설정돼 있는지 점검합니다.",
+    "remediation": "logging host <로그서버 IP> 설정"
+  },
+  {
+    "code": "N-12",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "show version",
+    "description": "OS 버전이 벤더의 최신 보안 권고를 반영했는지는 벤더 공지와 대조해야 하므로, 버전 정보를 증적으로 남기고 담당자가 확인합니다.",
+    "remediation": "벤더 보안 권고(Security Advisory)를 확인해 취약 버전이면 권고 버전으로 업그레이드"
+  },
+  {
+    "code": "N-13",
+    "name": "로깅 버퍼 크기 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show running-config | include ^logging buffered",
+    "safe_regex": "^logging buffered\\s+(?:1[6-9]\\d{3}|[2-9]\\d{4}|\\d{6,})\\b",
+    "description": "로그 버퍼가 16384바이트 이상으로 설정돼 있는지 점검합니다(크기 미지정 시 기본 4096).",
+    "remediation": "logging buffered 16384 informational 이상으로 설정"
+  },
+  {
+    "code": "N-14",
+    "name": "정책에 따른 로깅 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show logging | include Trap logging",
+    "safe_regex": "Trap logging:\\s+level\\s+(?:informational|notifications|warnings|debugging)",
+    "description": "원격 로그서버로 보내는 로그 수준(trap)이 경고(warnings) 이상 상세한 수준으로 설정돼 있는지 점검합니다.",
+    "remediation": "logging trap informational 설정"
+  },
+  {
+    "code": "N-15",
+    "name": "NTP 및 시각 동기화 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show running-config | include ^ntp",
+    "safe_regex": "^ntp\\s+server\\s+\\S+",
+    "description": "장비 시각이 NTP 서버와 동기화되도록 설정돼 있는지 점검합니다.",
+    "remediation": "ntp server <NTP 서버 IP> 설정"
+  },
+  {
+    "code": "N-16",
+    "name": "Timestamp 로그 설정",
+    "category": "로그 관리",
+    "importance": "하",
+    "command": "show running-config | include ^service timestamps",
+    "safe_regex": "^service timestamps log datetime",
+    "description": "로그에 날짜/시간 정보가 함께 기록되도록 설정돼 있는지 점검합니다.",
+    "remediation": "service timestamps log datetime msec localtime show-timezone 설정"
+  },
+  {
+    "code": "N-17",
+    "name": "SNMP 서비스 확인",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^snmp-server",
+    "empty_status": "SAFE",
+    "description": "SNMP는 환경에 따라 필요할 수도 불필요할 수도 있어 자동 판정하지 않습니다. SNMP 설정이 하나도 없으면 미사용으로 양호이고, 설정이 있으면 사용 필요성을 담당자가 확인합니다.",
+    "remediation": "불필요하면 no snmp-server, 필요하면 SNMPv3(인증+암호화) 사용"
+  },
+  {
+    "code": "N-18",
+    "name": "SNMP Community String 복잡성 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^snmp-server",
+    "empty_status": "NA",
+    "vulnerable_regex": "^snmp-server community\\s+(?!(?=\\S*[A-Za-z])(?=\\S*\\d)(?=\\S*[^A-Za-z\\d\\s])\\S{8,}(?:\\s|$))\\S+",
+    "description": "SNMP community 문자열이 기본값(public/private)이거나 8자 미만, 영문/숫자/특수문자 조합이 아니면 취약으로 봅니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "community 문자열을 영문+숫자+특수문자 8자 이상으로 변경"
+  },
+  {
+    "code": "N-19",
+    "name": "SNMP ACL 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^snmp-server",
+    "empty_status": "NA",
+    "vulnerable_regex": "^snmp-server community\\s+\\S+\\s+(?:view\\s+\\S+\\s+)?(?:ro|rw)\\s*$",
+    "description": "SNMP community에 접근 허용 ACL이 지정되지 않은 것이 하나라도 있으면 취약으로 봅니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "snmp-server community <문자열> RO <ACL> 형태로 관리 서버만 허용하는 ACL 지정"
+  },
+  {
+    "code": "N-20",
+    "name": "SNMP Community 권한 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^snmp-server",
+    "empty_status": "NA",
+    "vulnerable_regex": "^snmp-server community\\s+\\S+\\s+(?:view\\s+\\S+\\s+)?rw\\b",
+    "description": "SNMP community가 쓰기(RW) 권한으로 설정된 것이 있으면 취약으로 봅니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "community를 RO(읽기 전용)로 변경하거나 RW community 삭제"
+  },
+  {
+    "code": "N-21",
+    "name": "TFTP 서비스 차단",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^tftp-server",
+    "vulnerable_regex": "^tftp-server\\b",
+    "description": "TFTP 서버 기능이 켜져 있으면 인증 없이 장비 파일이 노출될 수 있어 취약으로 봅니다.",
+    "remediation": "no tftp-server <파일> 로 TFTP 서버 설정 제거"
+  },
+  {
+    "code": "N-22",
+    "name": "Spoofing 방지 필터링 적용",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^ip verify unicast|^\\s*ip access-group|^\\s*ip verify",
+    "description": "Spoofing 방지는 uRPF 또는 사설/예약 대역 차단 ACL 등 방식이 다양해 자동 판정하지 않고, 적용 현황을 증적으로 남겨 담당자가 확인합니다.",
+    "remediation": "외부 인터페이스에 ip verify unicast source reachable-via rx 또는 사설/루프백/멀티캐스트 대역 차단 ACL 적용"
+  },
+  {
+    "code": "N-23",
+    "name": "DDoS 공격 방어 설정 또는 DDoS 장비 사용",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show running-config | include ^ip tcp intercept|^ip access-list|^class-map|^policy-map|^control-plane",
+    "description": "DDoS 방어는 전용 장비/서비스 사용 여부 등 설정만으로 판단할 수 없어 자동 판정하지 않고, 관련 설정 현황을 증적으로 남겨 담당자가 확인합니다.",
+    "remediation": "TCP Intercept, CoPP(control-plane policing) 등 방어 설정 적용 또는 DDoS 전용 장비 구성"
+  },
+  {
+    "code": "N-24",
+    "name": "사용하지 않는 인터페이스 비활성화",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show ip interface brief",
+    "vulnerable_regex": "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+down\\s+down\\s*$",
+    "description": "연결되지 않았는데(down/down) shutdown 되지 않은 인터페이스가 있으면 취약으로 봅니다.",
+    "remediation": "미사용 인터페이스에서 shutdown 설정"
+  },
+  {
+    "code": "N-25",
+    "name": "TCP Keepalive 서비스 설정",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config | include ^service tcp-keepalives",
+    "safe_regex": "^service tcp-keepalives-in\\b",
+    "description": "끊어진 원격 세션이 남아 자원을 점유하지 않도록 TCP keepalive가 설정돼 있는지 점검합니다.",
+    "remediation": "service tcp-keepalives-in, service tcp-keepalives-out 설정"
+  },
+  {
+    "code": "N-26",
+    "name": "Finger 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config | include finger",
+    "vulnerable_regex": "^(?:ip finger|service finger)\\b",
+    "description": "Finger 서비스가 켜져 있으면 접속 사용자 정보가 노출되므로 취약으로 봅니다.",
+    "remediation": "no ip finger, no service finger 설정"
+  },
+  {
+    "code": "N-27",
+    "name": "웹 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config | include ^ip http",
+    "vulnerable_regex": "^ip http (?:secure-)?server\\b",
+    "description": "장비 HTTP/HTTPS 관리 서버가 켜져 있으면 취약으로 봅니다(필요 시 접근 ACL과 함께 사용 여부를 담당자가 판단).",
+    "remediation": "no ip http server, no ip http secure-server 설정"
+  },
+  {
+    "code": "N-28",
+    "name": "TCP/UDP small 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config | include small-servers",
+    "vulnerable_regex": "^service (?:tcp|udp)-small-servers\\b",
+    "description": "echo, chargen 등 TCP/UDP small 서비스가 켜져 있으면 취약으로 봅니다.",
+    "remediation": "no service tcp-small-servers, no service udp-small-servers 설정"
+  },
+  {
+    "code": "N-29",
+    "name": "Bootp 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config all | include ip bootp server",
+    "checks": [
+      {
+        "command": "show running-config all | include ip bootp server",
+        "safe_regex": "^no ip bootp server\\b",
+        "vulnerable_regex": "^ip bootp server\\b"
+      },
+      {
+        "command": "show running-config | include ip bootp server",
+        "safe_regex": "^no ip bootp server\\b",
+        "vulnerable_regex": "^ip bootp server\\b"
+      }
+    ],
+    "description": "BOOTP 서버가 꺼져 있는지 점검합니다. 기본값을 포함해 보여주는 show running-config all을 우선 쓰고, 안 되면 running-config에 명시된 줄만 근거로 삼으며, 근거가 없으면 수동 확인합니다.",
+    "remediation": "no ip bootp server 설정"
+  },
+  {
+    "code": "N-30",
+    "name": "CDP 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show cdp",
+    "checks": [
+      {
+        "command": "show cdp",
+        "safe_regex": "CDP is not enabled",
+        "vulnerable_regex": "Sending CDP packets|Global CDP information"
+      },
+      {
+        "command": "show running-config all | include cdp run",
+        "safe_regex": "^no cdp run\\b",
+        "vulnerable_regex": "^cdp run\\b"
+      },
+      {
+        "command": "show running-config | include cdp run",
+        "safe_regex": "^no cdp run\\b",
+        "vulnerable_regex": "^cdp run\\b"
+      }
+    ],
+    "description": "CDP가 켜져 있으면 장비 모델/버전/주소가 인접 장비에 노출되므로 전역으로 꺼져 있는지 점검합니다. show cdp 상태를 우선 쓰고, 안 되면 show running-config all, 그다음 running-config에 명시된 줄을 근거로 삼으며, 근거가 없으면 수동 확인합니다.",
+    "remediation": "no cdp run 설정"
+  },
+  {
+    "code": "N-31",
+    "name": "Directed-broadcast 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show ip interface | include Directed broadcast",
+    "vulnerable_regex": "Directed broadcast forwarding is enabled",
+    "description": "인터페이스에서 directed broadcast 전달이 켜져 있으면 Smurf 공격에 악용될 수 있어 취약으로 봅니다.",
+    "remediation": "인터페이스에서 no ip directed-broadcast 설정"
+  },
+  {
+    "code": "N-32",
+    "name": "Source 라우팅 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config all | include ip source-route",
+    "checks": [
+      {
+        "command": "show running-config all | include ip source-route",
+        "safe_regex": "^no ip source-route\\b",
+        "vulnerable_regex": "^ip source-route\\b"
+      },
+      {
+        "command": "show running-config | include ip source-route",
+        "safe_regex": "^no ip source-route\\b",
+        "vulnerable_regex": "^ip source-route\\b"
+      }
+    ],
+    "description": "IP source routing이 꺼져 있는지 점검합니다. 기본값을 포함해 보여주는 show running-config all을 우선 쓰고, 안 되면 running-config에 명시된 줄만 근거로 삼으며, 근거가 없으면 수동 확인합니다.",
+    "remediation": "no ip source-route 설정"
+  },
+  {
+    "code": "N-33",
+    "name": "Proxy ARP 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show ip interface | include Proxy ARP",
+    "vulnerable_regex": "Proxy ARP is enabled",
+    "description": "Proxy ARP가 켜진 인터페이스가 하나라도 있으면 취약으로 봅니다.",
+    "remediation": "인터페이스에서 no ip proxy-arp 설정"
+  },
+  {
+    "code": "N-34",
+    "name": "ICMP unreachable, Redirect 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show ip interface | include ICMP",
+    "vulnerable_regex": "ICMP (?:redirects|unreachables) are always sent",
+    "description": "인터페이스가 ICMP unreachable/redirect를 항상 보내도록 돼 있으면 장비 정보 노출과 경로 조작에 악용될 수 있어 취약으로 봅니다.",
+    "remediation": "인터페이스에서 no ip unreachables, no ip redirects 설정"
+  },
+  {
+    "code": "N-35",
+    "name": "identd 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config | include identd",
+    "vulnerable_regex": "^ip identd\\b",
+    "description": "identd 서비스가 켜져 있으면 취약으로 봅니다.",
+    "remediation": "no ip identd 설정"
+  },
+  {
+    "code": "N-36",
+    "name": "Domain Lookup 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show hosts",
+    "checks": [
+      {
+        "command": "show hosts",
+        "safe_regex": "lookup uses static mappings",
+        "vulnerable_regex": "lookup uses domain service"
+      },
+      {
+        "command": "show running-config all | include ip domain.lookup",
+        "safe_regex": "^no ip domain[- ]lookup\\b",
+        "vulnerable_regex": "^ip domain[- ]lookup\\b"
+      },
+      {
+        "command": "show running-config | include ip domain.lookup",
+        "safe_regex": "^no ip domain[- ]lookup\\b",
+        "vulnerable_regex": "^ip domain[- ]lookup\\b"
+      }
+    ],
+    "description": "잘못 입력한 명령을 도메인 이름으로 해석해 DNS 조회를 시도하지 않도록 domain-lookup이 꺼져 있는지 점검합니다. show hosts 상태를 우선 쓰고, 안 되면 show running-config all, 그다음 running-config에 명시된 줄을 근거로 삼으며, 근거가 없으면 수동 확인합니다.",
+    "remediation": "no ip domain-lookup 설정"
+  },
+  {
+    "code": "N-37",
+    "name": "pad 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show running-config all | include service pad",
+    "checks": [
+      {
+        "command": "show running-config all | include service pad",
+        "safe_regex": "^no service pad\\b",
+        "vulnerable_regex": "^service pad\\b"
+      },
+      {
+        "command": "show running-config | include service pad",
+        "safe_regex": "^no service pad\\b",
+        "vulnerable_regex": "^service pad\\b"
+      }
+    ],
+    "description": "PAD 서비스가 꺼져 있는지 점검합니다. 기본값을 포함해 보여주는 show running-config all을 우선 쓰고, 안 되면 running-config에 명시된 줄만 근거로 삼으며, 근거가 없으면 수동 확인합니다.",
+    "remediation": "no service pad 설정"
+  },
+  {
+    "code": "N-38",
+    "name": "mask-reply 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show ip interface | include mask replies",
+    "vulnerable_regex": "ICMP mask replies are always sent",
+    "description": "인터페이스가 ICMP mask reply를 보내도록 돼 있으면 서브넷 정보가 노출되므로 취약으로 봅니다.",
+    "remediation": "인터페이스에서 no ip mask-reply 설정"
+  }
+]

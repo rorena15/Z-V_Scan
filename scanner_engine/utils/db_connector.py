@@ -493,6 +493,7 @@ class DBConnector:
                     prev_score = _score(prev_vh, prev_vm, prev_ph, prev_pm)
 
                     results.append({
+                        "asset_id": asset_id,
                         "ip": ip, "hostname": hostname,
                         "prev_score": prev_score, "current_score": cur_score,
                         "improvement": cur_score - prev_score,
@@ -502,6 +503,48 @@ class DBConnector:
                 return results
             except Exception as e:
                 AppLogger.log_error("[DB] Round Comparison Error", e)
+                return []
+            finally:
+                conn.close()
+
+    def get_code_changes_for_asset(self, asset_id):
+        """[웹 대시보드 - 회차 비교 상세] get_round_comparison()이 자산 단위 점수 변화만
+        주는 데 비해, "어떤 항목이 좋아졌고/나빠졌는지"를 코드 단위로 돌려준다. 비교
+        방식은 get_round_comparison()과 동일하게 코드마다 그 코드의 최신 회차 vs 직전
+        회차(scan_round - 1)이며, 2회 이상 스캔되지 않은 코드/상태가 같은 코드는 제외한다.
+        반환: [{"code","name","prev_status","current_status","direction"}, ...]
+        direction: improved(취약/부분만족 -> 양호) / worsened(양호 -> 취약/부분만족 등) / changed"""
+        severity = {"SAFE": 0, "NA": 0, "MANUAL": 1, "PARTIAL": 2, "VULNERABLE": 3, "ERROR": 1}
+        with self._db_lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT vuln_code, MAX(scan_round) FROM TBL_SCAN_RESULT
+                    WHERE asset_id=? AND vuln_code NOT LIKE 'SYS-%' AND vuln_code NOT LIKE 'CONN-%'
+                    GROUP BY vuln_code HAVING MAX(scan_round) >= 2
+                """, (asset_id,))
+                latest_rounds = cursor.fetchall()
+                changes = []
+                for code, rnd in latest_rounds:
+                    cursor.execute("""
+                        SELECT scan_round, status, vuln_name, kisa_code FROM TBL_SCAN_RESULT
+                        WHERE asset_id=? AND vuln_code=? AND scan_round IN (?, ?)
+                    """, (asset_id, code, rnd, rnd - 1))
+                    by_round = {r[0]: r for r in cursor.fetchall()}
+                    cur, prev = by_round.get(rnd), by_round.get(rnd - 1)
+                    if not cur or not prev or cur[1] == prev[1]:
+                        continue
+                    diff = severity.get(cur[1], 1) - severity.get(prev[1], 1)
+                    changes.append({
+                        "code": cur[3] or code, "name": cur[2] or code,
+                        "prev_status": prev[1], "current_status": cur[1],
+                        "direction": "improved" if diff < 0 else ("worsened" if diff > 0 else "changed"),
+                    })
+                changes.sort(key=lambda c: (c["direction"] != "worsened", c["code"]))
+                return changes
+            except Exception as e:
+                AppLogger.log_error(f"[DB] Code Changes Error ({asset_id})", e)
                 return []
             finally:
                 conn.close()

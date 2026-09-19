@@ -40,6 +40,8 @@ RULESETS = [
     ("mssql_rules.json", "MSSQL"),
     ("oracle_rules.json", "Oracle"),
     ("web_rules.json", "WAS (Apache/Nginx)"),
+    ("network_cisco_rules.json", "네트워크 장비 (Cisco)"),
+    ("network_juniper_rules.json", "네트워크 장비 (Juniper)"),
 ]
 
 

@@ -136,6 +136,7 @@
     "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v DontDisplayLastUserName",
     "safe_keyword": "0x1",
     "description": "마지막 로그온 사용자 이름이 표시되면 공격자에게 유효한 계정명을 제공하게 됩니다.",
+    "missing_is_vulnerable": true,
     "remediation": "DontDisplayLastUserName 값을 1로 설정"
   },
   {
@@ -164,9 +165,9 @@
     "name": "콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한",
     "category": "계정 관리",
     "importance": "중",
-    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LimitBlankPasswordUse",
+    "command": "$r = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LimitBlankPasswordUse 2>$null | Select-String 'LimitBlankPasswordUse'; if ($r) { $r.ToString() } else { 'LimitBlankPasswordUse 값 없음 -> Windows 기본값 0x1(사용)로 간주' }",
     "safe_keyword": "0x1",
-    "description": "빈 암호 계정의 콘솔 로그온이 허용되면 인증 없이 시스템에 접근할 수 있습니다.",
+    "description": "빈 암호 계정의 콘솔 로그온이 허용되면 인증 없이 시스템에 접근할 수 있습니다. 사용(0x1)이면 양호, 사용 안 함(0x0)이면 취약이며, 값이 없으면 Windows 기본값이 사용(0x1)이므로 양호로 봅니다.",
     "remediation": "LimitBlankPasswordUse 값을 1로 설정"
   },
   {
@@ -188,6 +189,7 @@
     "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Cryptography\" /v ForceKeyProtection",
     "safe_keyword": "0x2",
     "description": "개인키 사용 시 암호 입력이 없으면 키가 탈취되어 악용될 수 있습니다.",
+    "missing_is_vulnerable": true,
     "remediation": "ForceKeyProtection 값을 2로 설정"
   },
   {
@@ -348,9 +350,8 @@
     "name": "SNMP Access Control 설정",
     "category": "서비스 관리",
     "importance": "중",
-    "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\PermittedManagers\" 2>$null",
-    "safe_keyword": "REG_",
-    "description": "SNMP 접근 제어가 없으면 모든 호스트에서 SNMP 조회가 가능합니다.",
+    "command": "if (-not (Get-Service -Name SNMP -ErrorAction SilentlyContinue)) { 'SNMP 서비스 미설치 (not found) - 해당없음' } else { 'SNMP 서비스 상태: ' + (Get-Service -Name SNMP).Status; $k = 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\SNMP\\Parameters\\PermittedManagers'; if (Test-Path $k) { $p = Get-ItemProperty $k; ($p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { 'PermittedManager ' + $_.Name + ' = ' + $_.Value }) } else { 'PermittedManagers 미설정 (모든 호스트 허용)' } }",
+    "description": "SNMP 접근 제어가 없으면 모든 호스트에서 SNMP 조회가 가능합니다. SNMP는 환경에 따라 필요할 수도 불필요할 수도 있어 자동 판정하지 않고 수동 확인 대상으로 두며(서비스 미설치는 해당없음), 서비스 상태와 허용 호스트(PermittedManagers) 목록을 증적으로 남깁니다.",
     "remediation": "PermittedManagers에 허용 호스트 등록"
   },
   {
@@ -493,7 +494,19 @@
     "safe_keyword": "OK",
     "evidence_command": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security' -ErrorAction SilentlyContinue | Select-Object MaxSize, Retention | Out-String",
     "description": "Security 이벤트 로그의 최대 크기(MaxSize, 10240KB 이상)와 보존 기간(Retention, 0=무제한 순환이 아닌 명시적 값)이 모두 권고 기준을 충족하는지로 판정합니다. 이벤트 로그 크기가 작거나 보존 기간이 없으면 로그가 조기에 순환되어 증적이 유실될 수 있습니다.",
-    "remediation": "Limit-EventLog로 로그 최대 크기를 10240KB 이상으로 설정"
+    "remediation": "Limit-EventLog로 로그 최대 크기를 10240KB 이상으로 설정",
+    "criteria": [
+      {
+        "label": "보안 로그 최대 크기 10MB 이상(MaxSize)",
+        "command": "$p = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security' -ErrorAction SilentlyContinue; if($null -eq $p.MaxSize){'NOTSET'} elseif([int64]$p.MaxSize -ge 10485760){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "보안 로그 보존 정책 설정(Retention이 0(덮어쓰기)이 아님)",
+        "command": "$p = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security' -ErrorAction SilentlyContinue; if($null -eq $p.Retention){'NOTSET'} elseif([int64]$p.Retention -ne 0){'OK'}else{'FAIL'}",
+        "safe_keyword": "OK"
+      }
+    ]
   },
   {
     "code": "W-43",
@@ -546,7 +559,24 @@
     "safe_keyword": "OK",
     "evidence_command": "reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive 2>$null; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null; reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure 2>$null",
     "description": "KISA 2026 가이드 W-47은 화면보호기 활성화(ScreenSaveActive=1) + 대기시간 10분 이하(ScreenSaveTimeOut≤600초) + 해제 암호 사용(ScreenSaverIsSecure=1) 3개 조건을 모두 요구합니다. 기존 룰은 활성화 여부만 확인해 대기시간이 길거나 암호 보호가 꺼져 있어도 양호로 오판정했습니다.",
-    "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600, ScreenSaverIsSecure=1 설정"
+    "remediation": "ScreenSaveActive=1, ScreenSaveTimeOut=600, ScreenSaverIsSecure=1 설정",
+    "criteria": [
+      {
+        "label": "화면보호기 사용(ScreenSaveActive=1)",
+        "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveActive 2>$null | Select-String 'ScreenSaveActive'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -eq 1){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "화면보호기 대기 시간 600초 이하(ScreenSaveTimeOut)",
+        "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut 2>$null | Select-String 'ScreenSaveTimeOut'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -gt 0 -and $v -le 600){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "다시 시작할 때 암호로 보호(ScreenSaverIsSecure=1)",
+        "command": "$o = reg query \"HKCU\\Control Panel\\Desktop\" /v ScreenSaverIsSecure 2>$null | Select-String 'ScreenSaverIsSecure'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -eq 1){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
+    ]
   },
   {
     "code": "W-48",
@@ -641,7 +671,29 @@
     "safe_keyword": "OK",
     "evidence_command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v SynAttackProtect 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v EnableDeadGWDetect 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v KeepAliveTime 2>$null; reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v NoNameReleaseOnDemand 2>$null",
     "description": "KISA 2026 가이드 W-54는 IPEnableRouter가 아니라 SynAttackProtect(1 이상)/EnableDeadGWDetect(0)/KeepAliveTime(300000)/NoNameReleaseOnDemand(1) 4개 레지스트리 값을 모두 요구합니다. 기존 룰은 이 중 어느 것도 아닌 IPEnableRouter(IP 라우팅 여부)를 체크하고 있어 완전히 다른 항목을 판정하고 있었습니다.",
-    "remediation": "IPEnableRouter 값을 0으로 설정"
+    "remediation": "IPEnableRouter 값을 0으로 설정",
+    "criteria": [
+      {
+        "label": "SynAttackProtect 1 이상",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v SynAttackProtect 2>$null | Select-String 'SynAttackProtect'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -ge 1){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "EnableDeadGWDetect 0",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v EnableDeadGWDetect 2>$null | Select-String 'EnableDeadGWDetect'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -eq 0){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "KeepAliveTime 300000",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v KeepAliveTime 2>$null | Select-String 'KeepAliveTime'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -eq 300000){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      },
+      {
+        "label": "NoNameReleaseOnDemand 1",
+        "command": "$o = reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\" /v NoNameReleaseOnDemand 2>$null | Select-String 'NoNameReleaseOnDemand'; if(-not $o){'NOTSET'} else { $v = [int64](($o.ToString() -split '\\s+')[-1]); if($v -eq 1){'OK'}else{'FAIL'} }",
+        "safe_keyword": "OK"
+      }
+    ]
   },
   {
     "code": "W-55",
@@ -651,6 +703,7 @@
     "command": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Providers\\LanMan Print Services\\Servers\" /v AddPrinterDrivers",
     "safe_keyword": "0x1",
     "description": "일반 사용자가 프린터 드라이버를 설치할 수 있으면 악성 드라이버 설치에 악용될 수 있습니다.",
+    "missing_is_vulnerable": true,
     "remediation": "AddPrinterDrivers 값을 1로 설정"
   },
   {

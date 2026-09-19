@@ -295,3 +295,47 @@ function escapeHtml(s) {
 }
 
 window.renderFromPython = renderFromPython;
+
+// ------------------------------------------------------------------
+// [웹 대시보드 모드] Qt(QWebEngineView, file://)에서는 main_window.py가
+// runJavaScript()로 renderFromPython()을 직접 호출해서 이 블록이 필요 없다.
+// web_dashboard_server.py가 http(s)://로 띄운 독립 브라우저 탭에서는 그런 푸시가
+// 없으므로, 페이지 프로토콜이 http(s)일 때만 /api/dashboard-data를 직접 불러와
+// 같은 함수를 호출한다 - 렌더링 로직은 완전히 동일하게 재사용.
+// ------------------------------------------------------------------
+if (location.protocol === 'http:' || location.protocol === 'https:') {
+    // topbar.js(개인 테마 팔레트 포함)를 먼저 불러온 뒤에 데이터를 그려야, 개인
+    // 다크/라이트 선택이 Chart.js 색에도 반영된다.
+    loadWebTopbar(function () {
+        // Qt 임베드에서는 body가 투명(앱 배경을 그대로 씀)인데, 브라우저 단독 탭에선
+        // 개인 다크모드가 보이려면 페이지 자체 배경이 필요하다.
+        document.body.style.background = 'var(--surface-1, #F5F7FA)';
+        fetch('/api/dashboard-data')
+            .then(function (res) {
+                if (res.status === 401) { location.href = '/login'; return null; }
+                return res.json();
+            })
+            .then(function (data) {
+                if (!data) return;
+                const personal = (typeof zvsThemeColors === 'function') ? zvsThemeColors() : null;
+                if (personal) data.colors = Object.assign({}, data.colors, personal);
+                renderFromPython(data);
+            })
+            .catch(function (err) { console.error('[Z-VulnScan] dashboard fetch failed:', err); });
+    });
+}
+
+// ------------------------------------------------------------------
+// [웹 대시보드 모드 - 상단 네비게이션] 공용 topbar.js(gui/web/topbar.js)를 동적으로
+// 불러와 zvsRenderTopbar()를 호출한다. Qt(QWebEngineView, file://) 쪽에서는 이
+// 블록 자체가 실행되지 않으므로(위 protocol 가드), <script src="/topbar.js">를
+// dashboard.html에 고정으로 넣어서 file://에서 404를 내는 대신 필요할 때만 동적으로
+// 주입한다.
+// ------------------------------------------------------------------
+function loadWebTopbar(done) {
+    const script = document.createElement('script');
+    script.src = '/topbar.js';
+    script.onload = function () { zvsRenderTopbar('dashboard'); done(); };
+    script.onerror = function () { done(); };
+    document.head.appendChild(script);
+}

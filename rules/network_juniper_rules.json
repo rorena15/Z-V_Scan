@@ -1,0 +1,415 @@
+[
+  {
+    "code": "N-01",
+    "name": "비밀번호 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"system root-authentication\"",
+    "safe_regex": "^set system root-authentication\\s+(?:encrypted-password|ssh-)",
+    "description": "root 계정에 인증 수단(암호 해시 또는 SSH 공개키)이 설정돼 있는지 점검합니다.",
+    "remediation": "set system root-authentication encrypted-password 또는 plain-text-password 로 root 인증 설정"
+  },
+  {
+    "code": "N-02",
+    "name": "비밀번호 복잡성 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"system login password\"",
+    "safe_regex": "^set system login password minimum-length\\s+(?:[89]|[1-9]\\d)\\b",
+    "description": "로컬 비밀번호 최소 길이가 8자 이상으로 설정돼 있는지 점검합니다.",
+    "remediation": "set system login password minimum-length 8 (외부 AAA로 복잡성을 강제하는 경우 수동 확인)"
+  },
+  {
+    "code": "N-03",
+    "name": "암호화된 비밀번호 사용",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"system root-authentication\"",
+    "safe_regex": "^set system root-authentication encrypted-password\\s+\"?\\$(?:5|6)\\$",
+    "description": "root 비밀번호가 SHA-256/512 해시(encrypted-password $5$/$6$)로 저장돼 있는지 점검합니다(MD5 $1$은 취약).",
+    "remediation": "set system login password format sha512 설정 후 root 비밀번호 재설정"
+  },
+  {
+    "code": "N-04",
+    "name": "계정 잠금 임계값 설정",
+    "category": "계정 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"system login retry-options\"",
+    "criteria": [
+      {
+        "label": "tries-before-disconnect 5회 이하",
+        "safe_regex": "^set system login retry-options tries-before-disconnect\\s+[1-5]\\b"
+      },
+      {
+        "label": "lockout-period 설정",
+        "safe_regex": "^set system login retry-options lockout-period\\s+\\d+"
+      }
+    ],
+    "description": "로그인 실패 시 접속을 끊고(5회 이하) 일정 시간 잠그는 retry-options가 설정돼 있는지 점검합니다.",
+    "remediation": "set system login retry-options tries-before-disconnect 5, lockout-period 10 설정"
+  },
+  {
+    "code": "N-05",
+    "name": "사용자, 명령어별 권한 수준 설정",
+    "category": "계정 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system login (class|user)\"",
+    "description": "계정과 권한 class에 최소 권한 원칙이 적용됐는지는 운영 정책에 따라 다르므로, 설정 현황을 증적으로 남기고 담당자가 확인합니다.",
+    "remediation": "일반 운영 계정은 필요한 권한만 가진 class를 사용하고 super-user는 필요한 계정에만 부여"
+  },
+  {
+    "code": "N-06",
+    "name": "VTY 접근(ACL) 설정",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"interfaces lo0.*filter\"",
+    "safe_regex": "^set interfaces lo0 unit \\d+ family inet filter input\\s+\\S+",
+    "description": "장비 관리 접속을 허용한 대역에서만 받도록 loopback(lo0)에 input 방화벽 필터가 적용돼 있는지 점검합니다.",
+    "remediation": "허용 대역만 accept 하는 firewall filter 작성 후 set interfaces lo0 unit 0 family inet filter input <필터명> 적용"
+  },
+  {
+    "code": "N-07",
+    "name": "세션 종료 시간 설정",
+    "category": "접근 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"system login class\"",
+    "criteria": [
+      {
+        "label": "idle-timeout 5분 이하 class 존재",
+        "safe_regex": "^set system login class\\s+\\S+\\s+idle-timeout\\s+[1-5]\\s*$"
+      },
+      {
+        "label": "5분 초과 idle-timeout class 없음",
+        "vulnerable_regex": "^set system login class\\s+\\S+\\s+idle-timeout\\s+(?:[6-9]|\\d{2,})\\s*$"
+      }
+    ],
+    "description": "권한 class의 유휴 세션 종료 시간(idle-timeout)이 5분 이하로 설정돼 있고, 5분을 넘는 class가 없는지 점검합니다.",
+    "remediation": "set system login class <class> idle-timeout 5 설정"
+  },
+  {
+    "code": "N-08",
+    "name": "VTY 접속 시 안전한 프로토콜 사용",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system services (ssh|telnet)\"",
+    "criteria": [
+      {
+        "label": "SSH 서비스 활성화",
+        "safe_regex": "^set system services ssh\\b"
+      },
+      {
+        "label": "Telnet 서비스 미사용",
+        "vulnerable_regex": "^set system services telnet\\b"
+      }
+    ],
+    "description": "원격 관리에 SSH가 켜져 있고 암호화되지 않는 Telnet이 꺼져 있는지 점검합니다.",
+    "remediation": "set system services ssh protocol-version v2 설정, delete system services telnet"
+  },
+  {
+    "code": "N-09",
+    "name": "불필요한 보조 입출력 포트 사용 금지",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system ports\"",
+    "vulnerable_regex": "^set system ports\\s+(?:console|auxiliary)\\s+insecure\\b",
+    "description": "콘솔/보조 포트가 insecure(root 직접 로그인 허용)로 설정돼 있으면 취약으로 봅니다.",
+    "remediation": "delete system ports console insecure, delete system ports auxiliary insecure (미사용 포트는 disable)"
+  },
+  {
+    "code": "N-10",
+    "name": "로그온 시 경고 메시지 설정",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system login (message|announcement)\"",
+    "safe_regex": "^set system login (?:message|announcement)\\b",
+    "description": "접속 시 비인가 접근 금지 경고 문구가 설정돼 있는지 점검합니다.",
+    "remediation": "set system login message \"비인가 접근 금지 경고 문구\" 설정"
+  },
+  {
+    "code": "N-11",
+    "name": "원격 로그서버 사용",
+    "category": "접근 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system syslog host\"",
+    "safe_regex": "^set system syslog host\\s+\\S+",
+    "description": "장비 로그가 원격 로그서버(syslog)로 전송되도록 설정돼 있는지 점검합니다.",
+    "remediation": "set system syslog host <로그서버 IP> any notice 설정"
+  },
+  {
+    "code": "N-12",
+    "name": "주기적 보안 패치 및 벤더 권고사항 적용",
+    "category": "패치 관리",
+    "importance": "상",
+    "command": "show version",
+    "description": "OS 버전이 벤더의 최신 보안 권고를 반영했는지는 벤더 공지와 대조해야 하므로, 버전 정보를 증적으로 남기고 담당자가 확인합니다.",
+    "remediation": "벤더 보안 권고(Security Advisory)를 확인해 취약 버전이면 권고 버전으로 업그레이드"
+  },
+  {
+    "code": "N-13",
+    "name": "로깅 버퍼 크기 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system syslog file\"",
+    "safe_regex": "^set system syslog file\\s+\\S+",
+    "description": "Junos는 로그를 메모리 버퍼가 아닌 파일로 보관하므로, 장비 내 로그 파일 저장 설정이 있는지 점검합니다.",
+    "remediation": "set system syslog file messages any notice 및 archive size/files 설정"
+  },
+  {
+    "code": "N-14",
+    "name": "정책에 따른 로깅 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system syslog\"",
+    "safe_regex": "^set system syslog (?:host|file)\\s+\\S+\\s+(?:any|authorization|interactive-commands|change-log|daemon|kernel)\\s+(?:info|notice|warning|any)\\b",
+    "description": "로그 수집 수준이 notice 이상(info/notice/warning/any)으로 설정된 항목이 있는지 점검합니다.",
+    "remediation": "set system syslog file messages any notice 또는 host <IP> any notice 설정"
+  },
+  {
+    "code": "N-15",
+    "name": "NTP 및 시각 동기화 설정",
+    "category": "로그 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system ntp\"",
+    "safe_regex": "^set system ntp server\\s+\\S+",
+    "description": "장비 시각이 NTP 서버와 동기화되도록 설정돼 있는지 점검합니다.",
+    "remediation": "set system ntp server <NTP 서버 IP> 설정"
+  },
+  {
+    "code": "N-16",
+    "name": "Timestamp 로그 설정",
+    "category": "로그 관리",
+    "importance": "하",
+    "command": "show configuration | display set | match \"system syslog time-format\"",
+    "description": "Junos 로그에는 기본적으로 시각이 기록됩니다. 연도/밀리초까지 기록하도록 time-format을 설정했는지는 담당자가 확인합니다.",
+    "remediation": "set system syslog time-format year millisecond 설정"
+  },
+  {
+    "code": "N-17",
+    "name": "SNMP 서비스 확인",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"^set snmp\"",
+    "empty_status": "SAFE",
+    "description": "SNMP는 환경에 따라 필요할 수도 불필요할 수도 있어 자동 판정하지 않습니다. SNMP 설정이 하나도 없으면 미사용으로 양호이고, 설정이 있으면 사용 필요성을 담당자가 확인합니다.",
+    "remediation": "불필요하면 delete snmp, 필요하면 SNMPv3(인증+암호화) 사용"
+  },
+  {
+    "code": "N-18",
+    "name": "SNMP Community String 복잡성 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"^set snmp\"",
+    "empty_status": "NA",
+    "vulnerable_regex": "^set snmp community\\s+(?!\"?(?=[^\"\\s]*[A-Za-z])(?=[^\"\\s]*\\d)(?=[^\"\\s]*[^A-Za-z\\d\\s\"])[^\"\\s]{8,}\"?\\s)\\S+",
+    "description": "SNMP community 문자열이 8자 미만이거나 영문/숫자/특수문자 조합이 아니면(public/private 포함) 취약으로 봅니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "community 이름을 영문+숫자+특수문자 8자 이상으로 변경"
+  },
+  {
+    "code": "N-19",
+    "name": "SNMP ACL 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"^set snmp\"",
+    "empty_status": "NA",
+    "criteria": [
+      {
+        "label": "community 허용 대상(clients) 지정",
+        "safe_regex": "^set snmp community\\s+\\S+\\s+clients\\s+\\S+"
+      },
+      {
+        "label": "전체 대역(0.0.0.0/0) 허용 없음",
+        "vulnerable_regex": "clients\\s+0\\.0\\.0\\.0/0"
+      }
+    ],
+    "description": "SNMP community에 접근 허용 대상(clients)이 지정돼 있고 전체 대역(0.0.0.0/0)이 아닌지 점검합니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "set snmp community <이름> clients <관리서버/32> 로 허용 대상 제한"
+  },
+  {
+    "code": "N-20",
+    "name": "SNMP Community 권한 설정",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"^set snmp\"",
+    "empty_status": "NA",
+    "vulnerable_regex": "^set snmp community\\s+\\S+\\s+authorization\\s+read-write\\b",
+    "description": "SNMP community가 쓰기(read-write) 권한으로 설정된 것이 있으면 취약으로 봅니다. SNMP 설정이 없으면 해당없음입니다.",
+    "remediation": "authorization read-only 로 변경하거나 read-write community 삭제"
+  },
+  {
+    "code": "N-21",
+    "name": "TFTP 서비스 차단",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"tftp\"",
+    "vulnerable_regex": "^set system\\s+.*tftp",
+    "description": "TFTP 서버 기능이 켜져 있으면 인증 없이 장비 파일이 노출될 수 있어 취약으로 봅니다.",
+    "remediation": "TFTP 서버 관련 설정 삭제"
+  },
+  {
+    "code": "N-22",
+    "name": "Spoofing 방지 필터링 적용",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"rpf-check|filter input\"",
+    "description": "Spoofing 방지는 uRPF(rpf-check) 또는 사설/예약 대역 차단 필터 등 방식이 다양해 자동 판정하지 않고, 적용 현황을 증적으로 남겨 담당자가 확인합니다.",
+    "remediation": "외부 인터페이스에 family inet rpf-check 또는 사설/루프백/멀티캐스트 대역 차단 필터 적용"
+  },
+  {
+    "code": "N-23",
+    "name": "DDoS 공격 방어 설정 또는 DDoS 장비 사용",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show configuration | display set | match \"ddos-protection|policer|screen\"",
+    "description": "DDoS 방어는 전용 장비/서비스 사용 여부 등 설정만으로 판단할 수 없어 자동 판정하지 않고, 관련 설정 현황을 증적으로 남겨 담당자가 확인합니다.",
+    "remediation": "ddos-protection, 라우팅 엔진 보호 필터(policer) 적용 또는 DDoS 전용 장비 구성"
+  },
+  {
+    "code": "N-24",
+    "name": "사용하지 않는 인터페이스 비활성화",
+    "category": "기능 관리",
+    "importance": "상",
+    "command": "show interfaces terse",
+    "vulnerable_regex": "^(?:ge|xe|et|fe|ae)-\\S+\\s+up\\s+down\\s*$",
+    "description": "관리상 활성(up)인데 연결이 없는(down) 물리 인터페이스가 있으면 취약으로 봅니다.",
+    "remediation": "미사용 인터페이스에서 set interfaces <이름> disable"
+  },
+  {
+    "code": "N-25",
+    "name": "TCP Keepalive 서비스 설정",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system services ssh\"",
+    "safe_regex": "^set system services ssh client-alive-interval\\s+\\d+",
+    "description": "끊어진 SSH 세션이 남지 않도록 client-alive-interval이 설정돼 있는지 점검합니다.",
+    "remediation": "set system services ssh client-alive-interval 60 설정"
+  },
+  {
+    "code": "N-26",
+    "name": "Finger 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system services finger\"",
+    "vulnerable_regex": "^set system services finger\\b",
+    "description": "Finger 서비스가 켜져 있으면 접속 사용자 정보가 노출되므로 취약으로 봅니다.",
+    "remediation": "delete system services finger"
+  },
+  {
+    "code": "N-27",
+    "name": "웹 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system services web-management\"",
+    "vulnerable_regex": "^set system services web-management\\s+(?:http|https)\\b",
+    "description": "장비 HTTP/HTTPS 관리 서버가 켜져 있으면 취약으로 봅니다(필요 시 접근 제한과 함께 사용 여부를 담당자가 판단).",
+    "remediation": "delete system services web-management"
+  },
+  {
+    "code": "N-28",
+    "name": "TCP/UDP small 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show version",
+    "not_applicable_reason": "Junos는 이 기능을 제공하지 않음",
+    "description": "Junos는 echo/chargen 등 small 서비스를 제공하지 않습니다.",
+    "remediation": "조치 불필요"
+  },
+  {
+    "code": "N-29",
+    "name": "Bootp 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"forwarding-options helpers bootp|system services dhcp\"",
+    "vulnerable_regex": "^set (?:forwarding-options helpers bootp|system services dhcp)",
+    "description": "BOOTP/DHCP 릴레이 또는 서버 기능이 켜져 있으면 취약으로 봅니다(필요한 환경이면 담당자가 예외 판단).",
+    "remediation": "delete forwarding-options helpers bootp, delete system services dhcp-local-server"
+  },
+  {
+    "code": "N-30",
+    "name": "CDP 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"protocols lldp\"",
+    "vulnerable_regex": "^set protocols lldp\\s+(?!interface\\s+\\S+\\s+disable)",
+    "description": "Junos에는 CDP가 없어 유사 기능인 LLDP가 인접 장비에 장비 정보를 노출하는지 점검합니다(비활성화되지 않은 LLDP가 있으면 취약).",
+    "remediation": "delete protocols lldp 또는 set protocols lldp interface <이름> disable"
+  },
+  {
+    "code": "N-31",
+    "name": "Directed-broadcast 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"targeted-broadcast\"",
+    "vulnerable_regex": "targeted-broadcast",
+    "description": "인터페이스에서 targeted-broadcast(directed broadcast 전달)가 켜져 있으면 취약으로 봅니다.",
+    "remediation": "delete interfaces <이름> unit <n> family inet targeted-broadcast"
+  },
+  {
+    "code": "N-32",
+    "name": "Source 라우팅 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"ip-options|source-route\"",
+    "description": "Junos의 source route 처리는 버전/설정에 따라 달라 자동 판정하지 않고, 관련 설정(ip-options 필터 등)을 증적으로 남겨 담당자가 확인합니다.",
+    "remediation": "방화벽 필터에서 ip-options loose-source-route/strict-source-route 패킷 차단"
+  },
+  {
+    "code": "N-33",
+    "name": "Proxy ARP 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"proxy-arp\"",
+    "vulnerable_regex": "\\bproxy-arp\\b",
+    "description": "인터페이스에 proxy-arp가 설정돼 있으면 취약으로 봅니다.",
+    "remediation": "delete interfaces <이름> unit <n> proxy-arp"
+  },
+  {
+    "code": "N-34",
+    "name": "ICMP unreachable, Redirect 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show configuration | display set | match \"system no-redirects\"",
+    "safe_regex": "^set system no-redirects\\b",
+    "description": "ICMP redirect 전송이 꺼져 있는지 점검합니다(Junos는 기본 활성화라 no-redirects가 설정돼야 양호).",
+    "remediation": "set system no-redirects 설정"
+  },
+  {
+    "code": "N-35",
+    "name": "identd 서비스 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show version",
+    "not_applicable_reason": "Junos는 이 기능을 제공하지 않음",
+    "description": "Junos는 identd 서비스를 제공하지 않습니다.",
+    "remediation": "조치 불필요"
+  },
+  {
+    "code": "N-36",
+    "name": "Domain Lookup 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show version",
+    "not_applicable_reason": "Junos는 이 기능을 제공하지 않음",
+    "description": "Junos CLI는 잘못 입력한 명령을 도메인으로 해석해 DNS 조회를 하지 않습니다.",
+    "remediation": "조치 불필요"
+  },
+  {
+    "code": "N-37",
+    "name": "pad 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show version",
+    "not_applicable_reason": "Junos는 이 기능을 제공하지 않음",
+    "description": "Junos는 PAD 서비스를 제공하지 않습니다.",
+    "remediation": "조치 불필요"
+  },
+  {
+    "code": "N-38",
+    "name": "mask-reply 차단",
+    "category": "기능 관리",
+    "importance": "중",
+    "command": "show version",
+    "not_applicable_reason": "Junos는 이 기능을 제공하지 않음",
+    "description": "Junos는 ICMP mask reply를 기본으로 보내지 않습니다.",
+    "remediation": "조치 불필요"
+  }
+]
