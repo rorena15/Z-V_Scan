@@ -26,8 +26,62 @@ function loadAssets() {
             allAssets = data;
             populateZoneFilter();
             renderAssets();
+            applyDrillFilter();
         });
 }
+
+// ------------------------------------------------------------------
+// [대시보드 -> 자산 탭 보기] 대시보드의 차트/랭킹을 클릭하면 /assets?ftype=...&fvalue=...로 넘어온다
+// (dashboard.js navigateToAssets). Qt의 main_window.drill_down_dashboard_filter()와 같은 기준으로
+// 최신 회차 findings를 걸러 자산 목록 위에 보여준다. 주소창의 쿼리를 지우면(필터 해제) 원래 화면이다.
+// ------------------------------------------------------------------
+const DRILL = (function () {
+    const q = new URLSearchParams(location.search);
+    return q.has('ftype') ? { type: q.get('ftype'), value: q.get('fvalue') || '', label: q.get('flabel') || '', value2: q.get('fvalue2') || '' } : null;
+})();
+let drillRendered = false;
+
+function drillFilter(findings) {
+    if (DRILL.type === 'status') return findings.filter(function (f) { return f.status === DRILL.value; });
+    if (DRILL.type === 'category') return findings.filter(function (f) { return f.category === DRILL.value && (f.status === 'VULNERABLE' || f.status === 'PARTIAL'); });
+    if (DRILL.type === 'host') return findings.filter(function (f) { return f.hostname === DRILL.value && f.ip === DRILL.value2; });
+    if (DRILL.type === 'code') return findings.filter(function (f) { return f.code === DRILL.value && (f.status === 'VULNERABLE' || f.status === 'PARTIAL'); });
+    return findings;
+}
+
+function applyDrillFilter() {
+    if (!DRILL || drillRendered) return;
+    drillRendered = true;
+    fetch('/api/dashboard-data')
+        .then(function (res) { return res.status === 200 ? res.json() : null; })
+        .then(function (data) {
+            if (!data) return;
+            const rows = drillFilter(data.findings || []);
+            $('filterCard').style.display = 'block';
+            $('filterTitle').textContent = (DRILL.label || '필터 결과') + ' (' + rows.length + '건)';
+            $('filterEmpty').style.display = rows.length ? 'none' : 'block';
+            const tbody = $('filterBody');
+            tbody.innerHTML = '';
+            rows.forEach(function (f) {
+                const asset = allAssets.find(function (a) { return a.ip === f.ip; });
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td>' + esc(f.hostname) + '</td><td>' + esc(f.ip) + '</td><td>' + esc(f.code) + '</td><td>' + esc(f.name) + '</td>' +
+                    '<td>' + esc(f.importance) + '</td>' +
+                    '<td><span class="badge ' + esc(f.status) + '">' + esc(STATUS_LABEL[f.status] || f.status) + '</span></td>' +
+                    '<td>' + esc(f.risk) + '</td>' +
+                    '<td>' + (asset ? '<button class="btn btn-secondary rowbtn" data-fview="' + asset.id + '">점검 결과</button>' : '') + '</td>';
+                tbody.appendChild(tr);
+            });
+            tbody.querySelectorAll('[data-fview]').forEach(function (btn) {
+                btn.addEventListener('click', function () { showResults(btn.getAttribute('data-fview')); });
+            });
+            $('filterCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        })
+        .catch(function () {});
+}
+
+$('btnClearFilter').addEventListener('click', function () { location.href = '/assets'; });
 
 function populateZoneFilter() {
     const sel = $('zoneFilter');

@@ -116,9 +116,37 @@ _DashboardNavPage가 그걸 가로채 자산 탭으로 화면을 전환 + 필터
   .badge-importance.mid { color: var(--warning-text); background: var(--warning-bg); }
   .badge-importance.low { color: var(--text-secondary); background: var(--border); }
   .rank-list-wrap { max-height: 260px; overflow-y: auto; }
+
+  /* [웹 전용 확장, 2026-09] 아래 .web-only 블록은 브라우저(http/https)로 열렸을 때만 보인다 - Qt 내장
+     대시보드는 KPI 카드/최근 활동을 네이티브 위젯으로 따로 갖고 있어 이 페이지는 차트/랭킹만 그린다. */
+  .web-only { display: none; }
+  body.web-mode .web-only { display: flex; }
+  body.web-mode .row, body.web-mode .kpi-row { margin-left: 20px; margin-right: 20px; }
+  body.web-mode .kpi-row { margin-top: 16px; }
+  body.web-mode .row:last-child { margin-bottom: 32px; }
+  .kpi-row { gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .kpi { flex: 1; min-width: 150px; padding: 12px 16px; cursor: default; }
+  .kpi.clickable { cursor: pointer; }
+  .kpi-label { font-size: 11px; color: var(--text-secondary); }
+  .kpi-value { font-size: 26px; font-weight: 700; margin-top: 2px; color: var(--text); }
+  .kpi-sub { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
+  .host-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); min-width: 120px; }
+  .host-bar span { display: block; height: 100%; }
+  .rank-table td.delta-up { color: var(--success-text, #1B8A46); font-weight: 600; }
+  .rank-table td.delta-down { color: var(--danger-text); font-weight: 600; }
+  .mini-list a { color: var(--accent); text-decoration: none; }
+  .mini-list div { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
+  .mini-list div:last-child { border-bottom: none; }
+  .quick-links { display: flex; flex-wrap: wrap; gap: 8px; }
+  .quick-links a { padding: 7px 14px; border-radius: 8px; background: var(--accent-bg); color: var(--accent); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+  .scan-state { font-size: 13px; color: var(--text); line-height: 1.7; }
+  .scan-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 6px 0; }
+  .scan-bar span { display: block; height: 100%; background: var(--accent); }
 </style>
 </head>
 <body>
+  <div class="kpi-row web-only" id="kpiRow"></div>
+
   <div class="row">
     <div class="card" id="donutCard">
       <h3>위험도 분포<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
@@ -136,6 +164,26 @@ _DashboardNavPage가 그걸 가로채 자산 탭으로 화면을 전환 + 필터
       <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
       <div class="empty-state">2회 이상 재점검하면
 추이 그래프가 표시됩니다.</div>
+    </div>
+  </div>
+
+  <div class="row web-only">
+    <div class="card" id="importanceCard">
+      <h3>중요도별 취약 현황<span class="hint">상 · 중 · 하</span></h3>
+      <div class="chart-wrap"><canvas id="importanceChart"></canvas></div>
+      <div class="empty-state">취약/부분만족 항목이 없습니다.</div>
+    </div>
+    <div class="card" id="osCard">
+      <h3>OS별 자산 분포</h3>
+      <div class="chart-wrap"><canvas id="osChart"></canvas></div>
+      <div class="empty-state">자산 정보가 없습니다.</div>
+    </div>
+    <div class="card" id="scanStateCard">
+      <h3>스캔 상태</h3>
+      <div class="scan-state" id="scanStateBody">불러오는 중...</div>
+      <div class="quick-links" style="margin-top:12px;">
+        <a href="/scan">스캔 실행</a><a href="/assets">자산 관리</a><a href="/compare">회차 비교</a>
+      </div>
     </div>
   </div>
 
@@ -159,6 +207,49 @@ _DashboardNavPage가 그걸 가로채 자산 탭으로 화면을 전환 + 필터
         </table>
       </div>
       <div class="empty-state" id="topCodesEmpty">취약/부분만족 항목이 없습니다.</div>
+    </div>
+  </div>
+
+  <div class="row web-only">
+    <div class="card" id="hostSummaryCard">
+      <h3>자산별 점검 결과 요약<span class="hint">클릭하면 자산 탭에서 보기</span></h3>
+      <div class="rank-list-wrap" style="max-height:340px;">
+        <table class="rank-table">
+          <thead><tr><th>호스트</th><th style="width:38%;">결과 비율</th><th class="num">취약</th><th class="num">부분</th><th class="num">양호</th></tr></thead>
+          <tbody id="hostSummaryBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="hostSummaryEmpty" style="height:120px;">표시할 점검 결과가 없습니다.</div>
+    </div>
+    <div class="card" id="changeCard">
+      <h3>회차별 변화<span class="hint">최근 재점검에서 점수가 크게 바뀐 자산</span></h3>
+      <div class="rank-list-wrap" style="max-height:340px;">
+        <table class="rank-table">
+          <thead><tr><th>호스트</th><th class="num">점수</th><th class="num">변화</th><th class="num">취약</th></tr></thead>
+          <tbody id="changeBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="changeEmpty" style="height:120px;">2회 이상 재점검한 자산이 있으면 표시됩니다.</div>
+    </div>
+  </div>
+
+  <div class="row web-only">
+    <div class="card" id="reportsCard">
+      <h3>최근 리포트<span class="hint">최신 5건</span></h3>
+      <div class="mini-list" id="reportsBody"></div>
+      <div class="empty-state" id="reportsEmpty" style="height:90px;">생성된 리포트가 없습니다. 스캔 실행 화면에서 만들 수 있습니다.</div>
+    </div>
+    <div class="card" id="quickCard">
+      <h3>빠른 실행</h3>
+      <div class="quick-links">
+        <a href="/scan">새 스캔 시작</a>
+        <a href="/scan#reports">리포트 생성</a>
+        <a href="/api/export/findings.csv">findings CSV 내려받기</a>
+        <a href="/help">도움말</a>
+      </div>
+      <p style="font-size:11.5px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;">
+        위 차트와 표의 항목을 클릭하면 해당 조건의 점검 결과를 자산 탭에서 바로 볼 수 있습니다.
+      </p>
     </div>
   </div>
 

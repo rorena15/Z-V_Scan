@@ -999,13 +999,16 @@ def create_app(db, shutdown_event=None, heartbeat=None):
     # 라이선스, 웹 대시보드 계정. "기본 계정/자격증명"(keyring 저장)과
     # "룰셋/전문가 프로필"은 Expert Mode와 함께 데스크톱 전용으로 남겨뒀다.
     # ------------------------------------------------------------------
+    # [2026-09] 설정 화면은 모든 역할이 열 수 있다(개인 다크모드/내 계정/오픈소스 라이선스가 여기에 있음).
+    # 관리자 전용 카드(일반/라이선스/호스트 키/감사 로그)는 화면에서 숨기고, 실제 차단은 각 /api/settings*가
+    # 서버에서 admin으로 한다.
     @app.route('/settings')
-    @_admin_required
+    @_require_role('viewer')
     def settings_page():
         return send_from_directory(_WEB_DIR, 'settings.html')
 
     @app.route('/settings.js')
-    @_admin_required
+    @_require_role('viewer')
     def settings_js():
         return send_from_directory(_WEB_DIR, 'settings.js')
 

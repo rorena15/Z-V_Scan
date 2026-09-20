@@ -63,9 +63,14 @@ class WebDashboard(unittest.TestCase):
         view, hv = self.login('view')
         anon = self.app.test_client()
         self.assertEqual(anon.get('/api/accounts').status_code, 401)
-        self.assertEqual(view.get('/settings').status_code, 403)
-        self.assertEqual(op.get('/settings').status_code, 403)
-        self.assertEqual(admin.get('/settings').status_code, 200)
+        # 설정 화면 자체는 모든 역할이 열 수 있고(개인 다크모드/내 계정), 관리자 전용 데이터 API는 서버가 막는다
+        for c in (view, op, admin):
+            self.assertEqual(c.get('/settings').status_code, 200)
+        self.assertEqual(view.get('/api/settings').status_code, 403)
+        self.assertEqual(op.get('/api/settings').status_code, 403)
+        self.assertEqual(admin.get('/api/settings').status_code, 200)
+        self.assertEqual(view.get('/api/audit-log').status_code, 403)
+        self.assertEqual(view.get('/accounts').status_code, 403)
         self.assertEqual(view.post('/api/scan/start', json={}, headers=hv).status_code, 403)
         self.assertEqual(view.get('/api/scan/status').status_code, 200)
         self.assertEqual(op.post('/api/server/shutdown', headers=ho).status_code, 403)
@@ -79,6 +84,42 @@ class WebDashboard(unittest.TestCase):
         view, _ = self.login('view')
         data = view.get('/api/licenses/third-party').get_json()
         self.assertGreater(len(data['packages']), 10)
+
+    def test_topbar_moves_help_right_and_account_pages_into_settings(self):
+        admin, _ = self.login('admin')
+        js = admin.get('/topbar.js').get_data(as_text=True)
+        nav = js[js.index('const ZVS_NAV_ITEMS'):js.index('const ZVS_ROLE_RANK')]
+        for key in ("'help'", "'account'", "'accounts'"):
+            self.assertNotIn(f"key: {key}", nav.split('ZVS_SETTINGS_TABS')[0], key)
+        self.assertIn("key: 'settings'", nav)
+        self.assertIn('id="zvsHelpLink"', js)          # 도움말은 우측 상단 링크
+        self.assertNotIn('zvsThemeToggle', js)          # 다크모드 토글은 설정 화면 안으로 이동
+        html = admin.get('/settings').get_data(as_text=True)
+        self.assertIn('id="personalTheme"', html)
+
+    def test_dashboard_click_drills_down_to_assets_page_in_web_mode(self):
+        admin, _ = self.login('admin')
+        dash = admin.get('/dashboard.js').get_data(as_text=True)
+        self.assertIn("'/assets?'", dash)                     # 브라우저에서는 자산 페이지로 직접 이동(예전엔 클릭해도 무반응)
+        self.assertIn('ZVULNSCAN_NAV', dash)                  # Qt 내장 대시보드용 경로는 그대로
+        assets_js = admin.get('/assets.js').get_data(as_text=True)
+        for token in ('ftype', 'fvalue2', 'applyDrillFilter', "'/api/dashboard-data'"):
+            self.assertIn(token, assets_js)
+        self.assertIn('id="filterCard"', admin.get('/assets').get_data(as_text=True))
+        data = admin.get('/api/dashboard-data').get_json()
+        self.assertTrue(data['findings'])                      # 드릴다운이 쓰는 원본 findings
+
+    def test_web_dashboard_has_extra_blocks_only_for_browser_mode(self):
+        admin, _ = self.login('admin')
+        html = admin.get('/').get_data(as_text=True)
+        for token in ('id="kpiRow"', 'id="importanceCard"', 'id="osCard"', 'id="scanStateCard"',
+                      'id="hostSummaryCard"', 'id="changeCard"', 'id="reportsCard"'):
+            self.assertIn(token, html)
+        self.assertIn('.web-only { display: none; }', html)   # Qt 내장(file://)에서는 숨겨진 상태 유지
+        js = admin.get('/dashboard.js').get_data(as_text=True)
+        self.assertIn("classList.add('web-mode')", js)
+        self.assertIn('renderWebExtras', js)
+        self.assertIn('id="reports"', admin.get('/scan').get_data(as_text=True))  # 대시보드 "리포트 생성" 링크 대상
 
     def test_csrf(self):
         admin, ha = self.login('admin')

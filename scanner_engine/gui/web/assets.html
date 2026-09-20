@@ -69,6 +69,19 @@ of this file, via any medium, is strictly prohibited.
 </head>
 <body>
   <div class="wrap">
+    <div class="card" id="filterCard" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <h2 id="filterTitle" style="margin:0;">필터 결과</h2>
+        <button class="btn btn-secondary" id="btnClearFilter">필터 해제</button>
+      </div>
+      <p class="hint" style="margin:6px 0 10px;">대시보드에서 선택한 조건에 해당하는 최신 회차 점검 결과입니다. "점검 결과"를 누르면 그 자산의 전체 결과와 예외처리를 아래에서 볼 수 있습니다(예외처리된 항목은 제외).</p>
+      <table>
+        <thead><tr><th>호스트</th><th>IP</th><th>코드</th><th>항목명</th><th>중요도</th><th>상태</th><th>위험도</th><th></th></tr></thead>
+        <tbody id="filterBody"></tbody>
+      </table>
+      <div id="filterEmpty" style="display:none;color:var(--text-muted);font-size:12px;padding:10px 0;">조건에 해당하는 결과가 없습니다.</div>
+    </div>
+
     <div class="card">
       <h2>자산 목록</h2>
       <p class="hint">셀을 클릭하면 바로 수정할 수 있습니다(IP/포트/최종 확인 시각 제외). 행의 "점검 결과"를 누르면 아래에서 예외처리를 관리할 수 있습니다.</p>

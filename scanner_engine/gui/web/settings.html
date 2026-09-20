@@ -58,14 +58,25 @@ of this file, via any medium, is strictly prohibited.
 <body>
   <div class="wrap">
     <div class="card">
-      <h2>일반</h2>
+      <h2>화면 (내 브라우저)</h2>
+      <p style="font-size:11.5px;color:var(--text-muted);margin-top:0;">다크 모드 같은 화면 설정은 이 브라우저에만 적용되며 다른 사용자에게 영향을 주지 않습니다.</p>
+      <div class="row">
+        <div>
+          <label>테마</label>
+          <select id="personalTheme"><option value="light">라이트</option><option value="dark">다크</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card admin-card">
+      <h2>일반 (관리자 전용)</h2>
       <div class="row">
         <div>
           <label>스캔 이력 보관 기간 (일)</label>
           <input type="number" id="logRetention" min="1">
         </div>
         <div>
-          <label>테마</label>
+          <label>기본 테마 (전체 기본값)</label>
           <select id="theme"><option value="light">라이트</option><option value="dark">다크</option></select>
         </div>
         <div>
@@ -78,7 +89,7 @@ of this file, via any medium, is strictly prohibited.
       <div id="generalMsg" class="msg"></div>
     </div>
 
-    <div class="card">
+    <div class="card admin-card">
       <h2>라이선스</h2>
       <p id="licenseInfo" style="font-size:12.5px;"></p>
       <div class="row">
@@ -92,7 +103,7 @@ of this file, via any medium, is strictly prohibited.
       <div id="licenseMsg" class="msg"></div>
     </div>
 
-    <div class="card">
+    <div class="card admin-card">
       <h2>호스트 키 (known_hosts)</h2>
       <p style="font-size:11.5px;color:var(--text-muted);margin-top:0;">SSH 접속 시 최초 등록된 호스트 키 목록입니다. 서버가 재설치돼 키가 바뀌었다면 여기서 삭제해야 다시 접속할 수 있습니다.</p>
       <table><thead><tr><th>호스트</th><th>키 타입</th><th></th></tr></thead><tbody id="knownHostsBody"></tbody></table>
@@ -105,9 +116,9 @@ of this file, via any medium, is strictly prohibited.
       <div id="thirdPartyList"></div>
     </div>
 
-    <div class="card">
+    <div class="card admin-card">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-        <h2 style="margin:0;">감사 로그</h2>
+        <h2 style="margin:0;">감사 로그 (관리자 전용)</h2>
         <button class="btn btn-secondary" id="btnRefreshAuditLog" style="padding:5px 12px; font-size:11.5px;">새로고침</button>
       </div>
       <p style="font-size:11.5px;color:var(--text-muted);margin:4px 0 10px;">로그인, 계정/설정/라이선스 변경, 자산·Waiver 편집, 스캔 실행, 리포트 생성, 서버 종료 등 웹 대시보드 자체의 운영 기록입니다(최근 100건).</p>

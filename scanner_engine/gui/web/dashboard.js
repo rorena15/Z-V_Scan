@@ -46,6 +46,7 @@ function renderFromPython(data) {
     renderTrend(data.security_history);
     renderTopHosts();
     renderTopCodes();
+    if (document.body.classList.contains('web-mode')) renderWebExtras(data);
 }
 
 function applyTheme(colors) {
@@ -93,6 +94,14 @@ function hideEmpty(cardId) {
 function navigateToAssets(type, value, label, value2) {
     const payload = { type: type, value: value, label: label };
     if (value2 !== undefined) payload.value2 = value2;
+    // [웹 대시보드 모드] 브라우저에는 console 가로채기를 받는 Qt가 없어 예전엔 클릭해도 아무 일도 없었다 -
+    // http(s)로 열린 경우엔 자산 페이지(/assets)로 직접 이동하고, 필터는 쿼리스트링으로 넘긴다.
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+        const q = new URLSearchParams({ ftype: type, fvalue: value == null ? '' : value, flabel: label || '' });
+        if (value2 !== undefined) q.set('fvalue2', value2);
+        location.href = '/assets?' + q.toString();
+        return;
+    }
     console.log('ZVULNSCAN_NAV:' + JSON.stringify(payload));
 }
 
@@ -310,6 +319,7 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
         // Qt 임베드에서는 body가 투명(앱 배경을 그대로 씀)인데, 브라우저 단독 탭에선
         // 개인 다크모드가 보이려면 페이지 자체 배경이 필요하다.
         document.body.style.background = 'var(--surface-1, #F5F7FA)';
+        document.body.classList.add('web-mode');
         fetch('/api/dashboard-data')
             .then(function (res) {
                 if (res.status === 401) { location.href = '/login'; return null; }
@@ -323,6 +333,188 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
             })
             .catch(function (err) { console.error('[Z-VulnScan] dashboard fetch failed:', err); });
     });
+}
+
+// ------------------------------------------------------------------
+// [웹 전용 확장 블록, 2026-09] "웹 대시보드가 너무 휑하다"는 피드백으로 KPI 타일, 중요도/OS 분포, 스캔 상태,
+// 자산별 요약, 회차별 변화, 최근 리포트를 채웠다. Qt 내장 대시보드에서는 실행되지 않는다(web-mode 클래스 없음).
+// 모든 집계는 이미 받은 findings 원본에서 계산하고, 그 밖의 데이터는 기존 API를 그대로 쓴다.
+// ------------------------------------------------------------------
+const OS_PALETTE = ['#5B8DEF', '#3ECB7A', '#F0C24D', '#FF6B5C', '#9B7BEF', '#4FC3D9', '#8B94A3'];
+
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function statusCount(status) {
+    return allFindings.filter(function (f) { return f.status === status; }).length;
+}
+
+function renderKpi(data) {
+    const hosts = new Set(allFindings.map(function (f) { return f.ip; })).size;
+    const total = allFindings.length;
+    const vuln = statusCount('VULNERABLE'), partial = statusCount('PARTIAL'), safe = statusCount('SAFE');
+    const pct = function (n) { return total ? Math.round(n * 100 / total) + '%' : '-'; };
+    const hist = (data.security_history || []).filter(function (h) { return h.security_level != null; });
+    const score = hist.length ? hist[hist.length - 1].security_level : null;
+    const tiles = [
+        { label: '점검 자산', value: hosts, sub: '최신 회차 기준' },
+        { label: '점검 항목', value: total, sub: '예외처리 제외' },
+        { label: '취약', value: vuln, sub: '전체의 ' + pct(vuln), color: theme.status_colors.VULNERABLE, status: 'VULNERABLE' },
+        { label: '부분만족', value: partial, sub: '전체의 ' + pct(partial), color: theme.status_colors.PARTIAL, status: 'PARTIAL' },
+        { label: '양호', value: safe, sub: '전체의 ' + pct(safe), color: theme.status_colors.SAFE, status: 'SAFE' },
+        { label: '보안수준', value: score == null ? '-' : Math.round(score) + '점', sub: hist.length > 1 ? '직전 회차 ' + Math.round(hist[hist.length - 2].security_level) + '점' : '최신 회차' },
+    ];
+    const row = document.getElementById('kpiRow');
+    row.innerHTML = '';
+    tiles.forEach(function (t) {
+        const el = document.createElement('div');
+        el.className = 'card kpi' + (t.status ? ' clickable' : '');
+        el.innerHTML = '<div class="kpi-label">' + escHtml(t.label) + '</div>' +
+            '<div class="kpi-value"' + (t.color ? ' style="color:' + t.color + ';"' : '') + '>' + escHtml(t.value) + '</div>' +
+            '<div class="kpi-sub">' + escHtml(t.sub) + '</div>';
+        if (t.status) el.addEventListener('click', function () { navigateToAssets('status', t.status, theme.status_labels[t.status] + ' 항목'); });
+        row.appendChild(el);
+    });
+}
+
+function renderImportance() {
+    const groups = ['상', '중', '하'];
+    const count = function (imp, st) {
+        return allFindings.filter(function (f) { return f.importance === imp && f.status === st; }).length;
+    };
+    const vuln = groups.map(function (g) { return count(g, 'VULNERABLE'); });
+    const part = groups.map(function (g) { return count(g, 'PARTIAL'); });
+    if (vuln.concat(part).every(function (n) { return n === 0; })) { showEmpty('importanceCard'); return; }
+    hideEmpty('importanceCard');
+    if (charts.importance) charts.importance.destroy();
+    const text = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#5B6675';
+    charts.importance = new Chart(document.getElementById('importanceChart'), {
+        type: 'bar',
+        data: { labels: ['중요도 상', '중요도 중', '중요도 하'], datasets: [
+            { label: '취약', data: vuln, backgroundColor: theme.status_colors.VULNERABLE, borderRadius: 4 },
+            { label: '부분만족', data: part, backgroundColor: theme.status_colors.PARTIAL, borderRadius: 4 },
+        ] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { x: { stacked: true, ticks: { color: text } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0, color: text } } },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, color: text } } },
+        },
+    });
+}
+
+function renderOsChart() {
+    const byIp = {};
+    allFindings.forEach(function (f) { byIp[f.ip] = f.os_type || '알 수 없음'; });
+    const counts = {};
+    Object.keys(byIp).forEach(function (ip) { counts[byIp[ip]] = (counts[byIp[ip]] || 0) + 1; });
+    const labels = Object.keys(counts);
+    if (!labels.length) { showEmpty('osCard'); return; }
+    hideEmpty('osCard');
+    if (charts.os) charts.os.destroy();
+    const text = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#5B6675';
+    charts.os = new Chart(document.getElementById('osChart'), {
+        type: 'doughnut',
+        data: { labels: labels.map(function (l) { return l + ' (' + counts[l] + ')'; }),
+                datasets: [{ data: labels.map(function (l) { return counts[l]; }),
+                             backgroundColor: labels.map(function (_, i) { return OS_PALETTE[i % OS_PALETTE.length]; }), borderWidth: 1 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
+                   plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, color: text } } } },
+    });
+}
+
+function renderHostSummary() {
+    const hosts = {};
+    allFindings.forEach(function (f) {
+        const key = f.ip;
+        const h = hosts[key] || (hosts[key] = { ip: f.ip, hostname: f.hostname, VULNERABLE: 0, PARTIAL: 0, SAFE: 0, other: 0, total: 0 });
+        h.total += 1;
+        if (f.status === 'VULNERABLE' || f.status === 'PARTIAL' || f.status === 'SAFE') h[f.status] += 1; else h.other += 1;
+    });
+    const list = Object.keys(hosts).map(function (k) { return hosts[k]; }).sort(function (a, b) {
+        return (b.VULNERABLE - a.VULNERABLE) || (b.PARTIAL - a.PARTIAL) || (a.ip < b.ip ? -1 : 1);
+    }).slice(0, 15);
+    const tbody = document.getElementById('hostSummaryBody');
+    tbody.innerHTML = '';
+    document.getElementById('hostSummaryEmpty').style.display = list.length ? 'none' : 'flex';
+    list.forEach(function (h) {
+        const w = function (n) { return (n * 100 / h.total).toFixed(1) + '%'; };
+        const tr = document.createElement('tr');
+        tr.className = 'clickable';
+        tr.innerHTML = '<td>' + escHtml(h.hostname) + ' <span style="color:var(--text-muted);">(' + escHtml(h.ip) + ')</span></td>' +
+            '<td><div class="host-bar">' +
+            '<span style="width:' + w(h.VULNERABLE) + ';background:' + theme.status_colors.VULNERABLE + ';"></span>' +
+            '<span style="width:' + w(h.PARTIAL) + ';background:' + theme.status_colors.PARTIAL + ';"></span>' +
+            '<span style="width:' + w(h.SAFE) + ';background:' + theme.status_colors.SAFE + ';"></span></div></td>' +
+            '<td class="num">' + h.VULNERABLE + '</td><td class="num">' + h.PARTIAL + '</td><td class="num">' + h.SAFE + '</td>';
+        tr.addEventListener('click', function () { navigateToAssets('host', h.hostname, h.hostname + ' (' + h.ip + ') 전체 항목', h.ip); });
+        tbody.appendChild(tr);
+    });
+}
+
+function loadScanState() {
+    fetch('/api/scan/summary')
+        .then(function (res) { return res.status === 200 ? res.json() : null; })
+        .then(function (s) {
+            const el = document.getElementById('scanStateBody');
+            if (!s) { el.textContent = '상태를 불러오지 못했습니다.'; return; }
+            if (s.running) {
+                el.innerHTML = '<b>실행 중</b> - ' + escHtml(s.target || '') + '<div class="scan-bar"><span style="width:' + (s.percent || 0) + '%;"></span></div>' +
+                    escHtml(s.percent || 0) + '% (' + escHtml(s.current || 0) + ' / ' + escHtml(s.total || 0) + ')';
+            } else {
+                el.innerHTML = '대기 중' + (s.finished_reason ? '<br><span style="color:var(--text-muted);font-size:12px;">마지막: ' +
+                    escHtml(s.target || '') + ' - ' + escHtml(s.finished_reason) + '</span>' : '<br><span style="color:var(--text-muted);font-size:12px;">진행 중인 스캔이 없습니다.</span>');
+            }
+        })
+        .catch(function () {});
+}
+
+function loadChanges() {
+    fetch('/api/compare')
+        .then(function (res) { return res.status === 200 ? res.json() : []; })
+        .then(function (rows) {
+            rows = (rows || []).filter(function (r) { return r.improvement != null; })
+                .sort(function (a, b) { return Math.abs(b.improvement) - Math.abs(a.improvement); }).slice(0, 8);
+            const tbody = document.getElementById('changeBody');
+            tbody.innerHTML = '';
+            document.getElementById('changeEmpty').style.display = rows.length ? 'none' : 'flex';
+            rows.forEach(function (r) {
+                const up = r.improvement >= 0;
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + escHtml(r.hostname || r.ip) + '</td>' +
+                    '<td class="num">' + escHtml(Math.round(r.prev_score)) + ' → ' + escHtml(Math.round(r.current_score)) + '</td>' +
+                    '<td class="num ' + (up ? 'delta-up' : 'delta-down') + '">' + (up ? '▲ +' : '▼ ') + escHtml(Math.round(r.improvement)) + '</td>' +
+                    '<td class="num">' + escHtml(r.prev_vuln_total) + ' → ' + escHtml(r.current_vuln_total) + '</td>';
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(function () {});
+}
+
+function loadRecentReports() {
+    fetch('/api/reports/list')
+        .then(function (res) { return res.status === 200 ? res.json() : []; })
+        .then(function (rows) {
+            rows = (rows || []).slice(0, 5);
+            const box = document.getElementById('reportsBody');
+            box.innerHTML = rows.map(function (r) {
+                return '<div><a href="' + escHtml(r.download_url) + '">' + escHtml(r.filename) + '</a>' +
+                    '<span style="color:var(--text-muted);white-space:nowrap;">' + escHtml(r.modified_at) + ' · ' + Math.max(1, Math.round(r.size_bytes / 1024)) + 'KB</span></div>';
+            }).join('');
+            document.getElementById('reportsEmpty').style.display = rows.length ? 'none' : 'flex';
+        })
+        .catch(function () {});
+}
+
+function renderWebExtras(data) {
+    renderKpi(data);
+    renderImportance();
+    renderOsChart();
+    renderHostSummary();
+    loadScanState();
+    loadChanges();
+    loadRecentReports();
+    if (!window._zvsScanStateTimer) window._zvsScanStateTimer = setInterval(loadScanState, 5000);
 }
 
 // ------------------------------------------------------------------

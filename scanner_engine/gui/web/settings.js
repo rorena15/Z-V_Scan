@@ -158,9 +158,20 @@ function loadAuditLog() {
 }
 
 $('btnRefreshAuditLog').addEventListener('click', loadAuditLog);
-loadAuditLog();
 
-loadSettings();
+// 관리자 전용 카드는 role이 확정된 뒤에만 보여주고 데이터를 불러온다(서버 API가 실제 차단선이고, 이건 UX 처리).
+document.addEventListener('zvs:ready', function (evt) {
+    if (evt.detail.role === 'admin') {
+        loadAuditLog();
+        loadSettings();
+    } else {
+        document.querySelectorAll('.admin-card').forEach(function (el) { el.style.display = 'none'; });
+    }
+});
+
+// 개인 테마(이 브라우저만): 선택 즉시 저장하고 다시 그린다
+$('personalTheme').value = zvsPersonalTheme() || 'light';
+$('personalTheme').addEventListener('change', function () { zvsSetTheme($('personalTheme').value); });
 
 function loadThirdParty() {
     fetch('/api/licenses/third-party')

@@ -36,10 +36,14 @@ const ZVS_NAV_ITEMS = [
     { key: 'scan', label: '스캔 실행', href: '/scan', minRole: 'viewer' },
     { key: 'assets', label: '자산 관리', href: '/assets', minRole: 'viewer' },
     { key: 'compare', label: '회차 비교', href: '/compare', minRole: 'viewer' },
-    { key: 'help', label: '도움말', href: '/help', minRole: 'viewer' },
+    { key: 'settings', label: '설정', href: '/settings', minRole: 'viewer' },
+];
+// [2026-09] 도움말은 우측 상단 링크로, 내 계정/계정 관리/다크모드는 "설정" 안쪽으로 옮겼다.
+// 설정 화면 안쪽 탭(내 계정/계정 관리는 별도 페이지지만 같은 "설정" 소속으로 보여준다).
+const ZVS_SETTINGS_TABS = [
+    { key: 'settings', label: '설정 · 화면', href: '/settings', minRole: 'viewer' },
     { key: 'account', label: '내 계정', href: '/account', minRole: 'viewer' },
     { key: 'accounts', label: '계정 관리', href: '/accounts', minRole: 'admin' },
-    { key: 'settings', label: '설정', href: '/settings', minRole: 'admin' },
 ];
 const ZVS_ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
 const ZVS_ROLE_LABEL = { viewer: '조회자', operator: '운영자', admin: '관리자' };
@@ -78,6 +82,11 @@ function zvsApplyPersonalTheme() {
     if (!colors) return;
     const root = document.documentElement.style;
     Object.keys(colors).forEach(function (k) { root.setProperty('--' + k.replace(/_/g, '-'), colors[k]); });
+}
+
+function zvsSetTheme(value) {
+    try { localStorage.setItem('zvs_theme', value === 'dark' ? 'dark' : 'light'); } catch (e) {}
+    location.reload();
 }
 
 function zvsToggleTheme() {
@@ -125,6 +134,8 @@ function zvsRenderTopbar(activeKey) {
 
 function zvsBuildTopbar(activeKey, username, role) {
     const rank = ZVS_ROLE_RANK[role] || 0;
+    const inSettings = activeKey === 'settings' || activeKey === 'account' || activeKey === 'accounts';
+    const navActive = inSettings ? 'settings' : activeKey;
     const bar = document.createElement('div');
     bar.style.cssText = 'display:flex;align-items:center;gap:16px;padding:10px 20px;' +
         'background:var(--surface-2, #fff);border-bottom:1px solid var(--border, #E3E7EE);' +
@@ -133,7 +144,7 @@ function zvsBuildTopbar(activeKey, username, role) {
     const linksHtml = ZVS_NAV_ITEMS
         .filter(function (item) { return rank >= ZVS_ROLE_RANK[item.minRole]; })
         .map(function (item) {
-            const active = item.key === activeKey;
+            const active = item.key === navActive;
             const style = active
                 ? 'color:var(--accent, #2E6BE6);font-weight:600;'
                 : 'color:var(--text-secondary, #5B6675);';
@@ -149,23 +160,35 @@ function zvsBuildTopbar(activeKey, username, role) {
         ? '<a href="#" id="zvsShutdown" style="color:var(--danger-text, #C0271F);text-decoration:none;font-size:12.5px;">서버 종료</a>'
         : '';
 
-    const themeLabel = (zvsPersonalTheme() || 'light') === 'dark' ? '라이트 모드' : '다크 모드';
+    const helpActive = activeKey === 'help';
+    const helpStyle = helpActive ? 'color:var(--accent, #2E6BE6);font-weight:600;' : 'color:var(--text-secondary, #5B6675);';
 
     bar.innerHTML =
         '<div style="font-weight:700;font-size:13.5px;color:var(--text, #1B2430);">Z-VulnScan 웹 대시보드</div>' +
         linksHtml +
         '<div style="flex:1;"></div>' +
         whoamiHtml +
-        '<a href="#" id="zvsThemeToggle" style="color:var(--text-secondary, #5B6675);text-decoration:none;font-size:12.5px;">' + themeLabel + '</a>' +
+        '<a href="/help" id="zvsHelpLink" style="text-decoration:none;font-size:12.5px;' + helpStyle + '">도움말</a>' +
         '<a href="/logout" style="color:var(--text-secondary, #5B6675);text-decoration:none;font-size:12.5px;">로그아웃</a>' +
         shutdownHtml;
 
     document.body.insertBefore(bar, document.body.firstChild);
 
-    document.getElementById('zvsThemeToggle').addEventListener('click', function (evt) {
-        evt.preventDefault();
-        zvsToggleTheme();
-    });
+    if (inSettings) {
+        const tabs = document.createElement('div');
+        tabs.style.cssText = 'display:flex;gap:4px;padding:8px 20px 0;background:var(--surface-2, #fff);' +
+            'border-bottom:1px solid var(--border, #E3E7EE);font-family:inherit;';
+        tabs.innerHTML = ZVS_SETTINGS_TABS
+            .filter(function (t) { return rank >= ZVS_ROLE_RANK[t.minRole]; })
+            .map(function (t) {
+                const active = t.key === activeKey;
+                const style = active
+                    ? 'color:var(--accent, #2E6BE6);font-weight:600;border-bottom:2px solid var(--accent, #2E6BE6);'
+                    : 'color:var(--text-secondary, #5B6675);border-bottom:2px solid transparent;';
+                return '<a href="' + t.href + '" style="text-decoration:none;font-size:12.5px;padding:6px 12px;' + style + '">' + t.label + '</a>';
+            }).join('');
+        bar.insertAdjacentElement('afterend', tabs);
+    }
 
     const shutdownLink = document.getElementById('zvsShutdown');
     if (shutdownLink) {
