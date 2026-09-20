@@ -122,6 +122,18 @@ def _run_selftest(out_path=""):
                 "flask", "werkzeug", "jinja2", "bcrypt", "keyring", "paramiko", "winrm", "openpyxl", "reportlab"):
         check(f"import {mod}", lambda mod=mod: importlib.import_module(mod) and None)
 
+    # 1.5) 배포 빌드에 개발 전용 더미 비밀값이 남아 있지 않은지(ci/inject_release_secrets.py 누락 검출).
+    # 소스 실행(개발/테스트)에서는 더미가 정상이라 배포 exe(frozen)에서만 확인한다.
+    def release_secrets():
+        if not getattr(sys, "frozen", False):
+            return "소스 실행 - 건너뜀"
+        from core.config import AppConfig
+        for name in ("LICENSE_SALT", "RULE_ENCRYPTION_KEY", "ENGINE_ACCESS_TOKEN"):
+            if str(getattr(AppConfig, name)).upper().startswith("DEV-ONLY") or name == "RULE_ENCRYPTION_KEY" and                     getattr(AppConfig, name) == "Rche7xHFE4fLTYEKw6jA3woId6pk-w0P58lguf1ruPY=":
+                raise ValueError(f"{name}이(가) 개발용 더미 값 - 릴리즈 비밀값 주입 누락")
+        return "배포용 비밀값 사용 중"
+    check("릴리즈 비밀값 주입 확인", release_secrets)
+
     # 2) 룰셋 로드(배포판은 암호화된 .enc) + 판정 엔진 동작
     def rules():
         from utils import rule_crypto

@@ -43,15 +43,19 @@ class AppConfig:
     #
     # [보안 주의]
     # 이 SALT 값은 해커가 절대 알면 안 됩니다.
-    # 키 유출이 의심되면 이 값을 변경하고 새 키를 발급하세요.
-    LICENSE_SALT = "Z-Vuln-Secret-Salt-2026-DoNotShare"
+    # [2026-09-21] 저장소가 공개 상태였던 기간에 예전 값이 노출돼, 이 파일의 값은 개발 전용 더미로 교체했다.
+    # 실제 배포 빌드의 값은 저장소에 두지 않고 CI 시크릿(ZVULN_LICENSE_SALT)에서 빌드 직전에
+    # ci/inject_release_secrets.py가 주입한다. 개발 값으로 만든 키는 배포 빌드에서 검증되지 않는다.
+    # 키 유출이 의심되면 시크릿을 새 값으로 바꾸고 새 키를 발급하세요.
+    LICENSE_SALT = "DEV-ONLY-license-salt-not-for-release"
 
     # ----------------------------------------------------------------------
     # [3] 엔진 내부 인증 토큰 (Internal Engine Token)
     # ----------------------------------------------------------------------
     # GUI(main_window)와 Engine(worker) 간의 통신을 검증하는 내부 키입니다.
     # 해커가 엔진 모듈만 따로 떼어내서 악용하는 것을 방지합니다.
-    ENGINE_ACCESS_TOKEN = "ZVulnScan_V3_Pro_Secure_Engine_Key_2026_!@#"
+    # (개발 전용 더미 - 배포 빌드 값은 CI 시크릿 ZVULN_ENGINE_TOKEN으로 주입, 위 LICENSE_SALT 설명 참고)
+    ENGINE_ACCESS_TOKEN = "DEV-ONLY-engine-token-not-for-release"
 
     # ----------------------------------------------------------------------
     # [4] 버전 업데이트 확인 (Update Check) - GitHub Releases 기반
@@ -82,7 +86,9 @@ class AppConfig:
     # 개발 중에는 rules/*.json 평문을 그대로 쓸 수 있어야 하므로(빌드 없이
     # 바로 룰 수정/테스트), rule_crypto.load_ruleset()은 .enc가 없으면 평문
     # 파일로 자동 폴백한다 - 이 키는 오직 "빌드된 배포판"에서만 실제로 쓰인다.
-    RULE_ENCRYPTION_KEY = "8gUHbl7QOUhhyeZyK_6wrTMxJbrwWJnufELuYQTk_YQ="
+    # (개발 전용 더미 - 예전 값은 공개 저장소에 노출된 적이 있어 폐기했다. 배포 빌드 값은 CI 시크릿
+    # ZVULN_RULE_KEY(Fernet 키)로 주입한다. 이 더미 키로 암호화한 .enc는 배포용이 아니다.)
+    RULE_ENCRYPTION_KEY = "Rche7xHFE4fLTYEKw6jA3woId6pk-w0P58lguf1ruPY="
 
     # ----------------------------------------------------------------------
     # [6] 룰셋 증분 업데이트 서명 검증 (Ed25519)

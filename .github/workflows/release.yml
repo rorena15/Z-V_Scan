@@ -82,6 +82,17 @@ jobs:
           Write-Host "--- config.py VERSION line ---"
           Select-String -Path $configPath -Pattern "VERSION ="
 
+      - name: 릴리즈 비밀값 주입 (라이선스 salt / 룰 암호화 키 / 엔진 토큰)
+        shell: pwsh
+        env:
+          ZVULN_LICENSE_SALT: ${{ secrets.ZVULN_LICENSE_SALT }}
+          ZVULN_RULE_KEY: ${{ secrets.ZVULN_RULE_KEY }}
+          ZVULN_ENGINE_TOKEN: ${{ secrets.ZVULN_ENGINE_TOKEN }}
+        run: |
+          # 저장소의 config.py에는 개발 전용 더미만 있다. 시크릿이 없거나 더미/형식 오류면 여기서 실패해서
+          # 더미 값으로 만든 릴리즈가 배포되는 일을 막는다. (ci/gen_release_secrets.py로 값을 만들어 등록)
+          python ci/inject_release_secrets.py
+
       - name: Cython 컴파일 (core/utils/output -> .pyd)
         shell: pwsh
         env:
@@ -117,7 +128,7 @@ jobs:
           pyarmor gen -O dist/obfuscated --obf-code 0 --no-wrap -r `
               --exclude "*main_window.py" `
               --exclude "*dashboard_widgets.py" `
-              scanner_engine/gui scanner_engine/main.py scanner_engine/keygen.py
+              scanner_engine/gui scanner_engine/main.py
 
           Copy-Item "scanner_engine/gui/main_window.py" `
               "dist/obfuscated/gui/main_window.py" -Force
@@ -131,9 +142,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/obfuscated/scanner_engine" | Out-Null
           Move-Item "dist/obfuscated/gui" "dist/obfuscated/scanner_engine/gui" -Force
           Move-Item "dist/obfuscated/main.py" "dist/obfuscated/scanner_engine/main.py" -Force
-          Move-Item "dist/obfuscated/keygen.py" "dist/obfuscated/scanner_engine/keygen.py" -Force
 
-      - name: 최종 패키징 (PyInstaller onefile + 스플래시 화면)
+      - name: 최종 패키징 (PyInstaller onedir + 스플래시 화면 + zip)
         id: package
         shell: pwsh
         run: |
@@ -141,7 +151,8 @@ jobs:
           $version = "${{ steps.ver.outputs.version }}"
           $distDir = "Z-VulnScan_Professional_${version}_Final"
           $appName = "Z-VulnScan_Professional_Edition_$version"
-          "exe_path=$distDir\$appName.exe" >> $env:GITHUB_OUTPUT
+          "exe_path=$distDir\$appName\$appName.exe" >> $env:GITHUB_OUTPUT
+          "zip_path=$distDir\$appName.zip" >> $env:GITHUB_OUTPUT
 
       - name: 빌드 검증 - exe 자가진단 (--selftest)
         shell: pwsh
@@ -154,6 +165,19 @@ jobs:
               -Wait -PassThru -NoNewWindow
           if (Test-Path $out) { Get-Content $out -Encoding utf8 } else { Write-Host "(selftest 결과 파일 없음)" }
           if ($p.ExitCode -ne 0) { throw "exe 자가진단 실패 (exit $($p.ExitCode))" }
+
+      - name: 빌드 검증 - GPL 전용 Qt 모듈/keygen 미포함 확인
+        shell: pwsh
+        run: |
+          # Qt Graphs / Qt Quick 3D / Qt Virtual Keyboard는 GPLv3(또는 상용)로만 제공되는 모듈이라 독점 배포물에 있으면 안 된다.
+          # ci/zvulnscan.spec이 빼지만, PySide6 업그레이드로 새 파일이 딸려 들어오는 경우를 릴리즈 전에 막는다.
+          # (keygen은 라이선스 발급 도구라 고객 배포물에 절대 들어가면 안 된다 - 같이 검사)
+          $root = Split-Path "${{ steps.package.outputs.exe_path }}" -Parent
+          $bad = Get-ChildItem $root -Recurse -File | Where-Object {
+              $_.Name -match 'keygen' -or $_.Name -match '^Qt6(Graphs|Quick3D|VirtualKeyboard)' -or $_.FullName -match '[\/](QtGraphs|QtQuick3D|QtVirtualKeyboard|virtualkeyboard)[\/]'
+          }
+          if ($bad) { $bad | ForEach-Object { Write-Host $_.FullName }; throw "GPL 전용 Qt 모듈이 배포물에 포함됨 ($($bad.Count)개)" }
+          Write-Host "GPL 전용 Qt 모듈 없음"
 
       - name: 릴리즈 노트(코멘터리) 생성 - 직전 태그 이후 커밋 로그
         id: notes
@@ -205,11 +229,11 @@ jobs:
 
           "path=$notesPath" >> $env:GITHUB_OUTPUT
 
-      - name: GitHub Release 생성 + exe 업로드
+      - name: GitHub Release 생성 + 배포 zip 업로드
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
           name: "Z-VulnScan Professional ${{ steps.ver.outputs.version }}"
           body_path: ${{ steps.notes.outputs.path }}
           files: |
-            ${{ steps.package.outputs.exe_path }}
+            ${{ steps.package.outputs.zip_path }}

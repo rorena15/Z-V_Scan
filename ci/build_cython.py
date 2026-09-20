@@ -53,9 +53,27 @@ def find_py_files(dirs):
 
 find_py_files(target_dirs)
 
+# 폴더 밖 루트 모듈: 웹 대시보드 서버(로그인/세션/스캔 실행/리포트 API 로직). 스캔·진단·관리 로직이라 다른 엔진 모듈과
+# 같이 컴파일한다. 모듈 이름은 다른 것들과 같은 방식(scanner_engine.<이름>)이고, 결과 .pyd는 scanner_engine/에 생긴다.
+if os.path.exists("scanner_engine/web_dashboard_server.py"):
+    print("[Target] scanner_engine.web_dashboard_server")
+    extensions.append(
+        Extension(
+            "scanner_engine.web_dashboard_server",
+            ["scanner_engine/web_dashboard_server.py"],
+            extra_compile_args=["/O2", "/W3"] if os.name == 'nt' else ["-O3", "-Wall"]
+        )
+    )
+
 if not extensions:
     print("❌ 컴파일할 대상 파일을 찾지 못했습니다. 경로를 확인해주세요.")
     sys.exit(1)
+
+# 배포 .pyd에서 docstring을 뺀다 - 이 프로젝트의 docstring/주석 설명에는 판정 로직의 의도와 내부 설계 근거가
+# 자세히 적혀 있어, 그대로 두면 컴파일 결과물에서 문자열로 읽힌다(코드 자체보다 설명이 더 많은 정보를 준다).
+# 주석은 원래 컴파일에 포함되지 않는다.
+from Cython.Compiler import Options as _CyOptions
+_CyOptions.docstrings = False
 
 print(f"🚀 Starting Cython Compilation for {len(extensions)} files...")
 

@@ -61,6 +61,7 @@ class SettingsDialog(QDialog):
             ("호스트 키(known_hosts)", self._build_known_hosts_tab()),
             ("웹 대시보드 계정", self._build_dashboard_accounts_tab()),
             ("라이선스", self._build_license_tab()),
+            ("오픈소스 라이선스", self._build_third_party_tab()),
         ]
         for label, page in pages:
             self.nav_list.addItem(label)
@@ -349,6 +350,56 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
     # 탭 6: 호스트 키(known_hosts) 관리
     # ------------------------------------------------------------------
+    def _build_third_party_tab(self):
+        """이 프로그램이 포함/사용하는 오픈소스와 그 라이선스 고지. 목록은 빌드 시 ci/gen_third_party_notices.py가
+        gui/web/third_party_licenses.json으로 만든다(없으면 안내 문구만 보인다)."""
+        import json
+        from PySide6.QtWidgets import QTextEdit
+
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.addWidget(QLabel(
+            "Z-VulnScan은 아래 오픈소스 소프트웨어를 사용합니다. 각 소프트웨어의 저작권은 해당 저작자에게 있으며,\n"
+            "각 라이선스 조건에 따라 제공됩니다. 항목을 선택하면 라이선스 전문을 볼 수 있습니다."
+        ))
+        row = QHBoxLayout()
+        lst = QListWidget()
+        lst.setFixedWidth(300)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        row.addWidget(lst)
+        row.addWidget(text, 1)
+        v.addLayout(row, 1)
+
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "third_party_licenses.json")
+        packages = []
+        try:
+            with open(path, encoding="utf-8") as f:
+                packages = json.load(f).get("packages", [])
+        except (OSError, ValueError):
+            pass
+        if not packages:
+            text.setPlainText("오픈소스 라이선스 목록 파일(third_party_licenses.json)을 찾지 못했습니다.\n"
+                              "빌드 시 ci/gen_third_party_notices.py로 생성됩니다.")
+            return w
+
+        for p in packages:
+            lst.addItem(f"{p['name']} {p['version']}  -  {p['license']}")
+
+        def show(row_idx):
+            if row_idx < 0:
+                return
+            p = packages[row_idx]
+            head = f"{p['name']} {p['version']}\n라이선스: {p['license']}\n"
+            if p.get("homepage"):
+                head += f"홈페이지: {p['homepage']}\n"
+            head += "\n" + (p.get("text") or "(패키지에 라이선스 전문 파일이 포함돼 있지 않습니다. 홈페이지에서 확인하세요.)")
+            text.setPlainText(head)
+
+        lst.currentRowChanged.connect(show)
+        lst.setCurrentRow(0)
+        return w
+
     def _build_known_hosts_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)

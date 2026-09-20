@@ -73,6 +73,13 @@ class WebDashboard(unittest.TestCase):
         self.assertEqual(admin.post('/api/server/shutdown', headers=ha).status_code, 200)
         self.assertTrue(self.shutdown.is_set())
 
+    def test_third_party_license_endpoint(self):
+        anon = self.app.test_client()
+        self.assertEqual(anon.get('/api/licenses/third-party').status_code, 401)
+        view, _ = self.login('view')
+        data = view.get('/api/licenses/third-party').get_json()
+        self.assertGreater(len(data['packages']), 10)
+
     def test_csrf(self):
         admin, ha = self.login('admin')
         self.assertEqual(admin.post('/api/settings/general', json={'theme': 'dark'}).status_code, 403)

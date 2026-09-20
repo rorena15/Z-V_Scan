@@ -103,3 +103,6 @@ config/dashboard_accounts.json
 config/web_audit.log
 config/api_tokens.json
 scan_debug.log
+
+# 배포 빌드 spec은 저장소에서 관리한다(위 *.spec 무시 규칙의 예외)
+!ci/zvulnscan.spec

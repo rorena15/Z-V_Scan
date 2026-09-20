@@ -161,3 +161,23 @@ $('btnRefreshAuditLog').addEventListener('click', loadAuditLog);
 loadAuditLog();
 
 loadSettings();
+
+function loadThirdParty() {
+    fetch('/api/licenses/third-party')
+        .then(function (res) { return res.status === 200 ? res.json() : { packages: [] }; })
+        .then(function (data) {
+            const box = $('thirdPartyList');
+            const pkgs = data.packages || [];
+            if (!pkgs.length) { box.textContent = '오픈소스 라이선스 목록 파일을 찾지 못했습니다.'; return; }
+            box.innerHTML = pkgs.map(function (p) {
+                const body = (p.homepage ? '홈페이지: ' + p.homepage + '\n\n' : '') +
+                    (p.text || '(패키지에 라이선스 전문 파일이 포함돼 있지 않습니다. 홈페이지에서 확인하세요.)');
+                return '<details style="margin-bottom:4px;"><summary style="cursor:pointer;font-size:12.5px;">' +
+                    esc(p.name) + ' ' + esc(p.version) + ' <span class="badge">' + esc(p.license) + '</span></summary>' +
+                    '<pre style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto;background:var(--surface-1);padding:8px;border-radius:8px;">' +
+                    esc(body) + '</pre></details>';
+            }).join('');
+        })
+        .catch(function () {});
+}
+loadThirdParty();

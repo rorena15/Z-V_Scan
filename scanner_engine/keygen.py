@@ -18,6 +18,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.config import AppConfig
 from core.license_validator import LicenseValidator
 
+# [배포용 키 발급] 저장소의 LICENSE_SALT는 개발 전용 더미라, 실제 배포 빌드에서 통하는 키를 만들려면
+# 배포 빌드에 주입한 것과 같은 salt를 환경변수로 넘겨야 한다(ci/gen_release_secrets.py 참고).
+# 값을 주지 않으면 개발용 키가 만들어진다(배포 빌드에서는 검증되지 않음).
+if os.environ.get("ZVULN_LICENSE_SALT"):
+    AppConfig.LICENSE_SALT = os.environ["ZVULN_LICENSE_SALT"]
+
 # [라이선스 발급 체계] 발급자(본인)가 "누구에게 어떤 키를 언제 발급했는지" 알 수 있도록
 # 로컬 대장에 기록한다. 저장소 밖(repo 루트)에 두고 .gitignore 처리 - 고객 정보가
 # 담길 수 있는 운영 데이터라 소스 저장소에는 올리지 않는다.

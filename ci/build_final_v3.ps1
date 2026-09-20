@@ -38,6 +38,9 @@ Write-Host "=========================================================" -Foregrou
 # ---------------------------------------------------------------------
 Write-Host "[1/4] Encrypting rules/*_rules.json..." -ForegroundColor Yellow
 python ci\encrypt_rules.py rules $RULES_STAGED_DIR
+
+# 오픈소스 라이선스 고지 목록(설정 > 오픈소스 라이선스에 표시)을 gui/web/에 생성한다 - 아래 웹 자산 복사보다 먼저 실행해야 포함된다
+python ci\gen_third_party_notices.py
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`n ❌ Rules encryption failed!" -ForegroundColor Red
     exit 1
@@ -87,14 +90,24 @@ foreach ($folder in $modules_to_copy) {
     }
 }
 
-# [웹 대시보드 모드, 2026-09] scanner_engine/ 루트의 web_dashboard_server.py는 위 네 폴더(core/utils/
-# output/gui) 어디에도 속하지 않아서, Cython(.pyd)에도 PyArmor에도 안 잡히고 이 병합 단계에서도
-# 빠져 있었다 - 그대로 두면 exe에서 웹 모드를 골랐을 때 `from web_dashboard_server import ...`가
-# ModuleNotFoundError로 죽는다. main.py 옆에 평문 .py로 복사해 PyInstaller가 import로 수집하게 한다
-# (PyArmor 무료 한도의 파일 개수 상한을 더 갉아먹지 않으려고 난독화 대상에는 넣지 않았다 -
-# 필요하면 이 파일도 난독화 대상에 넣을지 별도로 결정).
-Copy-Item "scanner_engine\web_dashboard_server.py" -Destination "$SRC_DIR\scanner_engine" -Force
-Write-Host "   -> Copied web_dashboard_server.py next to main.py" -ForegroundColor Gray
+# [웹 대시보드 모드, 2026-09] scanner_engine/ 루트의 web_dashboard_server는 위 네 폴더(core/utils/output/gui)
+# 어디에도 속하지 않아 병합 단계에서 빠져 있었다 - 그대로 두면 exe에서 웹 모드를 골랐을 때
+# `from web_dashboard_server import ...`가 ModuleNotFoundError로 죽는다. 스캔 실행/로그인/세션/리포트 로직이라
+# 다른 엔진 모듈처럼 Cython으로 컴파일한 .pyd(ci/build_cython.py)를 main.py 옆에 복사한다.
+# (UI 파일인 gui/main_window.py 등은 PyArmor 트라이얼 한계로 평문이며, UI라 유출 영향이 작다고 판단해 그대로 둔다.)
+$wdsPyd = Get-ChildItem "scanner_engine" -Filter "web_dashboard_server*.pyd" | Select-Object -First 1
+if ($wdsPyd) {
+    Copy-Item $wdsPyd.FullName -Destination "$SRC_DIR\scanner_engine" -Force
+    Write-Host "   -> Copied compiled web_dashboard_server (.pyd) next to main.py" -ForegroundColor Gray
+}
+elseif ($env:CI -eq "true") {
+    Write-Error "web_dashboard_server .pyd가 없습니다 - Cython 컴파일 단계를 확인하세요 (평문 소스로 배포하지 않기 위해 CI에서는 중단)"
+    exit 1
+}
+else {
+    Copy-Item "scanner_engine\web_dashboard_server.py" -Destination "$SRC_DIR\scanner_engine" -Force
+    Write-Host "   -> [경고] .pyd가 없어 평문 web_dashboard_server.py를 복사했습니다 (로컬 빌드 전용)" -ForegroundColor Yellow
+}
 
 # ---------------------------------------------------------------------
 # [3/4] PyArmor 런타임 폴더 자동 감지
@@ -115,19 +128,14 @@ if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
 # ---------------------------------------------------------------------
 # [4/4] PyInstaller 실행
 # ---------------------------------------------------------------------
-# [2026-09 "exe 부팅 속도" 피드백] 처음엔 onedir(압축 해제 자체를 없앰)로
-# 전환했었는데, 사용자가 배포 형태는 onefile 그대로 유지하고 싶어해서
-# (installer/zip 없이 exe 한 개로 배포하는 편의성 우선) onefile로 되돌리고,
-# 대신 --splash로 압축 해제~엔진 초기화 동안 "실행 중"임을 보여주는 안내 화면을
-# 띄우는 쪽으로 방향을 바꿨다. 여기서 한 걸음 더 - "진행바가 실제로 작동하게"
-# 해달라는 요청까지 반영하려면 Splash(text_pos=...)로 텍스트를 실시간 갱신해야
-# 하는데, 그 옵션은 PyInstaller CLI(--splash)에는 없고 .spec 파일에서만 쓸 수
-# 있다. 그래서 순수 CLI 인자 나열 대신 ci/zvulnscan.spec(기존 CLI 인자를 전부
-# 그대로 옮겨 담음)을 쓰도록 바꿨다 - main.py가 실제 부팅 단계(무거운 import,
-# DB 복호화, 메인 창 표시)마다 pyi_splash.update_text()로 진행바 문구를 갱신한다.
-# 스플래시 이미지(assets/splash.png)는 Z-VulnScan_Build_Work/splash_Image.psd
-# 원본 디자인을 바탕으로 다시 그린 것을 정적 에셋으로 커밋해 둔 것을 쓴다.
-Write-Host "`n[4/4] Packaging (onefile + live-progress splash screen)..." -ForegroundColor Yellow
+# [2026-09-20 배포 형태: onedir] PySide6/paramiko/psycopg2/pymssql이 LGPL이라 사용자가 그 라이브러리를
+# 수정본으로 교체할 수 있어야 한다 - onefile은 exe 안에 묶여 교체가 어려워 onedir로 바꿨다
+# (라이브러리가 _internal 폴더에 낱개 파일로 남는다. ci/zvulnscan.spec 상단 주석 참고).
+# 이전(2026-09-02)에는 "exe 하나로 배포"하는 편의 때문에 onefile을 썼고, 압축 해제 대기 시간은 --splash로
+# 가렸다. onedir은 압축 해제 자체가 없어 부팅도 빠르지만, 스플래시(assets/splash.png)와 main.py의
+# pyi_splash 진행바 문구는 그대로 쓴다. 배포는 결과 폴더를 zip으로 묶어서 한다.
+# 스플래시 진행바 텍스트는 Splash(text_pos=...)로만 갱신할 수 있어 CLI 대신 .spec을 쓴다.
+Write-Host "`n[4/4] Packaging (onedir + live-progress splash screen)..." -ForegroundColor Yellow
 
 # .spec은 버전마다 달라지는 EXE 이름과 PyArmor 런타임 폴더명을 하드코딩할 수 없어서
 # 환경변수로 넘긴다 (ci/zvulnscan.spec 상단 주석 참고).
@@ -140,7 +148,12 @@ pyinstaller --noconfirm --clean --distpath $DIST_DIR ci/zvulnscan.spec
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n=======================================================" -ForegroundColor Green
     Write-Host " 🎉 BUILD SUCCESS! (Hybrid Obfuscation Complete)" -ForegroundColor Green
-    Write-Host " 📂 Output: $DIST_DIR\$APP_NAME.exe" -ForegroundColor White
+    # LGPL 고지 파일을 배포 폴더 루트에 함께 넣고, 폴더째 zip으로 묶는다(배포 단위)
+    Copy-Item "ci\LGPL_NOTICE.txt" -Destination "$DIST_DIR\$APP_NAME\LGPL_NOTICE.txt" -Force
+    $zipPath = "$DIST_DIR\$APP_NAME.zip"
+    if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+    Compress-Archive -Path "$DIST_DIR\$APP_NAME" -DestinationPath $zipPath -CompressionLevel Optimal
+    Write-Host " 📂 Output: $DIST_DIR\$APP_NAME\$APP_NAME.exe (folder) / $zipPath" -ForegroundColor White
     Write-Host "=======================================================" -ForegroundColor Green
 
     if ($env:CI -ne "true") {

@@ -1,0 +1,33 @@
+Z-VulnScan - LGPL 라이브러리 고지 / LGPL Library Notice
+=====================================================
+
+이 프로그램은 아래 LGPL 라이선스 라이브러리를 사용합니다.
+This program uses the following libraries licensed under the LGPL.
+
+  - PySide6 / Shiboken6 (Qt for Python)   LGPL-3.0
+  - paramiko                               LGPL-2.1
+  - psycopg2-binary                        LGPL with exceptions
+  - pymssql                                LGPL-2.1
+
+각 라이브러리의 저작권은 해당 저작자에게 있습니다. 라이선스 전문과 전체 오픈소스 목록은
+프로그램의 [설정] > [오픈소스 라이선스]에서 볼 수 있습니다.
+The full license texts and the complete open-source list are available in the program under
+Settings > Open Source Licenses.
+
+라이브러리 교체 / Replacing the libraries
+-----------------------------------------
+이 프로그램은 폴더 형태(onedir)로 배포되며, 위 라이브러리는 실행 파일 안에 묶여 있지 않고
+"_internal" 폴더에 개별 파일(.dll / .pyd / .pyc)로 들어 있습니다. 라이브러리를 수정한 버전으로
+교체하려면 "_internal" 안의 해당 라이브러리 파일(예: PySide6 폴더, paramiko 폴더)을 같은 이름의
+수정 버전으로 바꾸면 됩니다(원본과 인터페이스 호환이어야 합니다).
+The libraries are shipped as separate files in the "_internal" folder, not embedded in the
+executable. To use a modified version, replace the corresponding files (e.g. the PySide6 or
+paramiko folders) with your modified, interface-compatible build.
+
+소스 코드 / Source code
+-----------------------
+각 라이브러리의 소스 코드는 프로젝트 공식 저장소에서 받을 수 있습니다:
+  PySide6 : https://code.qt.io/cgit/pyside/pyside-setup.git
+  paramiko: https://github.com/paramiko/paramiko
+  psycopg2: https://github.com/psycopg/psycopg2
+  pymssql : https://github.com/pymssql/pymssql

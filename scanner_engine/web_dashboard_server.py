@@ -690,6 +690,17 @@ def create_app(db, shutdown_event=None, heartbeat=None):
     def scan_js():
         return send_from_directory(_WEB_DIR, 'scan.js')
 
+    @app.route('/api/licenses/third-party')
+    @_require_role('viewer')
+    def api_third_party_licenses():
+        """오픈소스 라이선스 고지(빌드 시 생성된 JSON). 로그인한 모든 역할이 볼 수 있다."""
+        path = os.path.join(_WEB_DIR, 'third_party_licenses.json')
+        try:
+            with open(path, encoding='utf-8') as f:
+                return jsonify(json.load(f))
+        except (OSError, ValueError):
+            return jsonify({"packages": []})
+
     @app.route('/api/scan/start', methods=['POST'])
     @_operator_required
     def api_scan_start():
