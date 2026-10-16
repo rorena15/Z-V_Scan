@@ -67,7 +67,10 @@ class AppConfig:
     # utils/update_checker.py가 이 URL을 호출해 tag_name을 VERSION과 비교하고,
     # 더 최신이면 release assets의 다운로드 링크를 사용자에게 안내한다.
     # 빈 문자열로 되돌리면 예전처럼 완전히 비활성화된다.
-    UPDATE_CHECK_URL = "https://api.github.com/repos/rorena15/Z-V_Scan/releases/latest"
+    # [2026-10 데모/PoC 임시 납품] 업데이트 확인 비활성화 - 고객사 현장에서 시작 시
+    # 외부(GitHub)로 나가는 요청이 없도록 비워둔다. 다시 켜려면 아래 URL로 복원:
+    # "https://api.github.com/repos/rorena15/Z-V_Scan/releases/latest"
+    UPDATE_CHECK_URL = ""
 
     # ----------------------------------------------------------------------
     # [5] 룰셋 파일 암호화 키 (rules/*_rules.json 보호)

@@ -30,10 +30,13 @@ if os.environ.get("ZVULN_LICENSE_SALT"):
 _LEDGER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'issued_licenses.json')
 
 
-def generate_key(tier_code, valid_days=365):
+def generate_key(tier_code, valid_days=365, activation_days=None):
     """
     지정된 등급(STD, PRO, ENT)의 정품 라이선스 키를 생성합니다.
     valid_days: 오늘부터 며칠간 유효한지 (기본 1년)
+    activation_days: 주면 등록일 기준 키 - 이때 valid_days는 "오늘부터 며칠 안에
+        등록해야 하는지"(등록 마감)이고, 실제 만료일은 등록일 + activation_days.
+        반환되는 날짜도 만료일이 아니라 등록 마감일이다.
     """
     # 1. 4자리 랜덤 문자열 (A-Z, 0-9)
     random_val = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
@@ -46,7 +49,7 @@ def generate_key(tier_code, valid_days=365):
     # 2.5 등급 -> 난독화 토큰 (예전엔 "ZV3-ENT-..."처럼 평문이라 키만 봐도 등급이
     # 바로 드러났다. 만료일과 같은 방식으로 감춰서 키만 봐서는 무슨 등급인지 유추할
     # 수 없게 한다 - license_validator.py._decode_tier_token()이 이걸 되돌린다.)
-    tier_token = LicenseValidator.encode_tier_token(tier_code)
+    tier_token = LicenseValidator.encode_tier_token(tier_code, activation_days)
 
     # 3. 해시 계산 (Tier Token + Expiry Token + Random + Salt)
     raw_str = f"{tier_token}{expiry_token}{random_val}{AppConfig.LICENSE_SALT}"
@@ -70,15 +73,22 @@ def _load_ledger():
         return []
 
 
-def _log_issued_key(key, tier_code, expiry_date, label):
+def _log_issued_key(key, tier_code, expiry_date, label, activation_days=None):
     ledger = _load_ledger()
-    ledger.append({
+    entry = {
         "key": key,
         "tier": tier_code,
         "expiry": expiry_date.isoformat(),
         "issued_at": datetime.now().isoformat(timespec='seconds'),
         "label": label or "",
-    })
+    }
+    if activation_days is not None:
+        # 등록일 기준 키 - expiry 칸은 실제 만료일의 상한(마감일 + 기간)으로 남긴다
+        entry["mode"] = "activation"
+        entry["activation_days"] = activation_days
+        entry["register_by"] = expiry_date.isoformat()
+        entry["expiry"] = (expiry_date + timedelta(days=activation_days)).isoformat()
+    ledger.append(entry)
     with open(_LEDGER_PATH, 'w', encoding='utf-8') as f:
         json.dump(ledger, f, ensure_ascii=False, indent=2)
 
@@ -92,6 +102,22 @@ def _cmd_generate(args):
     # 기간이 통째로 초기화되는 더 큰 구멍이 생긴다. 그래서 구조는 그대로 두고,
     # --days(고객에게 약속한 기간)에 --grace-days(발급~등록 지연을 흡수하는 여유
     # 기간, 기본 7일)를 더해서 실제 키의 만료일을 계산하는 절차로 대응한다.
+    if args.activation:
+        # [2026-10] 등록일 기준 키 - 위 주석의 "재설치하면 기간 초기화" 문제는 키에 박힌
+        # 등록 마감일(발급일 + grace-days)로 상한을 걸어 해결한다(license_validator.py
+        # _ACTIVATION_DAYS 주석 참고). 만료일 = 등록일 + days, 최대 마감일 + days.
+        if args.days not in LicenseValidator._ACTIVATION_DAYS:
+            print(f"--activation 모드의 --days는 {list(LicenseValidator._ACTIVATION_DAYS)} 중 하나여야 합니다.")
+            sys.exit(1)
+        key, register_by = generate_key(args.tier, args.grace_days, activation_days=args.days)
+        _log_issued_key(key, args.tier, register_by, args.label, activation_days=args.days)
+        print(f"발급된 키: {key}")
+        print(f"등급: {args.tier} / 등록일 기준 {args.days}일 / 등록 마감: {register_by} "
+              f"(이후 미등록 시 무효) / 최대 만료: {register_by + timedelta(days=args.days)} / "
+              f"라벨: {args.label or '(없음)'}")
+        print(f"(발급 대장에 기록됨: {os.path.abspath(_LEDGER_PATH)})")
+        return
+
     total_days = args.days + args.grace_days
     key, expiry_date = generate_key(args.tier, total_days)
     _log_issued_key(key, args.tier, expiry_date, args.label)
@@ -137,7 +163,11 @@ if __name__ == "__main__":
     p_gen.add_argument("--days", type=int, default=365, help="고객에게 약속한 유효기간(일), 기본 365일")
     p_gen.add_argument("--grace-days", type=int, default=7,
                         help="발급~등록 사이 지연을 흡수하는 여유 기간(일), 기본 7일 - "
-                             "실제 만료일 = 발급일 + days + grace-days")
+                             "실제 만료일 = 발급일 + days + grace-days "
+                             "(--activation이면 등록 마감 = 발급일 + grace-days)")
+    p_gen.add_argument("--activation", action="store_true",
+                        help="등록일 기준 키: 만료일 = 고객이 등록한 날 + days "
+                             "(days는 7/14/30/45/60/90/120/180/365 중 하나)")
     p_gen.add_argument("--label", type=str, default="", help="발급 대상 메모(예: 고객사명)")
     p_gen.set_defaults(func=_cmd_generate)
 
@@ -164,6 +194,7 @@ if __name__ == "__main__":
         print("="*40)
         print("실제 발급/취소/이력조회는 아래처럼 서브커맨드를 사용하세요:")
         print("  python keygen.py generate --tier PRO --days 365 --label \"고객사명\"")
+        print("  python keygen.py generate --tier ENT --days 30 --activation --grace-days 14 --label \"고객사 PoC\"")
         print("  python keygen.py revoke --key <발급된 키 전체>")
         print("  python keygen.py list-issued")
         print("  python keygen.py list-revoked")

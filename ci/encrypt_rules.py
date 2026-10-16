@@ -19,6 +19,13 @@ git 추적되는 rules/*.json 원본은 절대 건드리지 않는다(읽기만 
 평소처럼 그 파일을 직접 열어 수정하는 흐름과 완전히 분리돼 있다.
 
 사용법: python ci/encrypt_rules.py <rules_src_dir> <staged_dst_dir>
+       python ci/encrypt_rules.py --config <config_src_dir> <staged_dst_dir>
+
+[--config, 2026-10] 배포 시점에 고정되는 설정(BUNDLED_CONFIG_FILES)을 같은 키로
+암호화해서 {name}.enc만 스테이징한다 - onedir에서는 번들 내부(_internal/config)도
+고객이 열어볼 수 있는 폴더라, 평문이면 룰셋 서명 검증 공개키나 라이선스 폐기
+목록을 바꿔치기할 수 있었다. 런타임은 utils/rule_crypto.load_bundled_json이
+.enc만 읽는다(평문 폴백 없음).
 """
 import os
 import sys
@@ -66,8 +73,34 @@ def stage_rules(src_dir, dst_dir):
         sys.exit(1)
 
 
+# app_settings/expert_profile/dashboard_accounts/api_tokens는 여기 넣지 않는다 -
+# 고객 PC에서 실행 중 처음 만들어지는 파일(exe 옆 config/, 저장 시 자동 암호화)이고,
+# 개발 PC의 값(계정 해시, 리포트 경로 등)이 배포판에 섞이면 안 된다.
+BUNDLED_CONFIG_FILES = ("revoked_licenses.json", "rule_update_config.json")
+
+
+def stage_config(src_dir, dst_dir):
+    if os.path.isdir(dst_dir):
+        shutil.rmtree(dst_dir)
+    os.makedirs(dst_dir, exist_ok=True)
+
+    for filename in BUNDLED_CONFIG_FILES:
+        src_path = os.path.join(src_dir, filename)
+        if not os.path.isfile(src_path):
+            # 둘 다 없으면 배포판 기능이 조용히 꺼지므로(서명 검증 불가/폐기 무시)
+            # 빌드를 실패시킨다.
+            print(f"ERROR: {src_path} 가 없습니다.")
+            sys.exit(1)
+        enc_path = os.path.join(dst_dir, filename + ".enc")
+        rule_crypto.encrypt_ruleset_file(src_path, enc_path)
+        print(f"[encrypt] {filename} -> {os.path.basename(enc_path)}")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python ci/encrypt_rules.py <rules_src_dir> <staged_dst_dir>")
+    if len(sys.argv) == 4 and sys.argv[1] == "--config":
+        stage_config(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3:
+        stage_rules(sys.argv[1], sys.argv[2])
+    else:
+        print("Usage: python ci/encrypt_rules.py [--config] <src_dir> <staged_dst_dir>")
         sys.exit(1)
-    stage_rules(sys.argv[1], sys.argv[2])

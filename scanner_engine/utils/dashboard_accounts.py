@@ -39,6 +39,8 @@ from datetime import datetime
 
 import bcrypt
 
+from utils import rule_crypto
+
 _lock = threading.Lock()
 
 ROLES = ("admin", "operator", "viewer")
@@ -73,12 +75,12 @@ def _normalize_role(role):
 
 def load_accounts():
     path = _get_accounts_path()
-    if not os.path.exists(path):
-        return []
+    # [2026-10] 배포판은 암호화본(.enc)만 읽고 쓴다 - utils/rule_crypto.load_user_json 참고.
+    # 변조되면 복호화 실패 -> 계정 없음으로 취급 -> 최초 계정 생성부터 다시(파일
+    # 삭제로 초기화하는 것과 같은 결과).
     try:
         with _lock:
-            with open(path, 'r', encoding='utf-8') as f:
-                accounts = json.load(f).get('accounts', [])
+            accounts = rule_crypto.load_user_json(path).get('accounts', [])
     except Exception:
         return []
     for account in accounts:
@@ -90,8 +92,7 @@ def _save_accounts(accounts):
     path = _get_accounts_path()
     try:
         with _lock:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump({'accounts': accounts}, f, ensure_ascii=False, indent=2)
+            rule_crypto.save_user_json(path, {'accounts': accounts})
         return True
     except Exception:
         return False
@@ -230,12 +231,9 @@ def _get_tokens_path():
 
 def _load_tokens():
     path = _get_tokens_path()
-    if not os.path.exists(path):
-        return []
     try:
         with _lock:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f).get('tokens', [])
+            return rule_crypto.load_user_json(path).get('tokens', [])
     except Exception:
         return []
 
@@ -244,8 +242,7 @@ def _save_tokens(tokens):
     path = _get_tokens_path()
     try:
         with _lock:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump({'tokens': tokens}, f, ensure_ascii=False, indent=2)
+            rule_crypto.save_user_json(path, {'tokens': tokens})
         return True
     except Exception:
         return False

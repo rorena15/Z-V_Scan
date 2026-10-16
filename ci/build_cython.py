@@ -65,6 +65,22 @@ if os.path.exists("scanner_engine/web_dashboard_server.py"):
         )
     )
 
+# [2026-10] gui/ 중 PyArmor 트라이얼의 "big script" 상한에 걸려 난독화에서 빠지던 두 파일 - 그동안 배포판
+# _internal/gui/에 평문 .py로 들어가 라이선스 등급 처리/숨김 단축키 코드까지 그대로 읽혔다. 나머지 gui/는
+# PyArmor가 처리하므로 이 둘만 Cython으로 컴파일하고, build_final_v3.ps1 [2/4]가 평문을 .pyd로 교체한다.
+GUI_CYTHON_FILES = ("main_window", "dashboard_widgets")
+for name in GUI_CYTHON_FILES:
+    path = f"scanner_engine/gui/{name}.py"
+    if os.path.exists(path):
+        print(f"[Target] scanner_engine.gui.{name}")
+        extensions.append(
+            Extension(
+                f"scanner_engine.gui.{name}",
+                [path],
+                extra_compile_args=["/O2", "/W3"] if os.name == 'nt' else ["-O3", "-Wall"]
+            )
+        )
+
 if not extensions:
     print("❌ 컴파일할 대상 파일을 찾지 못했습니다. 경로를 확인해주세요.")
     sys.exit(1)

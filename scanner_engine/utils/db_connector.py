@@ -736,18 +736,13 @@ class DBConnector:
         조회가 이 캐시 하나를 공유해서 파일을 중복으로 읽지 않는다."""
         if self._rule_defs_cache is not None:
             return self._rule_defs_cache
-        if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-        else:
-            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        rules_dir = os.path.join(base_path, 'rules')
-        if hasattr(sys, '_MEIPASS') and not os.path.isdir(rules_dir):
-            rules_dir = os.path.join(sys._MEIPASS, 'rules')
-
+        # [2026-10 버그 수정] 예전엔 exe 옆 rules/ "폴더"가 있기만 하면 그 폴더만 봐서, 빈 폴더나
+        # 일부 파일만 있으면 룰 정의를 못 찾았다 - 진단 쪽(resolve_rules_path)과 같이 파일 단위로
+        # exe 옆 -> 번들 순서로 찾는다.
         defs = {}
         for filename, prefix in RULE_FILES.items():
-            path = os.path.join(rules_dir, filename)
-            if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
+            path = rule_crypto.resolve_rules_path(filename)
+            if not rule_crypto.ruleset_exists(path):
                 continue
             try:
                 data = rule_crypto.load_ruleset(path)

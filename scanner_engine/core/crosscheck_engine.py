@@ -57,10 +57,11 @@ def get_rules_dir():
 
 def load_rulesets(rules_dir=None):
     """{ruleset_filename: [rule_dict, ...]} 형태로 rules/*.json 원본을 로드한다."""
-    rules_dir = rules_dir or get_rules_dir()
+    # [2026-10 버그 수정] rules_dir을 명시하지 않으면 폴더 단위(get_rules_dir)가 아니라 파일 단위로
+    # exe 옆 -> 번들 순서로 찾는다(utils/db_connector.py _load_rule_defs 주석 참고).
     rulesets = {}
     for filename in RULE_FILES:
-        path = os.path.join(rules_dir, filename)
+        path = os.path.join(rules_dir, filename) if rules_dir else rule_crypto.resolve_rules_path(filename)
         # 배포판에서는 path 자체가 아니라 path+".enc"만 존재한다 - 존재 확인은
         # rule_crypto.load_ruleset()에게 맡기고 여기선 결과(없으면 예외)만 본다.
         if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):

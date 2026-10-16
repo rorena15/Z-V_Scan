@@ -81,14 +81,12 @@ class TextReportGenerator:
 
     def _load_rule_lookup(self, base_path):
         """vuln_code(엔진 접두어 포함) -> rule dict(category/command 포함) 매핑"""
+        # [2026-10 버그 수정] 폴더 단위가 아니라 파일 단위로 exe 옆 -> 번들 순서로 찾는다
+        # (utils/db_connector.py _load_rule_defs 주석 참고).
         lookup = {}
-        rules_dir = os.path.join(base_path, 'rules')
-        if hasattr(sys, '_MEIPASS') and not os.path.isdir(rules_dir):
-            rules_dir = os.path.join(sys._MEIPASS, 'rules')
-
         for filename, prefix in RULE_FILES.items():
-            path = os.path.join(rules_dir, filename)
-            if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
+            path = rule_crypto.resolve_rules_path(filename)
+            if not rule_crypto.ruleset_exists(path):
                 continue
             try:
                 data = rule_crypto.load_ruleset(path)

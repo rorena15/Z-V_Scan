@@ -37,12 +37,12 @@ datas = [
     (p("app_icon.ico"), "."),
 ]
 
-# 기본 설정 파일만 넣는다. config/ 폴더 전체를 넣으면 개발 PC의 웹 대시보드 계정(bcrypt 해시),
-# API 토큰, 감사 로그 같은 개인 파일이 배포물에 섞일 수 있어 명시한 4개만 포함한다.
-for name in ("app_settings.json", "expert_profile.json", "revoked_licenses.json", "rule_update_config.json"):
-    path = p("config", name)
-    if os.path.exists(path):
-        datas.append((path, "config"))
+# [2026-10] config는 ci/encrypt_rules.py --config가 암호화한 스테이징 폴더(.enc 2개:
+# revoked_licenses/rule_update_config)만 넣는다 - 평문 config/는 배포판에 전혀 안 들어간다.
+# 예전에 넣던 app_settings.json/expert_profile.json은 런타임이 번들 사본을 읽은 적이 없어
+# (exe 옆 config/만 봄) 개발 PC 설정값만 노출하던 죽은 파일이라 뺐다. config/ 폴더 전체를
+# 넣으면 개발 PC의 웹 대시보드 계정·API 토큰·감사 로그가 섞이므로 계속 금지.
+datas.append((p("dist", "config_staged"), "config"))
 
 binaries = []
 hiddenimports = [
@@ -52,6 +52,9 @@ hiddenimports = [
     "PySide6.QtPrintSupport", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets",
     "utils", "utils.logger", "utils.os_utils", "utils.secure_storage", "gui",
     "web_dashboard_server",
+    # [버그 수정 2026-10] main.py가 PyArmor로 난독화돼 PyInstaller가 `import pyi_splash`를 못 읽는다 -
+    # 이게 없으면 배포판에서 ImportError -> pyi_splash=None이라 close()가 안 불려 스플래시가 끝까지 남는다.
+    "pyi_splash",
 ]
 
 for pkg in ("reportlab", "openpyxl", "paramiko", "keyring", "bcrypt", "pynacl", "cryptography",

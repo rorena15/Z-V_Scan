@@ -440,7 +440,7 @@ class LaunchModeDialog(QDialog):
         layout.setContentsMargins(26, 24, 26, 24)
         layout.setSpacing(14)
 
-        title = QLabel("어떻게 시작할까요?")
+        title = QLabel("대시보드 방법")
         title.setStyleSheet(f"font-size: 14pt; font-weight: 700; color: {COLORS['text']}; border:none;")
         layout.addWidget(title)
 
@@ -463,8 +463,8 @@ class LaunchModeDialog(QDialog):
             desc.setWordWrap(True)
             layout.addWidget(desc)
 
-        make_option("데스크톱 앱으로 시작", "지금까지 쓰던 PySide6 창 - 스캔/설정 등 전체 기능.", 'app')
-        make_option("웹 대시보드로 시작 (로컬 전용)", "브라우저로 대시보드만 조회 - 127.0.0.1에서만 접속 가능, 로그인 필요.", 'web')
+        make_option("데스크톱 앱","데스크톱 GUI",'app')
+        make_option("로컬 전용 웹 대시보드","웹",'web')
 
         layout.addStretch()
 

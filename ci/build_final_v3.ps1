@@ -1,4 +1,4 @@
-# build_final_v3.ps1
+﻿# build_final_v3.ps1
 #
 # CI(.github/workflows/release.yml)와 로컬 수동 하이브리드 빌드가 공유하는 단일
 # 소스. 예전에는 Z-VulnScan_Build_Work/ 안에만 있었고 .gitignore 대상이라 버전
@@ -28,6 +28,9 @@ $SRC_DIR = "dist\obfuscated"
 # 자체는 여기 안 들어가고 .enc로만 들어간다 - 아래 [4/4] PyInstaller 단계가
 # rules/ 대신 이 폴더를 배포판의 "rules"로 채택한다)
 $RULES_STAGED_DIR = "dist\rules_staged"
+# [2026-10] 배포 고정 설정(revoked_licenses/rule_update_config)의 암호화 스테이징 폴더 -
+# zvulnscan.spec이 이 폴더를 배포판의 "config"로 넣는다(평문 config/는 안 들어감)
+$CONFIG_STAGED_DIR = "dist\config_staged"
 
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " 🚀 Hybrid Build Started: $APP_NAME" -ForegroundColor Cyan
@@ -38,11 +41,23 @@ Write-Host "=========================================================" -Foregrou
 # ---------------------------------------------------------------------
 Write-Host "[1/4] Encrypting rules/*_rules.json..." -ForegroundColor Yellow
 python ci\encrypt_rules.py rules $RULES_STAGED_DIR
+# [버그 수정] 예전엔 이 검사가 아래 gen_third_party_notices 뒤에 있어서, 룰 암호화가
+# 실패해도 다음 명령이 성공하면 그대로 빌드가 진행됐다.
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n ❌ Rules encryption failed!" -ForegroundColor Red
+    exit 1
+}
+
+python ci\encrypt_rules.py --config config $CONFIG_STAGED_DIR
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n ❌ Config encryption failed!" -ForegroundColor Red
+    exit 1
+}
 
 # 오픈소스 라이선스 고지 목록(설정 > 오픈소스 라이선스에 표시)을 gui/web/에 생성한다 - 아래 웹 자산 복사보다 먼저 실행해야 포함된다
 python ci\gen_third_party_notices.py
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n ❌ Rules encryption failed!" -ForegroundColor Red
+    Write-Host "`n ❌ Third-party notices generation failed!" -ForegroundColor Red
     exit 1
 }
 
@@ -66,6 +81,29 @@ foreach ($folder in $modules_to_copy) {
         if ((Get-ChildItem $dest_path).Count -eq 0) {
             Copy-Item "$source_path\*.py" -Destination $dest_path -Force
             Write-Host "   -> Copied GUI scripts (.py) to: $folder" -ForegroundColor Gray
+        }
+
+        # [2026-10] PyArmor에서 빠지는 두 대형 파일(main_window/dashboard_widgets)은 평문 대신
+        # Cython .pyd(ci/build_cython.py GUI_CYTHON_FILES)로 교체한다 - 평문이 남으면 라이선스
+        # 처리/숨김 단축키 코드가 그대로 읽힌다. 같은 폴더에 .py가 남아 있으면 .pyd가 우선
+        # 로드되긴 하지만 평문 노출 자체가 문제라 반드시 지운다.
+        foreach ($guiMod in @("main_window", "dashboard_widgets")) {
+            $guiPyd = Get-ChildItem $source_path -Filter "$guiMod.*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($guiPyd) {
+                Copy-Item $guiPyd.FullName -Destination $dest_path -Force
+                Remove-Item "$dest_path\$guiMod.py" -Force -ErrorAction SilentlyContinue
+                Write-Host "   -> Replaced gui/$guiMod.py with compiled .pyd" -ForegroundColor Gray
+            }
+            elseif ($env:CI -eq "true") {
+                Write-Error "gui/$guiMod .pyd가 없습니다 - Cython 컴파일 단계를 확인하세요 (평문 소스로 배포하지 않기 위해 CI에서는 중단)"
+                exit 1
+            }
+            else {
+                if (-not (Test-Path "$dest_path\$guiMod.py")) {
+                    Copy-Item "$source_path\$guiMod.py" -Destination $dest_path -Force
+                }
+                Write-Host "   -> [경고] gui/$guiMod .pyd가 없어 평문 .py로 배포됩니다 (로컬 빌드 전용)" -ForegroundColor Yellow
+            }
         }
 
         # [대시보드 웹뷰, 2026-09] gui/web/(dashboard.html/js + vendor/chart.umd.min.js)는
@@ -94,7 +132,7 @@ foreach ($folder in $modules_to_copy) {
 # 어디에도 속하지 않아 병합 단계에서 빠져 있었다 - 그대로 두면 exe에서 웹 모드를 골랐을 때
 # `from web_dashboard_server import ...`가 ModuleNotFoundError로 죽는다. 스캔 실행/로그인/세션/리포트 로직이라
 # 다른 엔진 모듈처럼 Cython으로 컴파일한 .pyd(ci/build_cython.py)를 main.py 옆에 복사한다.
-# (UI 파일인 gui/main_window.py 등은 PyArmor 트라이얼 한계로 평문이며, UI라 유출 영향이 작다고 판단해 그대로 둔다.)
+# (PyArmor 트라이얼 한계로 빠지는 gui/main_window.py, dashboard_widgets.py는 2026-10부터 위 gui 단계에서 Cython .pyd로 교체한다.)
 $wdsPyd = Get-ChildItem "scanner_engine" -Filter "web_dashboard_server*.pyd" | Select-Object -First 1
 if ($wdsPyd) {
     Copy-Item $wdsPyd.FullName -Destination "$SRC_DIR\scanner_engine" -Force

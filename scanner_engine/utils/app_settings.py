@@ -15,6 +15,8 @@ import sys
 import json
 import threading
 
+from utils import rule_crypto
+
 _lock = threading.Lock()
 
 DEFAULTS = {
@@ -60,13 +62,12 @@ def _get_settings_path():
 def load_settings():
     path = _get_settings_path()
     settings = dict(DEFAULTS)
-    if os.path.exists(path):
-        try:
-            with _lock:
-                with open(path, 'r', encoding='utf-8') as f:
-                    settings.update(json.load(f))
-        except Exception:
-            pass
+    # [2026-10] 배포판은 암호화본(.enc)만 읽고 쓴다 - utils/rule_crypto.load_user_json 참고
+    try:
+        with _lock:
+            settings.update(rule_crypto.load_user_json(path))
+    except Exception:
+        pass
     return settings
 
 
@@ -76,8 +77,7 @@ def save_settings(settings):
         merged = dict(DEFAULTS)
         merged.update(settings)
         with _lock:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(merged, f, ensure_ascii=False, indent=2)
+            rule_crypto.save_user_json(path, merged)
         return True
     except Exception:
         return False

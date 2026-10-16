@@ -224,14 +224,12 @@ class ExcelGenerator:
             # 2단계로 계산하면 scanner_engine/rules를 찾게 되는데 실제 rules/는 그 상위
             # 프로젝트 루트에 있어서 룰 조회가 항상 실패(빈 lookup)하던 버그가 있었다.
             base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        rules_dir = os.path.join(base_path, 'rules')
-        if hasattr(sys, '_MEIPASS') and not os.path.isdir(rules_dir):
-            rules_dir = os.path.join(sys._MEIPASS, 'rules')
-
+        # [2026-10 버그 수정] 폴더 단위가 아니라 파일 단위로 exe 옆 -> 번들 순서로 찾는다
+        # (utils/db_connector.py _load_rule_defs 주석 참고).
         lookup = {}
         for filename, prefix in RULE_FILES.items():
-            path = os.path.join(rules_dir, filename)
-            if not os.path.exists(path) and not os.path.exists(rule_crypto.get_enc_path(path)):
+            path = rule_crypto.resolve_rules_path(filename)
+            if not rule_crypto.ruleset_exists(path):
                 continue
             try:
                 data = rule_crypto.load_ruleset(path)

@@ -42,6 +42,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from core.config import AppConfig
 from utils.app_settings import get_base_dir, load_settings
 from utils.logger import AppLogger
+from utils import rule_crypto
 
 _config_cache = None
 _trust_anchor_cache = None
@@ -61,20 +62,16 @@ def _load_update_config():
     if _config_cache is not None:
         return _config_cache
 
-    external_path = os.path.join(get_base_dir(), 'config', 'rule_update_config.json')
-    candidates = [external_path]
-    if hasattr(sys, '_MEIPASS'):
-        candidates.append(os.path.join(sys._MEIPASS, 'config', 'rule_update_config.json'))
-
-    for path in candidates:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                _config_cache = json.load(f)
-            return _config_cache
-
-    raise FileNotFoundError(
-        "config/rule_update_config.json을 찾을 수 없습니다 - 룰셋 업데이트 서명 검증에 필요합니다."
-    )
+    # [2026-10 변조 방지] 예전엔 exe 옆 config/를 먼저 봤는데, 배포판에서는 번들
+    # 내부의 암호화본만 읽는다(rule_crypto.load_bundled_json) - 파일명 값 자체는
+    # 비밀이 아니지만 신뢰 루트와 같은 파일이라 읽는 경로를 하나로 통일한다.
+    try:
+        _config_cache = rule_crypto.load_bundled_json('rule_update_config.json')
+    except (FileNotFoundError, ValueError) as e:
+        raise FileNotFoundError(
+            "config/rule_update_config.json을 찾을 수 없습니다 - 룰셋 업데이트 서명 검증에 필요합니다."
+        ) from e
+    return _config_cache
 
 
 def _load_trust_anchor():
@@ -88,25 +85,25 @@ def _load_trust_anchor():
     if _trust_anchor_cache is not None:
         return _trust_anchor_cache
 
-    if hasattr(sys, '_MEIPASS'):
-        internal_path = os.path.join(sys._MEIPASS, 'config', 'rule_update_config.json')
-    else:
-        internal_path = os.path.join(get_base_dir(), 'config', 'rule_update_config.json')
-
-    if not os.path.exists(internal_path):
+    # [2026-10 버그 수정 - onedir] 위 설명은 onefile 시절 가정이다. onedir에서는
+    # _MEIPASS가 exe 옆 _internal/ 폴더라 평문이면 누구나 공개키를 바꿔치기할 수
+    # 있었다 - 이제 빌드 때 암호화한 .enc만 읽는다(Fernet 인증 암호라 키 없이는
+    # 위조 불가, 평문 폴백 없음). rule_crypto.load_bundled_json 참고.
+    try:
+        data = rule_crypto.load_bundled_json('rule_update_config.json')
+    except (FileNotFoundError, ValueError) as e:
         raise FileNotFoundError(
             "번들 내부 config/rule_update_config.json을 찾을 수 없습니다 - "
             "룰셋 업데이트 서명 검증용 신뢰 루트가 없어 업데이트를 진행할 수 없습니다."
-        )
-
-    with open(internal_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+        ) from e
     _trust_anchor_cache = data["public_key_b64"]
     return _trust_anchor_cache
 
 
 def _local_manifest_version():
-    path = os.path.join(get_base_dir(), 'rules', 'ruleset_manifest.json')
+    # [2026-10 버그 수정] exe 옆에 없으면 번들의 매니페스트 버전을 현재 버전으로 본다 - 예전엔
+    # onedir 배포판에서 항상 0으로 읽혀 같은 버전 업데이트도 "새 버전"으로 받아들였다.
+    path = rule_crypto.resolve_rules_data_path('ruleset_manifest.json')
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f).get('manifest_version', 0)

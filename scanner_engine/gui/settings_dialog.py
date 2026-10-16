@@ -266,7 +266,10 @@ class SettingsDialog(QDialog):
 
     @staticmethod
     def _build_ruleset_version_text():
-        manifest_path = os.path.join(get_base_dir(), 'rules', 'ruleset_manifest.json')
+        # [2026-10 버그 수정] onedir에서는 매니페스트가 번들(_internal/rules)에 있어 exe 옆만 보면
+        # 항상 "찾을 수 없음"이었다 - exe 옆(룰셋 업데이트로 받은 것) -> 번들 순서로 찾는다.
+        from utils import rule_crypto
+        manifest_path = rule_crypto.resolve_rules_data_path('ruleset_manifest.json')
         if not os.path.exists(manifest_path):
             return "룰셋 버전 정보 파일(ruleset_manifest.json)을 찾을 수 없습니다."
         try:

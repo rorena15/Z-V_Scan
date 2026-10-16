@@ -872,7 +872,13 @@ class ScannerApp(QMainWindow):
         results_header_row.addWidget(self.lbl_session_filter)
 
         self.btn_clear_session_filter = QPushButton("전체 보기")
-        self.btn_clear_session_filter.setFixedHeight(24)
+        # 전역 QPushButton 규칙(padding 10px 15px)이 그대로 먹으면 높이 24px 안에
+        # 글자가 잘려 안 보인다 - 이 작은 버튼만 padding을 줄이고, 옆 배너 라벨
+        # (margin-top 18px)과 높이를 맞추기 위해 위쪽 여백도 같이 준다.
+        self.btn_clear_session_filter.setStyleSheet(
+            "QPushButton { padding: 2px 12px; margin-top: 18px; font-size: 10pt; }"
+        )
+        self.btn_clear_session_filter.setFixedHeight(24 + 18)
         self.btn_clear_session_filter.setVisible(False)
         self.btn_clear_session_filter.clicked.connect(self._clear_session_filter)
         results_header_row.addWidget(self.btn_clear_session_filter)
@@ -1001,6 +1007,8 @@ class ScannerApp(QMainWindow):
             btn_all = QPushButton("전체")
             btn_none = QPushButton("해제")
             for b in (btn_all, btn_none):
+                # 전역 padding(10px 15px)으로는 48x22 안에 글자가 잘린다
+                b.setStyleSheet("QPushButton { padding: 0px 4px; font-size: 9pt; }")
                 b.setFixedSize(48, 22)
             header_row.addWidget(btn_all)
             header_row.addWidget(btn_none)

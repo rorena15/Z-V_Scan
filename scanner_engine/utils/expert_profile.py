@@ -15,6 +15,8 @@ import sys
 import json
 import threading
 
+from utils import rule_crypto
+
 _lock = threading.Lock()
 
 
@@ -40,12 +42,10 @@ def load_profile():
     거기서는 판정 결과가 리포트에 "예외처리됨"으로 남고 사유가 함께 보존된다.
     """
     path = _get_profile_path()
-    if not os.path.exists(path):
-        return {}
+    # [2026-10] 배포판은 암호화본(.enc)만 읽고 쓴다 - utils/rule_crypto.load_user_json 참고
     try:
         with _lock:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            return rule_crypto.load_user_json(path)
     except Exception:
         return {}
 
@@ -54,8 +54,7 @@ def save_profile(profile):
     path = _get_profile_path()
     try:
         with _lock:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(profile, f, ensure_ascii=False, indent=2)
+            rule_crypto.save_user_json(path, profile)
         return True
     except Exception:
         return False
